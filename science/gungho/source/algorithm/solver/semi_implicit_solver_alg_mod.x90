@@ -175,8 +175,8 @@ contains
       allocate(                                                                &
           pressure_preconditioner_out,                                         &
           source=multigrid_preconditioner_type(                                &
-              state(igh_p)%get_function_space(), pressure_operator_out,        &
-              Hz_preconditioner                                                &
+              stepper_name, state(igh_p)%get_function_space(),                 &
+              pressure_operator_out, Hz_preconditioner                         &
           )                                                                    &
       )
     case default
@@ -663,6 +663,7 @@ contains
     type(field_type),    intent(in)    :: mr(nummr)
     logical(kind=l_def), intent(in)    :: write_moisture_diag
     logical(kind=l_def), intent(in)    :: first_iteration
+    integer(kind=i_def), intent(in)    :: stepper_name
 
     real(kind=r_def)                   :: si_err(bundle_size)
     type(field_type),          pointer :: t_normalisation
@@ -845,7 +846,6 @@ contains
       )
     end select
 
-    call mixed_solver%apply(vector_inc, vector_rhs)
     if ( subroutine_timers ) call timer('mixed_solver')
 
     ! ------------------------------------------------------------------------ !

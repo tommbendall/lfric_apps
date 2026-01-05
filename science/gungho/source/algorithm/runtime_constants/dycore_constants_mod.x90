@@ -295,6 +295,9 @@ contains
     logical(kind=l_def)                           :: constant_exists
     type(function_space_type),            pointer :: fs
     type(inventory_by_mesh_type),         pointer :: inventory
+    type(inventory_by_mesh_type),         pointer :: dl_inventory
+    type(inventory_by_mesh_type),         pointer :: dl_lagged_inventory
+    type(inventory_by_mesh_type),         pointer :: si_inventory
     type(operator_type),                  pointer :: dynamics_mm_w2
     type(operator_type),                   target :: mm_w2_tmp
     type(operator_type),                   target :: mm_w2_tmp2
@@ -308,7 +311,7 @@ contains
     real(kind=r_def)                              :: const
     real(kind=r_second)                           :: dt
     real(kind=r_second)                           :: dt_to_use
-    real(kind=r_second)                           :: gamma
+    real(kind=r_second)                           :: gamma, gamma2
     type(operator_type),                  pointer :: coriolis
 
     ! Check inventories are initialised
@@ -354,6 +357,21 @@ contains
     end if
 
     ! Determine which inventory to point to
+    select case (stepper_name)
+    case (stepper_siqn)
+      dl_inventory => mm_w2_dl_siqn_inventory
+      dl_lagged_inventory => mm_w2_dl_lagged_siqn_inventory
+      si_inventory => mm_w2_si_siqn_inventory
+    case (stepper_tr)
+      dl_inventory => mm_w2_dl_tr_inventory
+      dl_lagged_inventory => mm_w2_dl_lagged_tr_inventory
+      si_inventory => mm_w2_si_tr_inventory
+    case (stepper_bdf2)
+      dl_inventory => mm_w2_dl_bdf2_inventory
+      dl_lagged_inventory => mm_w2_dl_lagged_bdf2_inventory
+      si_inventory => mm_w2_si_bdf2_inventory
+    end select
+
     select case (w2_op_name)
     case (w2_damping_layer_matrix)
       select case (stepper_name)
@@ -436,14 +454,14 @@ contains
       ! ====================================================================== !
       ! DAMPING LAYER MATRIX
       ! ====================================================================== !
-      if (mm_w2_dl_inventory%paired_object_exists(mesh_id)) then
+      if (dl_inventory%paired_object_exists(mesh_id)) then
         ! Get existing matrix
-        call mm_w2_dl_inventory%get_operator(mesh, mm_w2_dl)
+        call dl_inventory%get_operator(mesh, mm_w2_dl)
       else
         ! We are going to need to create this matrix
         if (w2_op_name == w2_damping_layer_matrix) then
           ! This is our target matrix, so store it
-          call mm_w2_dl_inventory%add_operator(mm_w2_dl, fs, fs, mesh)
+          call dl_inventory%add_operator(mm_w2_dl, fs, fs, mesh)
         else
           ! Assume that this matrix is only used to create another, so
           ! make a temporary matrix
@@ -480,16 +498,16 @@ contains
       ! ====================================================================== !
       ! @TODO: logic here is probably not optimal
       if (w2_op_name /= w2_damping_layer_matrix) then
-        if (mm_w2_dl_lagged_inventory%paired_object_exists(mesh_id)) then
+        if (dl_lagged_inventory%paired_object_exists(mesh_id)) then
           ! Get existing matrix
-          call mm_w2_dl_lagged_inventory%get_operator(mesh, mm_w2_dl_lagged)
+          call dl_lagged_inventory%get_operator(mesh, mm_w2_dl_lagged)
         else
           ! We are going to need to create this matrix
           if ( subroutine_timers ) call timer('runtime_constants.dycore')
 
           if (w2_op_name == w2_lagged_damping_layer_matrix) then
             ! This is our target matrix, so store it
-            call mm_w2_dl_lagged_inventory%add_operator(mm_w2_dl_lagged, fs, fs, mesh)
+            call dl_lagged_inventory%add_operator(mm_w2_dl_lagged, fs, fs, mesh)
           else
             ! Assume that this matrix is only used to create another, so
             ! make a temporary matrix
@@ -518,7 +536,7 @@ contains
       ! ====================================================================== !
       if (w2_op_name == w2_si_matrix) then
         if ( subroutine_timers ) call timer('runtime_constants.dycore')
-        call mm_w2_si_inventory%add_operator(mm_w2_si, fs, fs, mesh)
+        call si_inventory%add_operator(mm_w2_si, fs, fs, mesh)
 
         if ( rotating ) then
           select case (stepper_name)

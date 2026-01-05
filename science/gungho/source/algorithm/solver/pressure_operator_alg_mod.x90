@@ -123,6 +123,7 @@ contains
 
     ! Deep copy of the contents of the pressure_operator_type
     dest%level = source%level
+    dest%stepper_name = source%stepper_name
   end subroutine pressure_operator_assign
 
   !> @brief Apply Helmholtz operator to a pressure field to obtain \f$y=Hx\f$.

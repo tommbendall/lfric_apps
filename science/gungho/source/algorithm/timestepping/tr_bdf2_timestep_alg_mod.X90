@@ -21,6 +21,7 @@ module tr_bdf2_timestep_alg_mod
   use sci_field_bundle_builtins_mod,                      &
                                  only: clone_bundle,      &
                                        bundle_axpy,       &
+                                       bundle_axpby,      &
                                        add_bundle,        &
                                        copy_bundle,       &
                                        set_bundle_scalar
@@ -59,10 +60,10 @@ module tr_bdf2_timestep_alg_mod
                                         init_option_checkpoint_dump, &
                                         lbc_option_um2lfric_file
   use mixed_solver_config_mod,    only: guess_np1, reference_reset_time
-  use tr_bdf2_config_mod,         only: inner_iterations_tr,                   &
-                                        outer_iterations_tr,                   &
-                                        inner_iterations_bdf2,                 &
-                                        outer_iterations_bdf2
+  use tr_bdf2_config_mod,         only: tr_outer_iterations,                   &
+                                        tr_inner_iterations,                   &
+                                        bdf2_outer_iterations,                 &
+                                        bdf2_inner_iterations
   use transport_config_mod,       only: cheap_update, &
                                         transport_ageofair
   use derived_config_mod,         only: bundle_size
@@ -75,6 +76,8 @@ module tr_bdf2_timestep_alg_mod
 
   ! PSyKAl PSyclone kernels
   use matrix_vector_kernel_mod,   only: matrix_vector_kernel_type
+  use dg_matrix_vector_kernel_mod,     &
+                                  only: dg_matrix_vector_kernel_type
   use dg_inc_matrix_vector_kernel_mod, &
                                   only: dg_inc_matrix_vector_kernel_type
   use sci_enforce_bc_kernel_mod,  only: enforce_bc_kernel_type
@@ -200,7 +203,6 @@ module tr_bdf2_timestep_alg_mod
     procedure, public  :: finalise => tr_bdf2_alg_final
     procedure, nopass  :: run_init
     procedure, nopass  :: run_step
-    procedure, nopass  :: conditional_collection_copy
 
   end type tr_bdf2_timestep_type
 
@@ -457,6 +459,7 @@ contains
     call clone_bundle(self%state, self%state_m,          bundle_size)
     call clone_bundle(self%state, self%state_q,          bundle_size)
     call clone_bundle(self%state, self%state_dag,        bundle_size)
+    call clone_bundle(self%state, self%state_bdf,        bundle_size)
     call clone_bundle(self%state, self%state_to_adv,     bundle_size)
     call clone_bundle(self%state, self%state_aft_adv,    bundle_size)
     call clone_bundle(self%state, self%rhs_n,            bundle_size)
@@ -525,7 +528,8 @@ contains
       call gungho_transport_control_alg_init( mesh )
 
       ! Construct semi-implicit solver
-      call semi_implicit_solver_alg_init( self%state )
+      call semi_implicit_solver_alg_init(self%state, stepper_tr)
+      call semi_implicit_solver_alg_init(self%state, stepper_bdf2)
     end if
 
     nullify(mesh)
@@ -764,6 +768,25 @@ contains
       end if
     end if ! use_physics
 
+    call conditional_collection_copy(                                          &
+        adv_tracer_all_outer_dag, generic_fields_to_copy=adv_tracer_all_outer, &
+        field_list=adv_tracer_all_outer                                        &
+    )
+    call conditional_collection_copy(                                          &
+        adv_tracer_last_outer_dag,                                             &
+        generic_fields_to_copy=adv_tracer_last_outer,                          &
+        field_list=adv_tracer_last_outer                                       &
+    )
+    call conditional_collection_copy(                                          &
+        con_tracer_all_outer_dag, generic_fields_to_copy=con_tracer_all_outer, &
+        field_list=con_tracer_all_outer                                        &
+    )
+    call conditional_collection_copy(                                          &
+        con_tracer_last_outer_dag,                                             &
+        generic_fields_to_copy=con_tracer_last_outer,                          &
+        field_list=con_tracer_last_outer                                       &
+    )
+
     ! ======================================================================== !
     ! DYNAMICS -- TRAPEZOIDAL STEP
     ! ======================================================================== !
@@ -815,9 +838,11 @@ contains
         call moisture_fields%get_field("moist_dyn_ref", moist_dyn_ref_array)
         moist_dyn_ref => moist_dyn_ref_array%bundle
         call copy_bundle(moist_dyn, moist_dyn_ref, num_moist_factors)
-        call invoke( setval_X(theta_ref, self%state(igh_t)),                   &
-                     setval_X(rho_ref, self%state(igh_d)),                     &
-                     setval_X(exner_ref, self%state(igh_p))  )
+        call invoke(                                                           &
+            setval_X(theta_ref, self%state(igh_t)),                            &
+            setval_X(rho_ref, self%state(igh_d)),                              &
+            setval_X(exner_ref, self%state(igh_p))                             &
+        )
       end if
     end if
 
@@ -829,7 +854,7 @@ contains
     call rhs_alg(                                                              &
             self%rhs_n, gamma*dt, self%state_dag, self%state_n, moist_dyn,     &
             compute_eos=.false., compute_rhs_t_d=.true., dlayer_rhs=.false.,   &
-            model_clock=model_clock                                            &
+            stepper_name=stepper_tr, model_clock=model_clock                   &
     )
 
     ! ======================================================================== !
@@ -846,7 +871,7 @@ contains
             gamma, model_clock                                                 &
     )
 
-    outer_tr_loop: do outer = 1, outer_iterations_tr
+    outer_tr_loop: do outer = 1, tr_outer_iterations
 
       if (use_wavedynamics) then
 
@@ -860,21 +885,22 @@ contains
                 self%state_n(igh_u), mr, mr_to_adv, model_clock,               &
                 outer, stepper_tr, cheap_update=.false.,                       &
                 rho_d_n=self%state_dag(igh_d),                                 &
-                rho_d_n_start=self%state_dag(igh_d), self%total_dry_flux       &
+                rho_d_n_start=self%state_dag(igh_d),                           &
+                total_dry_flux=self%total_dry_flux                             &
         )
 
-        if (outer == outer_iterations_tr) then
+        if (outer == tr_outer_iterations) then
           ! Store the transported state for the BDF2 step
           ! Need mass matrix solve on u:
           call mass_matrix_solver_alg(self%du, self%rhs_adv(igh_u))
           call invoke(                                                         &
               X_plus_Y(                                                        &
-                self%state_aft_adv(igh_u), self%du, self%state_to_adv(igh_u),  &
+                self%state_aft_adv(igh_u), self%du, self%state_to_adv(igh_u)   &
               ),                                                               &
               X_plus_Y(                                                        &
                 self%state_aft_adv(igh_t), self%rhs_adv(igh_t),                &
                 self%state_to_adv(igh_t)                                       &
-              )
+              ),                                                               &
               X_plus_Y(                                                        &
                 self%state_aft_adv(igh_d), self%rhs_adv(igh_d),                &
                 self%state_to_adv(igh_d)                                       &
@@ -907,7 +933,7 @@ contains
       ! ====================================================================== !
       if (use_wavedynamics) then
 
-        inner_tr_loop: do inner = 1, inner_iterations_tr
+        inner_tr_loop: do inner = 1, tr_outer_iterations
           write( log_scratch_space, '(A,2I3)' )                                &
               'TR loop indices (o, i): ', outer, inner
           call log_event( log_scratch_space, LOG_LEVEL_INFO )
@@ -962,8 +988,8 @@ contains
 
           write_moisture_diag = (                                              &
               self%use_moisture .and. write_conservation_diag                  &
-              .and. outer == outer_iterations_tr                               &
-              .and. inner == inner_iterations_tr                               &
+              .and. outer == tr_outer_iterations                               &
+              .and. inner == tr_outer_iterations                               &
           )
 
           !---------------------------------------------------------------------
@@ -1003,7 +1029,7 @@ contains
     ! X^q = X_dag + X_aft_adv - X_to_adv
     call bundle_axpy(                                                          &
         -1.0_r_def, self%state_to_adv, self%state_aft_adv, self%state_q,       &
-        bundle_size
+        bundle_size                                                            &
     )
     call add_bundle(self%state_q, self%state_dag, self%state_q, bundle_size)
 
@@ -1035,7 +1061,7 @@ contains
     ! Outer transport loop
     ! ======================================================================== !
 
-    outer_bdf_loop: do outer = 1, outer_iterations_tr
+    outer_bdf_loop: do outer = 1, tr_outer_iterations
 
       if (use_wavedynamics) then
 
@@ -1103,7 +1129,7 @@ contains
           )
         end if
 
-        if (outer == outer_iterations .and. self%output_cld_incs) then
+        if (outer == bdf2_outer_iterations .and. self%output_cld_incs) then
           call cld_incs_output(                                                &
               cloud_fields, dcfl_adv, dcff_adv, dbcf_adv, sec_adv, suffix_adv  &
           )
@@ -1121,7 +1147,7 @@ contains
 
         fast_smagorinsky = (                                                   &
             smagorinsky .and.                                                  &
-            smagorinsky_placement == smagorinsky_placement_fast                &
+            smagorinsky_placement == smagorinsky_placement_outer               &
         )
         if (fast_smagorinsky) then
           call smagorinsky_alg(                                                &
@@ -1152,7 +1178,7 @@ contains
       ! ====================================================================== !
       if (use_wavedynamics) then
 
-        inner_bdf_loop: do inner = 1, inner_iterations_tr
+        inner_bdf_loop: do inner = 1, tr_outer_iterations
           write( log_scratch_space, '(A,2I3)' )                                &
               'BDF loop indices (o, i): ', outer, inner
           call log_event( log_scratch_space, LOG_LEVEL_INFO )
@@ -1213,8 +1239,8 @@ contains
 
           write_moisture_diag = (                                              &
               self%use_moisture .and. write_conservation_diag                  &
-              .and. outer == outer_iterations_tr                               &
-              .and. inner == inner_iterations_tr                               &
+              .and. outer == tr_outer_iterations                               &
+              .and. inner == tr_outer_iterations                               &
           )
 
           !---------------------------------------------------------------------
@@ -1241,11 +1267,11 @@ contains
             to_blend_lbc = (                                                   &
                 blend_frequency == blend_frequency_inner .or. (                &
                     blend_frequency == blend_frequency_outer                   &
-                    .and. inner == inner_iterations                            &
+                    .and. inner == bdf2_inner_iterations                       &
                 ) .or. (                                                       &
                     blend_frequency == blend_frequency_final                   &
-                    .and. inner == inner_iterations_bdf2                       &
-                    .and. outer == outer_iterations_bdf2                       &
+                    .and. inner == bdf2_outer_iterations                       &
+                    .and. outer == bdf2_outer_iterations                       &
                 )                                                              &
             )
             if (to_blend_lbc) then
@@ -1377,7 +1403,7 @@ contains
 
     class(tr_bdf2_timestep_type), intent(inout) :: self
 
-    call tr_bdf2_solver_alg_final()
+    call semi_implicit_solver_alg_final()
     call final_si_operators()
 
     if (allocated(self%state))            deallocate(self%state)
@@ -1408,72 +1434,4 @@ contains
     return
   end subroutine tr_bdf2_alg_final
 
-  !============================================================================!
-  !> @brief Make a deep copy of a subset of a field collection, based on a
-  !>        list of fields provided by another collection
-  !> @param[out] generic_fields_copied  New collection written with fields
-  !>                                    saved at some point in time
-  !> @param[in]  generic_fields_to_copy collection we want to save fields from
-  !> @param[in]  field_list             list of fields to be saved
-  subroutine conditional_collection_copy(generic_fields_copied,  &
-                                         generic_fields_to_copy, &
-                                         field_list)
-
-    use field_collection_mod,          only: field_collection_type
-    use field_collection_iterator_mod, only: field_collection_iterator_type
-
-    implicit none
-
-    type(field_collection_type), intent(out) :: generic_fields_copied
-    type(field_collection_type), intent(in)  :: generic_fields_to_copy
-    type(field_collection_type), intent(in)  :: field_list
-
-    ! Iterator for field collection
-    type(field_collection_iterator_type) :: iterator
-
-    ! One of the single fields out of the generic_fields_to_copy collection
-    class( field_parent_type ), pointer :: abstract_field_ptr
-    type(field_type), pointer :: single_generic_field
-
-    ! The saved version of single_generic_field
-    type(field_type) :: copied_generic_field
-
-    logical(kind=l_def) :: l_copy
-
-    nullify(abstract_field_ptr)
-    nullify(single_generic_field)
-
-    call generic_fields_copied%initialise(name='fields_copied')
-
-    if ( generic_fields_to_copy%get_length() > 0 ) then
-
-      call iterator%initialise(generic_fields_to_copy)
-
-      do
-        if ( .not.iterator%has_next() ) exit
-
-        abstract_field_ptr => iterator%next()
-        select type(abstract_field_ptr)
-        type is (field_type)
-          single_generic_field => abstract_field_ptr
-        end select
-
-        l_copy = field_list%field_exists(single_generic_field%get_name())
-
-        if ( l_copy ) then
-
-          ! We copy the field we want to save into a new field
-          call single_generic_field%copy_field_properties(copied_generic_field)
-          call invoke( setval_X(copied_generic_field, single_generic_field) )
-
-          ! We add it to the field collection passed in
-          call generic_fields_copied%add_field(copied_generic_field)
-
-        end if ! ( l_copy )
-
-      end do
-
-    end if
-
-  end subroutine conditional_collection_copy
 end module tr_bdf2_timestep_alg_mod

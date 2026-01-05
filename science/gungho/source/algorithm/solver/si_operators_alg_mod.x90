@@ -151,7 +151,7 @@ module si_operators_alg_mod
   public :: get_eliminated_q2t
   public :: get_eliminated_q3t
 
-  !F90 function overloading
+  ! F90 function overloading
   interface get_m3_rho_star
      module procedure get_m3_rho_star_fine, get_m3_rho_star_mg
   end interface get_m3_rho_star
@@ -217,13 +217,14 @@ contains
   !> @brief Subroutine to create the si operators
   !> @param[in] mesh          The mesh
   !> @param[in] stepper_name  Enumerator for timestepper
-  subroutine create_si_operators( mesh, stepper_name )
+  subroutine create_si_operators(mesh, stepper_name)
 
     use fs_continuity_mod,         only: W0, Wtheta
 
     implicit none
 
     type(mesh_type), pointer, intent(in) :: mesh
+    integer(kind=i_def),      intent(in) :: stepper_name
 
     integer(kind=i_def)                :: i, j
     type(function_space_type), pointer :: w2_fs
@@ -252,7 +253,7 @@ contains
     if (l_multigrid) then
       multigrid_levels = multigrid_chain_nitems
     else
-      multigrid_levels=1
+      multigrid_levels = 1
     end if
 
     w2_fs => function_space_collection%get_fs(                                 &
@@ -269,10 +270,10 @@ contains
     ! Allocate arrays of operators / fields
     ! ======================================================================== !
 
-    allocate(rho_at_u(multigrid_levels))
+    if (.not. allocated(rho_at_u)) allocate(rho_at_u(multigrid_levels))
 
-    select case ( stepper_name )
-    case ( stepper_siqn )
+    select case (stepper_name)
+    case (stepper_siqn )
       allocate(m3_rho_star_siqn(multigrid_levels))
       allocate(m3_exner_star_siqn(multigrid_levels))
       allocate(div_star_siqn(multigrid_levels))
@@ -290,7 +291,7 @@ contains
       allocate(helm_diag_siqn(multigrid_levels))
       allocate(Hb_lumped_inv_siqn(multigrid_levels))
 
-    case ( stepper_tr )
+    case (stepper_tr)
       allocate(m3_rho_star_tr(multigrid_levels))
       allocate(m3_exner_star_tr(multigrid_levels))
       allocate(div_star_tr(multigrid_levels))
@@ -306,7 +307,7 @@ contains
       allocate(helm_diag_tr(multigrid_levels))
       allocate(Hb_lumped_inv_tr(multigrid_levels))
 
-    case ( stepper_bdf2 )
+    case (stepper_bdf2)
       allocate(m3_rho_star_bdf2(multigrid_levels))
       allocate(m3_exner_star_bdf2(multigrid_levels))
       allocate(div_star_bdf2(multigrid_levels))
@@ -330,8 +331,8 @@ contains
     ! Set pointers
     ! ======================================================================== !
 
-    select case ( stepper_name )
-    case ( stepper_siqn )
+    select case (stepper_name)
+    case (stepper_siqn)
       m3_rho_star => m3_rho_star_siqn
       m3_exner_star => m3_exner_star_siqn
       div_star => div_star_siqn
@@ -343,12 +344,12 @@ contains
       eliminated_q22 => eliminated_q22_siqn
       eliminated_q32 => eliminated_q32_siqn
       eliminated_q2t => eliminated_q2t_siqn
-      tri_precon_siqn => tri_precon_siqn
-      Helmholtz_operator_siqn => Helmholtz_operator_siqn
-      helm_diag_siqn => helm_diag_siqn
-      Hb_lumped_inv_siqn => Hb_lumped_inv_siqn
+      tri_precon => tri_precon_siqn
+      Helmholtz_operator => Helmholtz_operator_siqn
+      helm_diag => helm_diag_siqn
+      Hb_lumped_inv => Hb_lumped_inv_siqn
 
-    case ( stepper_tr )
+    case (stepper_tr)
       m3_rho_star => m3_rho_star_tr
       m3_exner_star => m3_exner_star_tr
       div_star => div_star_tr
@@ -360,12 +361,12 @@ contains
       eliminated_q22 => eliminated_q22_tr
       eliminated_q32 => eliminated_q32_tr
       eliminated_q2t => eliminated_q2t_tr
-      tri_precon_tr => tri_precon_tr
-      Helmholtz_operator_tr => Helmholtz_operator_tr
-      helm_diag_tr => helm_diag_tr
-      Hb_lumped_inv_tr => Hb_lumped_inv_tr
+      tri_precon => tri_precon_tr
+      Helmholtz_operator => Helmholtz_operator_tr
+      helm_diag => helm_diag_tr
+      Hb_lumped_inv => Hb_lumped_inv_tr
 
-    case ( stepper_bdf2 )
+    case (stepper_bdf2)
       m3_rho_star => m3_rho_star_bdf2
       m3_exner_star => m3_exner_star_bdf2
       div_star => div_star_bdf2
@@ -377,16 +378,22 @@ contains
       eliminated_q22 => eliminated_q22_bdf2
       eliminated_q32 => eliminated_q32_bdf2
       eliminated_q2t => eliminated_q2t_bdf2
-      tri_precon_bdf2 => tri_precon_bdf2
-      Helmholtz_operator_bdf2 => Helmholtz_operator_bdf2
-      helm_diag_bdf2 => helm_diag_bdf2
-      Hb_lumped_inv_bdf2 => Hb_lumped_inv_bdf2
+      tri_precon => tri_precon_bdf2
+      Helmholtz_operator => Helmholtz_operator_bdf2
+      helm_diag => helm_diag_bdf2
+      Hb_lumped_inv => Hb_lumped_inv_bdf2
 
     end select
 
     ! ======================================================================== !
     ! Initialise fields
     ! ======================================================================== !
+
+    if (l_multigrid) then
+      call multigrid_function_space_chain%set_current(w3_fs%get_id())
+      call w2_multigrid_function_space_chain%set_current(w2_fs%get_id())
+      call wtheta_multigrid_function_space_chain%set_current(wt_fs%get_id())
+    end if
 
     call eliminated_q2t%initialise( w2_fs, wt_fs )
 
@@ -416,12 +423,12 @@ contains
 
       if ( element_order_h == 0 .and. element_order_v == 0 ) then
         do j = 1, helmholtz_stencil_size
-          call Helmholtz_operator_siqn(j,i)%initialise(vector_space = w3_fs)
+          call Helmholtz_operator(j,i)%initialise(vector_space = w3_fs)
         end do
       end if
 
-      call helm_diag_siqn(i)%initialise(vector_space = w3_fs)
-      call Hb_lumped_inv_siqn(i)%initialise(vector_space = w2_fs)
+      call helm_diag(i)%initialise(vector_space = w3_fs)
+      call Hb_lumped_inv(i)%initialise(vector_space = w2_fs)
 
       if (l_multigrid) then
         w3_fs => multigrid_function_space_chain%get_next()
@@ -1157,7 +1164,7 @@ contains
 
       ! Compute terms for tridiagonal preconditioner ---------------------------
       if (preconditioner == preconditioner_tridiagonal .or.                    &
-          preconditioner == preconditioner_multigrid ) then
+          preconditioner == preconditioner_multigrid) then
         ! Build using the FEM helmholtz operator, only valid for lowest order
         if (element_order_h == 0 .and. element_order_v == 0) then
           call invoke(                                                         &
@@ -1178,7 +1185,7 @@ contains
           )
         else
           call log_event(                                                      &
-              "Gungho: tridiagonal preconditioner invalid for element " \\     &
+              "Gungho: tridiagonal preconditioner invalid for element " //     &
               "orders > 0", LOG_LEVEL_ERROR                                    &
             )
         end if
@@ -1260,7 +1267,7 @@ contains
               restrict_scalar_unweighted_kernel_type(exner, coarse_field)      &
           )
           ! set w2_fs to next in chain
-          w2_fs = >w2_multigrid_function_space_chain%get_next()
+          w2_fs => w2_multigrid_function_space_chain%get_next()
         end if
       end if
 
@@ -1351,7 +1358,6 @@ contains
   !> @return The operator
   function get_m3_exner_star_mg(stepper_name, level) result(op)
     implicit none
-    integer(kind=i_def),       intent(in) :: stepper_name
     integer(kind=i_def),       intent(in) :: stepper_name
     integer(kind=i_def),       intent(in) :: level
     type(r_solver_operator_type), pointer :: op
@@ -1550,7 +1556,7 @@ contains
   !> @param[in] stepper_name   Enumerator for timestepper
   !> @param[in] level          The multigrid level
   !> @return The operator
-  function get_ptheta2v_mg(lstepper_name, evel) result(op)
+  function get_ptheta2v_mg(stepper_name, level) result(op)
     implicit none
     integer(kind=i_def),       intent(in) :: stepper_name
     integer(kind=i_def),       intent(in) :: level
@@ -1821,8 +1827,8 @@ contains
   !> @return The field
   function get_helm_diag_mg(stepper_name, level) result(sol_field)
     implicit none
-    integer(kind=i_def),     ntent(in) :: stepper_name
-    integer(kind=i_def),     ntent(in) :: level
+    integer(kind=i_def),    intent(in) :: stepper_name
+    integer(kind=i_def),    intent(in) :: level
     type(r_solver_field_type), pointer :: sol_field
 
     select case (stepper_name)

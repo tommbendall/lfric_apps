@@ -78,6 +78,7 @@ contains
          LOG_LEVEL_INFO )
     self%level = level
     self%stepper_name = stepper_name
+
     call log_event( 'done', LOG_LEVEL_INFO )
 
   end function pressure_preconditioner_constructor
@@ -95,6 +96,7 @@ contains
 
     ! Deep copy of the contents of the pressure_preconditioner_type
     dest%level = source%level
+    dest%stepper_name = source%stepper_name
   end subroutine pressure_preconditioner_assign
 
   !> @brief Apply the preconditioner to calculate \f$y = P.x = x\f$.
@@ -150,7 +152,7 @@ contains
     class(pressure_preconditioner_type), intent(inout) :: self
     class(abstract_hierarchical_preconditioner_type), allocatable, intent(inout) :: other
     allocate(other, &
-             source = pressure_preconditioner_type(self%level+1) )
+             source = pressure_preconditioner_type(self%level+1, self%stepper_name) )
   end subroutine coarsen_pressure_preconditioner
 
   !> @brief Destructor

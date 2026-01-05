@@ -6,6 +6,19 @@
 
 module conditional_collection_copy_mod
 
+  use constants_mod,                 only: l_def
+  use field_parent_mod,              only: field_parent_type
+  use field_mod,                     only: field_type
+  use field_collection_mod,          only: field_collection_type
+  use field_collection_iterator_mod, only: field_collection_iterator_type
+
+  implicit none
+  private
+
+  public :: conditional_collection_copy
+
+contains
+
   !> @brief Make a deep copy of a subset of a field collection, based on a
   !!        list of fields provided by another collection
   !> @param[out] generic_fields_copied  New collection written with fields
@@ -16,8 +29,6 @@ module conditional_collection_copy_mod
                                          generic_fields_to_copy,               &
                                          field_list)
 
-    use field_collection_mod,          only: field_collection_type
-    use field_collection_iterator_mod, only: field_collection_iterator_type
 
     implicit none
 

@@ -723,7 +723,10 @@ contains
 
     if ( mod(model_clock%get_step() - 1_i_def, reference_reset_freq) == 0_i_def ) then
       ! Compute semi-implicit operators with current model state
-      call compute_si_operators(self%state(igh_t), self%state(igh_d), self%state(igh_p), model_clock, moist_dyn)
+      call compute_si_operators(                                               &
+          self%state(igh_t), self%state(igh_d), self%state(igh_p),             &
+          model_clock, moist_dyn, stepper_siqn                                 &
+      )
 
       checkpoint_reference_fields = &
            mod(model_clock%get_first_step()-1, reference_reset_freq) /= 0 .or. &
