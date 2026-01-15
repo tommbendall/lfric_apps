@@ -13,6 +13,7 @@
       <field field_ref="init_exner"/>
       <field field_ref="init_height_w3"/>
       <field field_ref="init_height_wth"/>
+      <field field_ref="init_rho_vector_w2h"/>
     </field_group>
   </file>
 

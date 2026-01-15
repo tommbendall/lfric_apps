@@ -53,6 +53,15 @@ module gungho_diagnostics_driver_mod
   use transport_config_mod,      only : transport_ageofair
   use driver_modeldb_mod,        only : modeldb_type
 
+  use function_space_collection_mod, &
+                                 only : function_space_collection
+  use function_space_mod,        only : function_space_type
+  use fs_continuity_mod,         only : W2h
+  use sci_geometric_constants_mod, only: get_coordinates
+  use split_combine_w2_alg_mod, only: split_w2_field_alg
+  use map_fd_to_prognostics_alg_mod, only: set_wind
+  use physics_mappings_alg_mod, only: split_wind_alg
+
 #ifdef UM_PHYSICS
   use pres_lev_diags_alg_mod,    only : pres_lev_diags_alg
   use pmsl_alg_mod,              only : pmsl_alg
@@ -137,6 +146,12 @@ contains
 
     integer :: i
 
+    type(function_space_type), pointer :: w3_fs, wt_fs, w2_fs, w2h_fs
+    type(field_type) :: zero_w3, zero_wt
+    type(field_type) :: rho_vector_w2
+    type(field_type) :: rho_lon_w2h, rho_lat_w2h
+    type(field_type), pointer :: chi(:)
+
     if ( subroutine_timers ) call timer('gungho_diagnostics_driver')
 
     call log_event("Gungho: writing diagnostic output", LOG_LEVEL_DEBUG)
@@ -174,6 +189,46 @@ contains
       height_w3 => get_height_fv(W3, mesh%get_id())
       height_wth => get_height_fv(Wtheta, mesh%get_id())
     end if
+
+    ! ======================================================================== !
+    ! This is a temporary section of code that:
+    ! (1) Sets a W2 field with components (rho, zero, zero) using "set_wind"
+    ! (2) Turns this into components at W2H points
+    ! (3) Writes out the zonal component at W2H
+
+    w3_fs => rho%get_function_space()
+    wt_fs => theta%get_function_space()
+    w2_fs => u%get_function_space()
+    w2h_fs => function_space_collection%get_fs( mesh, &
+                                                element_order_h, &
+                                                element_order_v, W2h )
+
+    call zero_w3%initialise(w3_fs)
+    call zero_wt%initialise(wt_fs)
+    call rho_vector_w2%initialise(w2_fs)
+    call rho_lon_w2h%initialise(w2h_fs)
+    call rho_lat_w2h%initialise(w2h_fs)
+
+    chi => get_coordinates(mesh%get_id())
+    panel_id => get_panel_id(mesh%get_id())
+
+    ! (1) Create rho_vector_w2 with (rho,0,0) at W2 points
+    call invoke( setval_c(zero_w3, 0.0_r_def), &
+                 setval_c(zero_wt, 0.0_r_def))
+    call set_wind(rho_vector_w2, rho, zero_w3, zero_wt)
+
+    ! (2) Obtain components at W2H points
+    call split_wind_alg(rho_lon_w2h, rho_lat_w2h, zero_wt, rho_vector_w2, mesh)
+
+    ! (3) Write out
+    if ( use_xios_io .and. modeldb%clock%is_initialisation() &
+         .and. diagnostic_to_be_sampled("init_rho_vector_w2h") ) then
+      tmp_write_ptr => write_field_generic
+      call rho_lon_w2h%set_write_behaviour(tmp_write_ptr)
+      call rho_lon_w2h%write_field("init_rho_vector_w2h")
+    end if
+
+    ! ======================================================================== !
 
     ! Scalar fields
     call write_scalar_diagnostic('rho', rho, &

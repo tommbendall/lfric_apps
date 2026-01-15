@@ -51,6 +51,9 @@
         "gungho_model_tidally-locked-earth-C24_MG_azspice_gnu_fast-debug-64bit",
         "gungho_model_azspice_canned",
     ],
+    "gungho_model_grid_imprinting": [
+        "gungho_model_baroclinic-C48_MG_azspice_gnu_fast-debug-64bit",
+    ],
     "gungho_model_azspice": [
         "gungho_model_azspice_developer",
     ],

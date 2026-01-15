@@ -33,6 +33,7 @@
         "mpi_parts": 24,
         "tsteps": 240,
         "wallclock": 30,
+        "log_level": "debug",
         "kgo_checks": [],
         "plot_str": "baroclinic.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR dcmip dry surface_pressure_temperature",
     }) %}

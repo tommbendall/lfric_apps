@@ -219,6 +219,8 @@ panel_yproc=1,
 partitioner='cubedsphere',
 /
 &physics
+sample_physics_winds=.true.
+sample_physics_winds_correction=.true.
 /
 &planet
 cp=1005.0,
