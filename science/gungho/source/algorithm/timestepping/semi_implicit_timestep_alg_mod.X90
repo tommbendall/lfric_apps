@@ -24,6 +24,8 @@ module semi_implicit_timestep_alg_mod
                                        copy_bundle,       &
                                        set_bundle_scalar
 
+  use sci_field_minmax_alg_mod,   only: log_field_minmax
+
   use conditional_collection_copy_mod, &
                                  only: conditional_collection_copy
 
@@ -779,6 +781,12 @@ contains
     call copy_bundle(self%state, self%state_n, bundle_size)
     call copy_bundle(self%state, self%state_after_slow, bundle_size)
 
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_n u', self%state_n(igh_u))
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_n rho', self%state_n(igh_d))
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_n theta', self%state_n(igh_t))
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_n exner', self%state_n(igh_p))
+
     !--------------------------------------------------------------------
     ! Compute slow physic updates
     !--------------------------------------------------------------------
@@ -810,6 +818,12 @@ contains
       end if
     end if !use_physics
 
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_after_slow u', self%state_after_slow(igh_u))
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_after_slow rho', self%state_after_slow(igh_d))
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_after_slow theta', self%state_after_slow(igh_t))
+    call log_field_minmax(LOG_LEVEL_INFO, 'state_after_slow exner', self%state_after_slow(igh_p))
+
     !--------------------------------------------------------------------
     ! Compute the time-level n dynamics terms
     !--------------------------------------------------------------------
@@ -825,6 +839,12 @@ contains
     ! Set predictors for transport
     call predictors_alg(self%advected_state, self%state_n(igh_u), &
                         self%rhs_n(igh_u),varbeta,model_clock)
+
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_n u', self%rhs_n(igh_u))
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_n rho', self%rhs_n(igh_d))
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_n theta', self%rhs_n(igh_t))
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_n exner', self%rhs_n(igh_p))
 
     !==========================================================================
     ! Start the Outer (advection) loop
@@ -842,6 +862,11 @@ contains
               generic_fields_to_copy=con_tracer_last_outer,            &
               field_list=con_tracer_last_outer)
     call invoke( setval_X(self%wind_prev, self%state(igh_u)) )
+
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: advected_state u', self%advected_state(igh_u))
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: advected_state rho', self%advected_state(igh_d))
+    call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: advected_state theta', self%advected_state(igh_t))
 
     outer_dynamics_loop: do outer = 1,outer_iterations
 
@@ -892,6 +917,12 @@ contains
                      setval_c(self%rhs_adv(igh_t), 0.0_r_def),                 &
                      dg_inc_matrix_vector_kernel_type(self%rhs_adv(igh_t),     &
                                                       self%dtheta, mm_wt) )
+
+        ! TODO: to remove
+        call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_adv u', self%rhs_adv(igh_u))
+        call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_adv rho', self%rhs_adv(igh_d))
+        call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_adv theta', self%rhs_adv(igh_t))
+        call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_adv exner', self%rhs_adv(igh_p))
 
         ! Compute the time-level n+1 dynamics terms
         call rhs_alg( self%rhs_np1, -varalpha*cast_dt,            &
@@ -998,6 +1029,12 @@ contains
                               tau_r, stepper_siqn, subroutine_timers)
           end if
 
+          ! TODO: to remove
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 u', self%rhs_np1(igh_u))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 rho', self%rhs_np1(igh_d))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 theta', self%rhs_np1(igh_t))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 exner', self%rhs_np1(igh_p))
+
           !--------------------------------------------------------------------
           ! Compute the residuals
           !
@@ -1023,6 +1060,11 @@ contains
                          setval_c(self%rhs_np1(igh_t), 0.0_r_def) )
           end if
 
+          ! TODO: to remove
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 u', self%rhs_np1(igh_u))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 rho', self%rhs_np1(igh_d))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 theta', self%rhs_np1(igh_t))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: rhs_np1 exner', self%rhs_np1(igh_p))
 
           write_moisture_diag = write_conservation_diag   .and. &
                                 outer == outer_iterations .and. &
@@ -1046,6 +1088,12 @@ contains
             call derive_exner_from_eos( self%state, &
                                         moist_dyn(gas_law) )
           end if
+
+          ! TODO: to remove
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: state_np1 u', self%state(igh_u))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: state_np1 rho', self%state(igh_d))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: state_np1 theta', self%state(igh_t))
+          call log_field_minmax(LOG_LEVEL_INFO, 'SIQN: state_np1 exner', self%state(igh_p))
 
           !--------------------------------------------------------------------
           ! LAM Overwrite and Blend LBCs
