@@ -405,8 +405,21 @@ contains
     real(kind=r_def)    :: surface_height, domain_depth
     real(kind=r_def)    :: eta
     real(kind=r_def)    :: longitude, latitude, r
+    real(kind=r_def)    :: chi_1_orig(0:nlayers-1, ndf_chi)
+    real(kind=r_def)    :: chi_2_orig(0:nlayers-1, ndf_chi)
+    real(kind=r_def)    :: chi_3_orig(0:nlayers-1, ndf_chi)
 
     domain_depth = domain_height - domain_surface
+
+    ! Store original chi values to avoid issues with continuous DoFs
+    do df = 1, ndf_chi
+      do k = 0, nlayers-1
+        dfk = map_chi(df)+k
+        chi_1_orig(k,df) = chi_1(dfk)
+        chi_2_orig(k,df) = chi_2(dfk)
+        chi_3_orig(k,df) = chi_3(dfk)
+      end do
+    end do
 
     ! Calculate orography and update chi_3
     do df = 1, ndf_chi
@@ -415,7 +428,7 @@ contains
 
         ! Model coordinates for spherical domain are in (x,y,z) form so they need
         ! to be converted to (long,lat,r) first
-        call xyz2llr(chi_1(dfk), chi_2(dfk), chi_3(dfk), longitude, latitude, r)
+        call xyz2llr(chi_1_orig(k,df), chi_2_orig(k,df), chi_3_orig(k,df), longitude, latitude, r)
 
         ! Calculate surface height for each DoF using selected analytic orography
         surface_height = orography_profile%analytic_orography(longitude, latitude)
@@ -492,10 +505,19 @@ contains
     real(kind=r_def)    :: surface_height, domain_depth
     real(kind=r_def)    :: eta
     real(kind=r_def)    :: longitude, latitude, radius, dummy_radius
+    real(kind=r_def)    :: chi_3_orig(0:nlayers-1, ndf_chi)
 
     domain_depth = domain_height - domain_surface
 
     ipanel = int(panel_id(map_pid(1)), i_def)
+
+    ! Store original chi_3 values to avoid issues with continuous DoFs
+    do df = 1, ndf_chi
+      do k = 0, nlayers-1
+        dfk = map_chi(df)+k
+        chi_3_orig(k,df) = chi_3(dfk)
+      end do
+    end do
 
     ! Calculate orography and update chi_3
     do df = 1, ndf_chi
@@ -513,7 +535,7 @@ contains
 
         ! Calculate nondimensional coordinate from current height coordinate
         ! (chi_3) with flat domain_surface
-        eta = z2eta_linear(chi_3(dfk), 0.0_r_def, domain_depth)
+        eta = z2eta_linear(chi_3_orig(k,df), 0.0_r_def, domain_depth)
 
         select case(stretching_method)
         case(stretching_method_linear)
@@ -570,8 +592,17 @@ contains
     integer(kind=i_def) :: k, df, dfk
     real(kind=r_def)    :: surface_height, domain_depth
     real(kind=r_def)    :: eta
+    real(kind=r_def)    :: chi_3_orig(0:nlayers-1, ndf_chi)
 
     domain_depth = domain_height - domain_surface
+
+    ! Store original chi_3 values to avoid issues with continuous DoFs
+    do df = 1, ndf_chi
+      do k = 0, nlayers-1
+        dfk = map_chi(df)+k
+        chi_3_orig(k,df) = chi_3(dfk)
+      end do
+    end do
 
     ! Calculate orography and update chi_3
     do df = 1, ndf_chi
@@ -583,7 +614,7 @@ contains
 
         ! Calculate nondimensional coordinate from current height coordinate
         ! (chi_3) with flat domain_surface
-        eta = z2eta_linear(chi_3(dfk), domain_surface, domain_height)
+        eta = z2eta_linear(chi_3_orig(k,df), domain_surface, domain_height)
 
         select case(stretching_method)
         case(stretching_method_linear)
@@ -659,6 +690,9 @@ contains
   integer(kind=i_def) :: k, df, dfchi, dfk
   real(kind=r_def)    :: chi_3_r, eta
   real(kind=r_def)    :: surface_height(ndf_chi), domain_depth
+  real(kind=r_def)    :: chi_1_orig(0:nlayers-1, ndf_chi)
+  real(kind=r_def)    :: chi_2_orig(0:nlayers-1, ndf_chi)
+  real(kind=r_def)    :: chi_3_orig(0:nlayers-1, ndf_chi)
   real(kind=r_def)    :: longitude, latitude, r
 
   domain_depth = domain_height - domain_surface
@@ -671,6 +705,16 @@ contains
     end do
   end do
 
+  ! Store original chi values to avoid issues with continuous DoFs
+  do df = 1, ndf_chi
+    do k = 0, nlayers-1
+      dfk = map_chi(df)+k
+      chi_1_orig(k,df) = chi_1(dfk)
+      chi_2_orig(k,df) = chi_2(dfk)
+      chi_3_orig(k,df) = chi_3(dfk)
+    end do
+  end do
+
   ! Update chi
   do df = 1, ndf_chi
     do k = 0, nlayers-1
@@ -678,7 +722,7 @@ contains
 
       ! Model coordinates for spherical domain are in (x,y,z) form so they need
       ! to be converted to (long,lat,r) first
-      call xyz2llr(chi_1(dfk), chi_2(dfk), chi_3(dfk), longitude, latitude, r)
+      call xyz2llr(chi_1_orig(k,df), chi_2_orig(k,df), chi_3_orig(k,df), longitude, latitude, r)
 
       ! Calculate nondimensional coordinate from current flat height coordinate
       ! (chi_3) with flat domain_surface
@@ -764,6 +808,7 @@ contains
   integer(kind=i_def) :: k, df, dfchi, dfk
   real(kind=r_def)    :: eta
   real(kind=r_def)    :: surface_height(ndf_chi), domain_depth
+  real(kind=r_def)    :: chi_3_orig(0:nlayers-1, ndf_chi)
 
   domain_depth = domain_height - domain_surface
 
@@ -775,6 +820,14 @@ contains
     end do
   end do
 
+  ! Store original chi_3 values to avoid issues with continuous DoFs
+  do df = 1, ndf_chi
+    do k = 0, nlayers-1
+      dfk = map_chi(df)+k
+      chi_3_orig(k,df) = chi_3(dfk)
+    end do
+  end do
+
   ! Update chi
   do df = 1, ndf_chi
     do k = 0, nlayers-1
@@ -782,7 +835,7 @@ contains
 
       ! Calculate nondimensional coordinate from current flat height coordinate
       ! (chi_3) with flat domain_surface
-      eta = z2eta_linear(chi_3(dfk), 0.0_r_def, domain_depth)
+      eta = z2eta_linear(chi_3_orig(k,df), 0.0_r_def, domain_depth)
 
       ! Calculate new height coordinate from its nondimensional coordinate
       ! eta and surface_height
@@ -858,6 +911,7 @@ end subroutine ancil_orography_spherical_sph
   integer(kind=i_def) :: k, df, dfchi, dfk
   real(kind=r_def)    :: eta
   real(kind=r_def)    :: surface_height(ndf_chi), domain_depth
+  real(kind=r_def)    :: chi_3_orig(0:nlayers-1, ndf_chi)
 
   domain_depth = domain_height - domain_surface
 
@@ -869,6 +923,14 @@ end subroutine ancil_orography_spherical_sph
     end do
   end do
 
+  ! Store original chi_3 values to avoid issues with continuous DoFs
+  do df = 1, ndf_chi
+    do k = 0, nlayers-1
+      dfk = map_chi(df)+k
+      chi_3_orig(k,df) = chi_3(dfk)
+    end do
+  end do
+
   ! Update chi_3
   do df = 1, ndf_chi
     do k = 0, nlayers-1
@@ -876,7 +938,7 @@ end subroutine ancil_orography_spherical_sph
 
       ! Calculate nondimensional coordinate from current height coordinate
       ! (chi_3) with flat domain_surface
-      eta = z2eta_linear(chi_3(dfk), domain_surface, domain_height)
+      eta = z2eta_linear(chi_3_orig(k,df), domain_surface, domain_height)
 
       ! Calculate new height coordinate from its nondimensional coordinate
       ! eta and surface_height
