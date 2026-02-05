@@ -62,7 +62,8 @@ module tr_bdf2_timestep_alg_mod
                                         lbc_option_um2lfric_file
   use mixed_solver_config_mod,    only: guess_np1, reference_reset_time
   use tr_bdf2_config_mod,         only: tr_outer_iterations,                   &
-                                        tr_inner_iterations,                   &
+                                        tr_inner_iterations_even,              &
+                                        tr_inner_iterations_odd,               &
                                         bdf2_outer_iterations,                 &
                                         bdf2_inner_iterations
   use transport_config_mod,       only: cheap_update, &
@@ -680,7 +681,17 @@ contains
     real(kind=r_def)             :: tau_r
     real(kind=r_def)             :: dt
 
+    integer(kind=i_def), allocatable :: tr_inner_iterations(:)
+
     if ( subroutine_timers ) call timer('tr_bdf2_timestep_alg')
+
+    allocate(tr_inner_iterations(tr_outer_iterations))
+
+    if (MOD(model_clock%get_step(), 2) == 0) then
+      tr_inner_iterations = tr_inner_iterations_even
+    else
+      tr_inner_iterations = tr_inner_iterations_odd
+    end if
 
     ! Set timestep variables
     dt = real(model_clock%get_seconds_per_step(), r_def)
@@ -960,6 +971,8 @@ contains
 
       else  ! No wavedynamics
         if (self%use_moisture) call copy_bundle(self%mr_dag, mr, nummr)
+        call set_bundle_scalar(0.0_r_def, self%rhs_adv, bundle_size)
+        call copy_bundle(self%state_dag, self%state_aft_adv, bundle_size)
       end if
 
       ! Update the moisture after transport (mr_aft_adv)
@@ -1071,6 +1084,13 @@ contains
     ! X^{n+1} + gamma2*dt*F[X^{n+1}] = T[(1-gamma3)*X^q + gamma3*X^m]
     ! where X^q = X_dag + X_aft_adv - X_to_adv
 
+    ! First guess of X^{n+1} is X^m
+    call bundle_axpby(                                                         &
+        (1.0_r_def - 0.5_r_def/gamma), self%state_n,                           &
+        0.5_r_def/gamma, self%state_m,                                         &
+        self%state, bundle_size                                                &
+    )
+
     ! ------------------------------------------------------------------------ !
     ! Compute initial BDF state
     ! ------------------------------------------------------------------------ !
@@ -1179,6 +1199,7 @@ contains
             stepper_name=stepper_bdf2, model_clock=model_clock                 &
         )
       else  ! No wavedynamics
+        call set_bundle_scalar(0.0_r_def, self%rhs_adv, bundle_size)
         if (self%use_moisture) call copy_bundle(self%mr_dag, mr, nummr)
       end if
 
@@ -1483,6 +1504,8 @@ contains
                  setval_X(theta, self%state(igh_t)),                           &
                  setval_X(rho, self%state(igh_d)),                             &
                  setval_X(exner, self%state(igh_p)) )
+
+    deallocate(tr_inner_iterations)
 
     if ( subroutine_timers ) call timer('tr_bdf2_timestep_alg')
 

@@ -311,7 +311,7 @@ contains
     real(kind=r_def)                              :: const
     real(kind=r_second)                           :: dt
     real(kind=r_second)                           :: dt_to_use
-    real(kind=r_second)                           :: gamma, gamma2
+    real(kind=r_def)                              :: gamma, gamma2
     type(operator_type),                  pointer :: coriolis
 
     ! Check inventories are initialised
@@ -442,8 +442,8 @@ contains
       case (stepper_siqn, stepper_bdf2)
         dt_to_use = dt_stored
       case (stepper_tr)
-        gamma = 1.0_r_second - 0.5_r_second*SQRT(2.0_r_second)
-        dt_to_use = 2.0_r_second*gamma*dt_stored
+        gamma = 1.0_r_def - 0.5_r_def*SQRT(2.0_r_def)
+        dt_to_use = 2.0_r_second*REAL(gamma, r_second)*dt_stored
       end select
 
       ! Each matrix is built on a previous matrix. Generally either all three
@@ -544,9 +544,11 @@ contains
             const = tau_u * real(dt_stored, r_def)
           case (stepper_tr)
             ! tau_u = gamma
+            gamma = 1.0_r_def - 0.5_r_def*SQRT(2.0_r_def)
             const = gamma * real(dt_stored, r_def)
           case (stepper_bdf2)
             ! tau_u = gamma2
+            gamma = 1.0_r_def - 0.5_r_def*SQRT(2.0_r_def)
             gamma2 = 0.5_r_def*(1.0_r_def - 2.0_r_def*gamma)/(1.0_r_def - gamma)
             const = gamma2 * real(dt_stored, r_def)
           end select
