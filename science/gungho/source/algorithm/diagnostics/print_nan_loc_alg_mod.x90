@@ -26,7 +26,7 @@ subroutine print_nan_loc_alg(field, log_level_in, field_name)
   use log_mod,                 only: log_event, log_level, log_scratch_space
   use base_mesh_config_mod,    only: prime_mesh_name
   use mesh_collection_mod,     only: mesh_collection
-  use fs_continuity_mod,       only: W3, Wtheta, W2, W2H
+  use fs_continuity_mod,       only: W3, Wtheta, W2, W2H, W2V
   use sci_geometric_constants_mod,    &
                                 only: get_latitude_fv, get_longitude_fv, &
                                       get_height_fv
@@ -44,22 +44,23 @@ subroutine print_nan_loc_alg(field, log_level_in, field_name)
   integer(i_def)     :: fs_id, fs_id_to_get
   real(r_def)        :: gnan_lev, gnan_count, &
                         gnan_lat, gnan_lon, gnan_height
-  type(mesh_type),  pointer :: mesh => null()
-  type(mesh_type),  pointer :: twod_mesh => null()
-  type(field_type), pointer :: latitude  => null()
-  type(field_type), pointer :: longitude => null()
-  type(field_type), pointer :: height    => null()
+  type(mesh_type),  pointer :: mesh
+  type(mesh_type),  pointer :: twod_mesh
+  type(field_type), pointer :: latitude
+  type(field_type), pointer :: longitude
+  type(field_type), pointer :: height
   type(field_type)          :: nan_count, nan_lev, nan_height, nan_lon, nan_lat
-  type(function_space_type), pointer :: w3_2d_fs => null()
+  type(function_space_type), pointer :: w3_2d_fs
 
   if (log_level() <= log_level_in ) then
 
     fs_id = field%which_function_space()
 
-    if ( fs_id == Wtheta .or. fs_id == W3 .or. fs_id == W2 .or. fs_id == W2H ) then
+    if ( fs_id == Wtheta .or. fs_id == W3 .or. fs_id == W2                     &
+         .or. fs_id == W2H .or. fs_id == W2V ) then
 
-        if (fs_id == W2H) then
-          fs_id_to_get = W2
+        if (fs_id == W2V .or. fs_id == Wtheta) then
+          fs_id_to_get = W3
         else
           fs_id_to_get = fs_id
         end if
@@ -70,9 +71,7 @@ subroutine print_nan_loc_alg(field, log_level_in, field_name)
 
         latitude  => get_latitude_fv( fs_id_to_get, twod_mesh%get_id() )
         longitude => get_longitude_fv( fs_id_to_get, twod_mesh%get_id() )
-        height    => get_height_fv( fs_id_to_get, mesh%get_id() )
-
-        nullify( mesh, twod_mesh )
+        height => get_height_fv( fs_id_to_get, mesh%get_id() )
 
         gnan_count = 0.0_r_def
         gnan_lev = 0.0_r_def
