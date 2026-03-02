@@ -83,6 +83,7 @@ contains
     integer(kind=i_def)                   :: num_meshes
     integer(kind=i_def)                   :: halo_depth
     integer(kind=i_def)                   :: w0_order
+    integer(kind=i_def)                   :: surf_alt_order_h, surf_alt_order_v
     character(len=str_def),   allocatable :: source_mesh_names(:)
     character(len=str_def),   allocatable :: target_mesh_names(:)
     type(mesh_type),              pointer :: source_mesh
@@ -144,7 +145,7 @@ contains
     ! Obtain surface altitude field in W0 on orography mesh
     w0_order = MAX(orography_order - 1, 0)
     w0_fs => function_space_collection%get_fs(                                 &
-          source_twod_mesh, w0_order, w0_order, W0                             &
+        source_twod_mesh, w0_order, w0_order, W0                               &
     )
     call surf_alt_w0%initialise(w0_fs, halo_depth=halo_depth)
     call chi_inventory%get_field_array(source_mesh, chi)
@@ -162,12 +163,15 @@ contains
 
     if (w0_multigrid_mapping) then
       fs_id = W0
-      w0_order = 0  ! Higher-order W0 mapping not implemented
+      surf_alt_order_h = 0  ! Higher-order W0 mapping not implemented
+      surf_alt_order_v = 0
       call surf_alt_list(1)%initialise(w0_fs, halo_depth=halo_depth)
       call invoke( setval_X(surf_alt_list(1), surf_alt_w0) )
     else
       fs_id = W3
       w3_fs => surf_alt_w3%get_function_space()
+      surf_alt_order_h = surf_alt_w3%get_element_order_h()
+      surf_alt_order_v = surf_alt_w3%get_element_order_v()
       call surf_alt_list(1)%initialise(w3_fs, halo_depth=halo_depth)
       call invoke( setval_X(surf_alt_list(1), surf_alt_w3) )
     end if
@@ -213,9 +217,11 @@ contains
       local_mesh => source_twod_mesh%get_local_mesh()
       halo_depth = target_twod_mesh%get_halo_depth()
 
+      ! Set up function space for surface altitude on multigrid meshes
       fs => function_space_collection%get_fs(                                  &
-          target_twod_mesh, w0_order, w0_order, fs_id                          &
+          target_twod_mesh, surf_alt_order_h, surf_alt_order_v, fs_id          &
       )
+
       call surf_alt_inventory%get_field(local_mesh, source_surf_alt)
 
       call surf_alt_list(i+1)%initialise(fs, halo_depth=halo_depth)
