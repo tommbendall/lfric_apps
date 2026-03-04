@@ -515,8 +515,6 @@ parameter (k_log_layr=2)
 !-----------------------------------------------------------------------
 !  Workspace :-
 real(kind=r_bl) ::                                                             &
- recip_time_sbl, recip_time_cbl ! inverse timescales for TKE diagnostic
-real(kind=r_bl) ::                                                             &
  a_dqsdtm(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                 &
           bl_levels),                                                          &
                               ! Saturated lapse rate factor
