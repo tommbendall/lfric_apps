@@ -35,7 +35,7 @@ subroutine bdy_impl4 (                                                         &
  qw,tl,fqw,ftl,fqw_star,ftl_star,                                              &
  dqw,dtl, rhokh, BL_diag,                                                      &
 ! out data, NB these are really tl and qt on exit!
- t_latest,q_latest,rhokh_mix                                                   &
+ t_latest,q_latest                                                             &
  )
 
 use atm_fields_bounds_mod, only: tdims, pdims, tdims_l
@@ -118,11 +118,8 @@ real(kind=r_bl), intent(in out) ::                                             &
             bl_levels),                                                        &
    dqw(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),         &
                                    ! INOUT BL increment to q field
-   dtl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),         &
+   dtl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels)
                                    ! INOUT BL increment to T field
-   rhokh_mix(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,              &
-             bl_levels)      ! out Exch coeffs for moisture
-                             ! needs declaring as in out as unused in LFRic
 
 ! out fields
 real(kind=real_umphys), intent(out) ::                                         &

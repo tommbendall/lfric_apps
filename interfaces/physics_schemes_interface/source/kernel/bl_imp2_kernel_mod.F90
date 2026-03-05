@@ -387,7 +387,7 @@ contains
 
     ! profile field on boundary layer levels
     real(r_bl), dimension(seg_len,1,bl_levels) :: fqw, ftl, rhokh,           &
-         bq_gb, bt_gb, dtrdz_charney_grid, rdz_charney_grid, rhokh_mix, qw,  &
+         bq_gb, bt_gb, dtrdz_charney_grid, rdz_charney_grid, qw,             &
          tl, dqw, dtl, fqw_star, ftl_star, ct_ctq, dqw_nt, dtl_nt
 
     ! profile fields on u/v points and BL levels
@@ -534,7 +534,7 @@ contains
          qw,tl,fqw,ftl,fqw_star,ftl_star,                                    &
          dqw,dtl,rhokh,bl_diag,                                              &
          ! OUT data
-         t_latest,q_latest,rhokh_mix                                         &
+         t_latest,q_latest                                                   &
          )
 
     if (loop == 2) then
