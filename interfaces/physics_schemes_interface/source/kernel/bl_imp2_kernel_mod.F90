@@ -388,18 +388,11 @@ contains
     ! profile field on boundary layer levels
     real(r_bl), dimension(seg_len,1,bl_levels) :: fqw, ftl, rhokh,           &
          bq_gb, bt_gb, dtrdz_charney_grid, rdz_charney_grid, rhokh_mix, qw,  &
-         tl, dqw, dtl, fqw_star, ftl_star
-
-    ! profile fields on u/v points and all levels
-    real(r_bl), dimension(seg_len,1,nlayers) :: r_u, r_v
+         tl, dqw, dtl, fqw_star, ftl_star, ct_ctq, dqw_nt, dtl_nt
 
     ! profile fields on u/v points and BL levels
-    real(r_bl), dimension(seg_len,1,bl_levels) :: taux, tauy,                &
-         rhokm_u, rhokm_v, dissip_u, dissip_v, taux_star, tauy_star, cq_cm_u,&
-         cq_cm_v, ct_ctq, dqw_nt, dtl_nt, du_star, dv_star
-
-    ! profile fields from level 2 upwards
-    real(r_bl), dimension(seg_len,1,2:bl_levels) :: rdz_u, rdz_v
+    real(r_bl), dimension(seg_len,1,bl_levels) ::                            &
+         dissip_u, dissip_v
 
     ! profile fields from level 0 upwards
     real(r_um), dimension(seg_len,1,0:nlayers) ::                            &
@@ -535,12 +528,12 @@ contains
          ! IN levels, switches
          bl_levels,  l_correct,                                              &
          ! IN data :
-         gamma1, gamma2, rhokm_u, rhokm_v,                                   &
-         rdz_charney_grid, r_rho_levels, dtrdz_charney_grid,rdz_u,rdz_v,     &
-         ct_ctq,cq_cm_u,cq_cm_v,dqw_nt,dtl_nt,                               &
+         gamma1, gamma2,                                                     &
+         rdz_charney_grid, r_rho_levels, dtrdz_charney_grid,                 &
+         ct_ctq,dqw_nt,dtl_nt,                                               &
          ! INOUT data :
-         qw,tl,fqw,ftl,taux,tauy,fqw_star,ftl_star,taux_star,tauy_star,      &
-         r_u,r_v,du_star,dv_star,dqw,dtl,rhokh,bl_diag,                      &
+         qw,tl,fqw,ftl,fqw_star,ftl_star,                                    &
+         dqw,dtl,rhokh,bl_diag,                                              &
          ! OUT data
          t_latest,q_latest,rhokh_mix                                         &
          )
