@@ -66,7 +66,7 @@ use cv_param_mod, only:                                                        &
 use bl_option_mod, only: bl_res_inv, off, on, zero, one, one_half
 
 use planet_constants_mod, only:                                                &
-    c_virtual => c_virtual_bl, g => g_bl, planet_radius => planet_radius_bl,   &
+    c_virtual => c_virtual_bl, g => g_bl, planet_radius,                       &
     lsrcp => lsrcp_bl, lcrcp => lcrcp_bl, gamma_dry => grcp_bl
 use water_constants_mod, only: tm => tm_bl
 
