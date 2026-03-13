@@ -73,7 +73,8 @@ module ffsl_hori_alg_mod
                                               transport_boundary_depth,        &
                                               transport_overwrite_freq,        &
                                               transport_overwrite_freq_all
-  use check_configuration_mod,          only: check_any_eqn_consistent
+  use check_configuration_mod,          only: check_any_eqn_consistent,        &
+                                              get_required_stencil_depth
   use io_config_mod,                    only: subroutine_timers
   use transport_config_mod,             only:                                  &
                                           panel_edge_treatment,                &
