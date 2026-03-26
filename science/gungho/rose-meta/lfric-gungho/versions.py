@@ -20,17 +20,15 @@ class UpgradeError(Exception):
 
 """
 Copy this template and complete to add your macro
-
 class vnXX_txxx(MacroUpgrade):
     # Upgrade macro for <TICKET> by <Author>
-
     BEFORE_TAG = "vnX.X"
     AFTER_TAG = "vnX.X_txxx"
-
     def upgrade(self, config, meta_config=None):
         # Add settings
         return config, self.reports
 """
+
 
 class vn31_t378(MacroUpgrade):
     """Upgrade macro for ticket #378 by Thomas Bendall."""
@@ -39,13 +37,13 @@ class vn31_t378(MacroUpgrade):
     AFTER_TAG = "vn3.1_t378"
 
     def upgrade(self, config, meta_config=None):
+        # Commands From: rose-meta/lfric-gungho
         self.add_setting(
             config, ["namelist:mixing", "conservative_diffusion"], ".false."
         )
         self.add_setting(
             config, ["namelist:mixing", "density_weighted"], ".true."
         )
-        self.add_setting(
-            config, ["namelist:mixing", "max_diff_factor"], "1.0"
-        )
+        self.add_setting(config, ["namelist:mixing", "max_diff_factor"], "1.0")
+
         return config, self.reports
