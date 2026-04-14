@@ -20,17 +20,15 @@ class UpgradeError(Exception):
 
 """
 Copy this template and complete to add your macro
-
 class vnXX_txxx(MacroUpgrade):
     # Upgrade macro for <TICKET> by <Author>
-
     BEFORE_TAG = "vnX.X"
     AFTER_TAG = "vnX.X_txxx"
-
     def upgrade(self, config, meta_config=None):
         # Add settings
         return config, self.reports
 """
+
 
 class vn31_t394(MacroUpgrade):
     """Upgrade macro for ticket #394 by Thomas Bendall."""
@@ -39,7 +37,11 @@ class vn31_t394(MacroUpgrade):
     AFTER_TAG = "vn3.1_t394"
 
     def upgrade(self, config, meta_config=None):
+        # Commands From: rose-meta/lfric-gungho
         self.add_setting(
-            config, ["namelist:formulation", "solver_moisture_conservation"], ".false."
+            config,
+            ["namelist:formulation", "solver_moisture_conservation"],
+            ".false.",
         )
+
         return config, self.reports
