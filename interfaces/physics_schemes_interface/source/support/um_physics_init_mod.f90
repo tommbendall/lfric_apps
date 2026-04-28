@@ -171,7 +171,12 @@ module um_physics_init_mod
                                    i_update_precfrac_homog,                  &
                                    i_update_precfrac_correl,                 &
                                         heavy_rain_evap_fac_in =>            &
-                                                heavy_rain_evap_fac
+                                                heavy_rain_evap_fac,         &
+                                        lsp_moist_heat_cap_in                &
+                                          => lsp_moist_heat_cap,             &
+                                        lsp_moist_heat_cap_none,             &
+                                        lsp_moist_heat_cap_dry,              &
+                                        lsp_moist_heat_cap_moist
 
   use mixing_config_mod,         only : smagorinsky,                 &
                                         mixing_method => method,     &
@@ -442,7 +447,8 @@ contains
         l_orograin, l_orogrime, l_orograin_block,                            &
         fcrit, nsigmasf, nscalesf, l_progn_tnuc, mp_czero, mp_tau_lim,       &
         l_proc_fluxes, l_subgrid_graupel_frac, l_mcr_precfrac,               &
-        i_update_precfrac, i_homog_areas, i_sg_correl, heavy_rain_evap_fac
+        i_update_precfrac, i_homog_areas, i_sg_correl, heavy_rain_evap_fac,  &
+        lsp_moist_heat_cap
     use mphys_psd_mod, only: x1g, x2g, x4g, x1gl, x2gl, x4gl
     use mphys_switches, only: set_mphys_switches,            &
         max_step_length, max_sed_length,                     &
@@ -1301,6 +1307,15 @@ contains
         nscalesf       = real(nscalesf_in, r_um)
         fcrit          = real(fcrit_in, r_um)
 
+        ! Set microphysics heat capacity
+        select case (lsp_moist_heat_cap_in)
+          case (lsp_moist_heat_cap_none)
+            lsp_moist_heat_cap = lsp_moist_heat_cap_none
+          case (lsp_moist_heat_cap_dry)
+            lsp_moist_heat_cap = lsp_moist_heat_cap_dry
+          case (lsp_moist_heat_cap_moist)
+            lsp_moist_heat_cap = lsp_moist_heat_cap_moist
+        end select
       end if
 
       ! UM options needed if CASIM is being used

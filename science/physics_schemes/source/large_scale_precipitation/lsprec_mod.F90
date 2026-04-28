@@ -16,7 +16,8 @@ use conversions_mod,      only:                                                &
 
 use water_constants_mod,  only:                                                &
   lc_orig => lc,                                                               &
-  lf_orig => lf
+  lf_orig => lf,                                                               &
+  tm_orig => tm
 
 use planet_constants_mod, only:                                                &
   rv_orig => rv
@@ -157,7 +158,8 @@ real (kind=real_lsprec), parameter ::                                          &
 !water_constants_mod
 real (kind=real_lsprec), parameter ::                                          &
   lc = real(lc_orig, kind=real_lsprec),                                        &
-  lf = real(lf_orig, kind=real_lsprec)
+  lf = real(lf_orig, kind=real_lsprec),                                        &
+  tm = real(tm_orig, kind=real_lsprec)
 
 !planet_constants_mod
 real (kind=real_lsprec), parameter ::                                          &
@@ -290,6 +292,9 @@ use mphys_inputs_mod,     only:                                                &
   bi_orig             => bi,                                                   &
   nscalesf_orig       => nscalesf,                                             &
   aut_qc_orig         => aut_qc
+
+use lsp_cpml_mod,         only:                                                &
+  set_lsp_moist_heat_cap_coeffs
 
 implicit none
 

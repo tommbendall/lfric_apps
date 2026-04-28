@@ -51,7 +51,7 @@ subroutine lsp_autoc(                                                          &
 use lsprec_mod,           only: r_auto, n_auto, power_droplet_auto,            &
                                 power_qcl_auto, power_rho_auto,                &
                                 consts_auto, aut_pref, aut_qc, aut_nc,         &
-                                ec_auto, qcfmin, r, repsilon, lc, pi,          &
+                                ec_auto, qcfmin, r, repsilon, lc, lf, pi, tm,  &
                                 f_cons, fsd_eff_lam, fsd_eff_phi,              &
                                 rad_mcica_sigma, two_d_fsd_factor,             &
                                 zero, half, one, two, small_number
@@ -70,6 +70,10 @@ use gen_phys_inputs_mod,  only: l_mr_physics
 use um_types,             only: real_lsprec
 
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
@@ -274,6 +278,15 @@ real(kind=real_lsprec) :: tmp
 real(kind=real_lsprec) :: area_inc(points)
 ! Precip content (rain+graupel) before the increment is applied
 real(kind=real_lsprec) :: qprec(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist
+                        ! Temperature-dependent ratio of L_con to cp_moist
 
 ! Local compression variable
 integer ::                                                                     &
@@ -554,7 +567,12 @@ else ! original autoconversion etc
       ! debiasing of the autoconversion rate.
       !-----------------------------------------------
     do i = 1, points
-      t_l(i) = t(i) - (lcrcp * qcl(i) )
+      ! Calculate temperature-dependent CPML coefficients
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + qcl(i) * cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      
+      t_l(i) = t(i) - (lcrcp_moist * qcl(i) )
     end do
 
     if (l_mr_physics) then

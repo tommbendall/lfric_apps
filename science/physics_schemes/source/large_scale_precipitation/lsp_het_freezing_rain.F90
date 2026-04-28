@@ -37,13 +37,17 @@ subroutine lsp_het_freezing_rain(                                              &
   )
 
 use lsprec_mod,           only: zerodegc, zero,                                &
-                                one, qcfmin, cx, constp
+                                one, qcfmin, cx, constp, lf, tm
 use mphys_inputs_mod,     only: l_mcr_qrain,                                   &
                                 l_mcr_qgraup, l_mcr_precfrac
 
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook modules
 use yomhook,         only: lhook, dr_hook
@@ -141,6 +145,15 @@ real (kind=real_lsprec) ::                                                     &
   lamr3
                         ! lamr1**3  /m3
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+
 real (kind=real_lsprec), parameter :: a_bigg = 0.66_real_lsprec
                         ! Bigg parameter A  / K-1
 real (kind=real_lsprec), parameter :: b_bigg = 100.0_real_lsprec
@@ -211,7 +224,13 @@ do i = 1, points
     ! temperature
 
     qrain(i) = qrain(i) - dqir(i)
-    t(i)     = t(i)     + dqir(i) * lfrcp
+
+    ! Calculate temperature-dependent CPML coefficients
+    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    cp_moist_val = cpd
+    lfrcp_moist  = L_fus_val / cp_moist_val
+
+    t(i)     = t(i)     + dqir(i) * lfrcp_moist
 
     !------------------------------------------------
     ! Update cloud fractions

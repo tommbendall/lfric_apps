@@ -39,13 +39,17 @@ subroutine lsp_evap(                                                           &
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod,         only: apb4, apb5, apb6, qcfmin, m0, cx, constp,        &
                               rho_q_veloc, lam_evap_enh, max_as_enh,           &
-                              zero, one
+                              zero, one, lc, lf, tm
 
   ! Microphysics modules
 use mphys_inputs_mod,    only: l_warm_new, l_mcr_qrain, l_mcr_precfrac,        &
                                l_subgrid_graupel_frac, heavy_rain_evap_fac
 
 use lsp_evap_precfrac_mod, only: lsp_evap_precfrac
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
@@ -188,6 +192,15 @@ real (kind=real_lsprec) ::                                                     &
                           ! Factor with which to increase (enhance)
                           ! the evaporation rate
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist
+                        ! Temperature-dependent ratio of L_con to cp_moist
+
 ! Local compression variable
 integer ::                                                                     &
   npts,                                                                        &
@@ -231,7 +244,12 @@ do i = 1, points
         ! Evaporate all this rain
     dpr(i) = qrain(i)
 
-    t(i)   = t(i) - lcrcp * dpr(i)
+    ! Calculate temperature-dependent CPML coefficients
+    L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml
+    lcrcp_moist  = L_con_val / cp_moist_val
+    
+    t(i)   = t(i) - lcrcp_moist * dpr(i)
     q(i)   = q(i) + dpr(i)
     qrain(i) = zero
 
@@ -431,7 +449,13 @@ do c = 1, npts
       !-----------------------------------------------
   qrain(i) = qrain(i) - dpr(i)
   q(i)     = q(i)     + dpr(i)
-  t(i)     = t(i)     - dpr(i) * lcrcp
+  
+  ! Calculate temperature-dependent CPML coefficients
+  L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+  cp_moist_val = cpd + q(i) * cpv_cpml
+  lcrcp_moist  = L_con_val / cp_moist_val
+  
+  t(i)     = t(i)     - dpr(i) * lcrcp_moist
 
 end do
 

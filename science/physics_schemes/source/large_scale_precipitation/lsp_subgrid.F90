@@ -67,7 +67,7 @@ subroutine lsp_subgrid(                                                        &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: qcfmin, ice_width, zerodegc,                             &
-                      zero, half, one, two
+                      zero, half, one, two, lc, lf, tm
 
 use mphys_inputs_mod, only: l_mcr_precfrac, i_update_precfrac, i_homog_areas
 
@@ -84,6 +84,10 @@ use wtrac_mphys_mod,         only: mp_cpr_wtrac_type, mp_cpr_old_wtrac_type
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook Modules
 use yomhook,           only: lhook, dr_hook
@@ -225,6 +229,15 @@ real (kind=real_lsprec) ::                                                     &
                         ! Temporary in width of PDF calculation
   width             ! Full width of vapour distribution in ice and
                         ! clear sky.
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_sub_val,                                                                   &
+                        ! Temperature-dependent latent heat of sublimation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
@@ -396,7 +409,13 @@ do i = 1, points
        (q_ice(i)  <=  qs(i) .and. area_mix(i)  <=  zero)                       &
        .or. (qcf_cry(i)+qcf_agg(i)) <  zero) then
       q(i) = q(i) +qcf_cry(i)+qcf_agg(i)
-      t(i) = t(i) - lsrcp * (qcf_cry(i)+qcf_agg(i))
+
+      ! Calculate temperature-dependent CPML coefficients
+      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
+      t(i) = t(i) - lsrcp_moist * (qcf_cry(i)+qcf_agg(i))
       qcf_cry(i)=zero
       qcf_agg(i)=zero
       ! Update water tracers consistently

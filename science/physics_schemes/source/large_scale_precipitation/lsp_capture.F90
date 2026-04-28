@@ -47,7 +47,7 @@ subroutine lsp_capture(                                                        &
   )
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
-use lsprec_mod, only: zerodegc, cx, constp, bi,                                &
+use lsprec_mod, only: zerodegc, cx, constp, bi, lf, tm,                       &
                       zero, one, two, small_number
 
 ! Microphysics modules
@@ -56,6 +56,10 @@ use mphys_inputs_mod,     only: l_mcr_qrain, l_diff_icevt,                     &
                                 graupel_option, gr_srcols,                     &
                                 l_mcr_precfrac, l_subgrid_graupel_frac,        &
                                 i_update_precfrac, i_homog_areas, i_sg_correl
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook modules
 use yomhook,              only: lhook, dr_hook
@@ -215,6 +219,15 @@ real (kind=real_lsprec), parameter    :: gr_thr = 1.0e-4_real_lsprec
 
 ! Fraction of increment occuring in the ice-only vs mixed-phase cloud
 real(kind=real_lsprec) :: frac
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
 
 ! Amount of qcf that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
@@ -571,7 +584,13 @@ do c = 1, npts
   ! temperature
 
   qrain(i) = qrain(i) - dpr(i)
-  t(i)     = t(i)     + dpr(i) * lfrcp
+
+  ! Calculate temperature-dependent CPML coefficients
+  L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+  cp_moist_val = cpd
+  lfrcp_moist  = L_fus_val / cp_moist_val
+
+  t(i)     = t(i)     + dpr(i) * lfrcp_moist
 
 end do  ! Points
 

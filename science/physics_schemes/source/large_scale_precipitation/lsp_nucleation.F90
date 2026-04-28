@@ -46,7 +46,7 @@ subroutine lsp_nucleation(                                                     &
   )
 
 use lsprec_mod, only: thomo, m0, tnuc, zerodegc,                               &
-                      zero, one
+                      zero, one, lc, lf, tm
 use mphys_inputs_mod,     only: l_het_freezing_rain, l_mcr_precfrac,           &
                                 l_subgrid_graupel_frac, i_update_precfrac,     &
                                 i_homog_areas, l_progn_tnuc
@@ -54,6 +54,10 @@ use mphys_inputs_mod,     only: l_het_freezing_rain, l_mcr_precfrac,           &
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook modules
 use yomhook,         only: lhook, dr_hook
@@ -201,6 +205,19 @@ real (kind=real_lsprec) ::                                                     &
 real (kind=real_lsprec) :: tnuc_kelvin
                         ! Nucleation temperature in Kelvin
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  L_sub_val,                                                                   &
+                        ! Temperature-dependent latent heat of sublimation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
+
 ! Total increment to qrain (+qgraup) from all ice nucleation processes
 real (kind=real_lsprec) :: dqprec(points)
 
@@ -252,7 +269,13 @@ do i = 1, points
     if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = qcl(i)
 
     qcf(i) = qcf(i) + qcl(i)
-    t(i)   = t(i)   + lfrcp * qcl(i)
+
+    ! Calculate temperature-dependent CPML coefficients for fusion
+    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    lfrcp_moist  = L_fus_val / cp_moist_val
+
+    t(i)   = t(i)   + lfrcp_moist * qcl(i)
     qcl(i) = zero
 
   end if ! T lt 0+thomo etc.
@@ -286,7 +309,13 @@ do i = 1, points
     if (l_wtrac) wtrac_mp_cpr_old%hom_qr(i) = qrain(i)      ! qrain -> qcf
 
     qcf(i)   = qcf(i) + qrain(i)
-    t(i)     = t(i)   + lfrcp * qrain(i)
+
+    ! Calculate temperature-dependent CPML coefficients for fusion
+    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    cp_moist_val = cpd
+    lfrcp_moist  = L_fus_val / cp_moist_val
+
+    t(i)     = t(i)   + lfrcp_moist * qrain(i)
     qrain(i) = zero
 
   end if ! T lt 0+thomo etc.
@@ -348,10 +377,22 @@ do i = 1, points
     end if
 
     qcl(i)  = qcl(i)-dqil
-    t(i)    = t(i)+lfrcp*dqil
+
+    ! Calculate temperature-dependent CPML coefficients for fusion
+    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    lfrcp_moist  = L_fus_val / cp_moist_val
+
+    t(i)    = t(i)+lfrcp_moist*dqil
           ! If more ice is needed then the mass comes from vapour
     dqi  = dqi-dqil
-    t(i) = t(i)+lsrcp*dqi
+
+    ! Calculate temperature-dependent CPML coefficients for sublimation
+    L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    lsrcp_moist  = L_sub_val / cp_moist_val
+
+    t(i) = t(i)+lsrcp_moist*dqi
     q(i) = q(i)-dqi
 
     ! Store phase changes for water tracer use

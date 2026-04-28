@@ -51,7 +51,7 @@ subroutine lsp_riming(                                                         &
 ! Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: cx, constp,qclmin_rime, area_ratio_prefac,               &
                                area_ratio_expn, zerodegc,                      &
-                               one
+                               one, lf, tm
 
   ! Microphysics modules
 use mphys_constants_mod, only: ice_type_offset
@@ -60,6 +60,10 @@ use mphys_inputs_mod,    only: l_diff_icevt
 use science_fixes_mod,   only: l_fix_riming
 
 use um_types,            only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
@@ -197,6 +201,15 @@ real (kind=real_lsprec) :: qcl_min_threshold
 
 ! Amount of qcf that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
 
 ! Threshold cloud-fraction below-which to skip riming
 real (kind=real_lsprec), parameter :: cloud_tol_riming = 0.001_real_lsprec
@@ -352,7 +365,13 @@ do i = 1, points
         ! Update water contents
         !-----------------------------------------------
     qcf(i) = qcf(i) + dqi
-    t(i)   = t(i) + lfrcp * dqi
+
+    ! Calculate temperature-dependent CPML coefficients
+    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    lfrcp_moist  = L_fus_val / cp_moist_val
+
+    t(i)   = t(i) + lfrcp_moist * dqi
     qcl(i) = qclnew
     if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = dqi
 
@@ -387,7 +406,7 @@ subroutine lsp_riming_sphere(                                                  &
   l_use_agg_vt                                                                 &
   )
 
-use lsprec_mod,         only: cx, constp, zerodegc, zero
+use lsprec_mod,         only: cx, constp, zerodegc, zero, lf, tm
 
   ! Microphysics modules
 use mphys_constants_mod, only: ice_type_offset
@@ -398,6 +417,10 @@ use mphys_inputs_mod,    only: l_diff_icevt
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook modules
 use yomhook,             only: lhook, dr_hook
@@ -505,6 +528,15 @@ real (kind=real_lsprec) ::                                                     &
 ! Ice mass that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
 real(kind=jprb)               :: zhook_handle
@@ -602,7 +634,13 @@ do i = 1, points
         ! Update water contents
         !-----------------------------------------------
     qcf(i) = qcf(i) + dqi
-    t(i)   = t(i) + lfrcp * dqi
+
+    ! Calculate temperature-dependent CPML coefficients
+    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    lfrcp_moist  = L_fus_val / cp_moist_val
+
+    t(i)   = t(i) + lfrcp_moist * dqi
     qcl(i) = qclnew
 
   end if ! qcf_nofall(i) >  m0 etc.

@@ -55,7 +55,7 @@ subroutine lsp_deposition(                                                     &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: apb1, apb2, apb3, m0, cx, constp, zerodegc, zero, half,  &
-                      one
+                      one, lc, lf, tm
 
   ! Microphysics modules- logicals and integers
 use mphys_constants_mod, only: ice_type_offset
@@ -64,6 +64,10 @@ use mphys_inputs_mod,    only: l_diff_icevt, l_proc_fluxes
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook Modules
 use yomhook,             only: lhook, dr_hook
@@ -243,6 +247,19 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Ice-mass that is not falling out this microphysics timestep
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  L_sub_val,                                                                   &
+                        ! Temperature-dependent latent heat of sublimation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
 
 ! Local compression variable
 integer ::                                                                     &
@@ -553,11 +570,23 @@ do c = 1, npts
       !-----------------------------------------------
 
   qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
-  t(i) = t(i) + lfrcp * dqil
+
+  ! Calculate temperature-dependent CPML coefficients for fusion
+  L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+  cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+  lfrcp_moist  = L_fus_val / cp_moist_val
+
+  t(i) = t(i) + lfrcp_moist * dqil
   dqi = dqi_dep(i) + dqi_sub(i)- dqil
 
   q(i) = q(i) - dqi
-  t(i) = t(i) + lsrcp * dqi
+
+  ! Calculate temperature-dependent CPML coefficients for sublimation
+  L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+  cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+  lsrcp_moist  = L_sub_val / cp_moist_val
+
+  t(i) = t(i) + lsrcp_moist * dqi
 
     !-----------------------------------------------
     ! Store depostion/sublimation rate

@@ -44,6 +44,13 @@ use science_fixes_mod,   only: i_fix_mphys_drop_settle, first_fix, second_fix
 ! from here
 use um_types,             only: real_lsprec
 
+! Use in reals in lsprec precision
+use lsprec_mod,           only: lc, lf, tm
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 implicit none
@@ -143,7 +150,14 @@ real (kind=real_lsprec) ::                                                     &
   dqcl,                                                                        &
                         ! Change in qcl this timestep / kg kg-1
   dq                ! Change in q this timestep / kg kg-1
-
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist
+                        ! Temperature-dependent ratio of L_con to cp_moist
 real (kind=real_lsprec), parameter ::                                          &
   two_thirds = 2.0_real_lsprec / 3.0_real_lsprec
 
@@ -239,7 +253,13 @@ if ( i_fix_mphys_drop_settle == second_fix ) then
       ! Adjust vapour content and temperature
       !------------------------------------------------
       q(i)   = q(i) + dq
-      t(i)   = t(i) - lcrcp * dq
+      
+      ! Calculate temperature-dependent CPML coefficients
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      
+      t(i)   = t(i) - lcrcp_moist * dq
       ! There is no change in the cloud fractions as we
       ! assume drops falling into clear sky are evaporated.
 
@@ -328,7 +348,13 @@ else if ( i_fix_mphys_drop_settle == first_fix ) then
       ! Adjust vapour content and temperature
       !------------------------------------------------
       q(i)   = q(i) + dq
-      t(i)   = t(i) - lcrcp * dq
+      
+      ! Calculate temperature-dependent CPML coefficients
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      
+      t(i)   = t(i) - lcrcp_moist * dq
       ! There is no change in the cloud fractions as we
       ! assume drops falling into clear sky are evaporated.
 
@@ -417,7 +443,13 @@ else ! No drop settle fix.
 
     qcl(i) = qcl(i) + dqcl
     q(i)   = q(i) + dq
-    t(i)   = t(i) - lcrcp * dq
+    
+    ! Calculate temperature-dependent CPML coefficients
+    L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml
+    lcrcp_moist  = L_con_val / cp_moist_val
+    
+    t(i)   = t(i) - lcrcp_moist * dq
     ! There is no change in the cloud fractions as we
     ! assume drops falling into clear sky are evaporated.
 

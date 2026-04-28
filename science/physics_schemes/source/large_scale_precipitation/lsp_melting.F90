@@ -57,7 +57,7 @@ subroutine lsp_melting(                                                        &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: cx, constp, tw1, tw2, tw3, tw4, tw5, zerodegc,           &
-                      zero, one, small_number
+                      zero, one, small_number, lf, tm
 
   ! Microphysics modules- logicals and integers
 use mphys_constants_mod, only: ice_type_offset
@@ -68,6 +68,10 @@ use mphys_inputs_mod,    only: l_diff_icevt,                                   &
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
 use wtrac_mphys_mod,         only: mp_cpr_old_wtrac_type
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Dr Hook Modules
 use yomhook,             only: lhook, dr_hook
@@ -237,6 +241,15 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Ice mass that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
 
 ! Area fraction of rain produced by melting where no pre-existing rain
 real(kind=real_lsprec) :: area_new
@@ -424,7 +437,13 @@ do c = 1, npts
       ! Calculate transfer
       !-----------------------------------------------
       ! Solve implicitly in terms of temperature
-  dpr(i) = temp7(i) * (one-one/(one+dpr(i)*lfrcp))/lfrcp
+
+  ! Calculate temperature-dependent CPML coefficients
+  L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+  cp_moist_val = cpd
+  lfrcp_moist  = L_fus_val / cp_moist_val
+
+  dpr(i) = temp7(i) * (one-one/(one+dpr(i)*lfrcp_moist))/lfrcp_moist
 
       ! Limit mass transfer to the mass available
   dpr(i) = min(dpr(i),qcf(i))
@@ -436,7 +455,7 @@ do c = 1, npts
       !------------------------------------------------
   qcf(i)   = qcf(i)   - dpr(i)
   qrain(i) = qrain(i) + dpr(i)
-  t(i)     = t(i)     - dpr(i) * lfrcp
+  t(i)     = t(i)     - dpr(i) * lfrcp_moist
 
 end do
 

@@ -47,7 +47,7 @@ subroutine lsp_evap_snow(                                                      &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: apb4, apb5, apb6, m0, cx, constp, zerodegc,              &
-                      zero
+                      zero, lc, lf, tm
 
   ! Microphysics Modules- logicals and integers
 use mphys_constants_mod, only: ice_type_offset
@@ -56,6 +56,10 @@ use mphys_inputs_mod,    only: l_diff_icevt
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
@@ -189,6 +193,15 @@ real (kind=real_lsprec) ::                                                     &
 ! Amount of qcf that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_sub_val,                                                                   &
+                        ! Temperature-dependent latent heat of sublimation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
+
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
 real(kind=jprb)               :: zhook_handle
@@ -312,7 +325,13 @@ do i = 1, points
 
     qcf(i) = qcf(i) - dpr
     q(i)   = q(i)   + dpr
-    t(i)   = t(i)   - dpr*lsrcp
+
+    ! Calculate temperature-dependent CPML coefficients
+    L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml + qcf(i) * ci_cpml
+    lsrcp_moist  = L_sub_val / cp_moist_val
+
+    t(i)   = t(i)   - dpr*lsrcp_moist
     if (l_wtrac)  wtrac_mp_cpr_old%qchange(i) = dpr
 
   end if  ! qcf_nofall gt m0 etc.

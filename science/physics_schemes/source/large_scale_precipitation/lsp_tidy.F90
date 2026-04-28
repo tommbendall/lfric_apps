@@ -54,7 +54,7 @@ subroutine lsp_tidy(                                                           &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod,       only: qcfmin, zerodegc, tw1, tw2, tw3, tw4, tw5,         &
-                            zero, one
+                            zero, one, lc, lf, tm
 
 ! Microphysics modules- logicals and integers
 use mphys_inputs_mod, only: l_mcr_qcf2, l_mcr_precfrac, l_subgrid_graupel_frac,&
@@ -65,6 +65,10 @@ use lsp_combine_precfrac_mod, only: lsp_combine_precfrac
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,         only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
 use science_fixes_mod, only: l_fix_tidy_rainfracs
 
@@ -253,6 +257,23 @@ real (kind=real_lsprec) ::                                                     &
   dpr2_wt
                         ! Equivalent to dpr_wt, but with units kg m-2 s-1
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  L_sub_val,                                                                   &
+                        ! Temperature-dependent latent heat of sublimation
+  L_fus_val,                                                                   &
+                        ! Temperature-dependent latent heat of fusion
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_con to cp_moist
+  lsrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_sub to cp_moist
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+
 
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
@@ -283,7 +304,13 @@ do i = 1, points
 
         ! Update prognostics
     q(i)   = q(i) + dpr
-    t(i)   = t(i) - dpr * lcrcp
+
+    ! Calculate temperature-dependent CPML coefficients for condensation
+    L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpml
+    lcrcp_moist  = L_con_val / cp_moist_val
+
+    t(i)   = t(i) - dpr * lcrcp_moist
     qrain(i) = zero
 
         ! Update water tracers consistently
@@ -339,7 +366,13 @@ do i = 1, points
           ! Update prognostics
 
       q(i)   = q(i) + dpr
-      t(i)   = t(i) - lsrcp * dpr
+
+      ! Calculate temperature-dependent CPML coefficients for sublimation
+      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
+      t(i)   = t(i) - lsrcp_moist * dpr
       qcf(i) = zero
 
 
@@ -368,7 +401,13 @@ do i = 1, points
 
           ! Update prognostics
       q(i)   = q(i) + dpr
-      t(i)   = t(i) - lsrcp * dpr
+
+      ! Calculate temperature-dependent CPML coefficients for sublimation
+      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
+      t(i)   = t(i) - lsrcp_moist * dpr
       qcf2(i)= zero
 
           ! Update deposition rate
@@ -417,7 +456,13 @@ do i = 1, points
           ! Update prognostics
 
       q(i)   = q(i) + dpr
-      t(i)   = t(i) - lsrcp * dpr
+
+      ! Calculate temperature-dependent CPML coefficients for sublimation
+      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
+      t(i)   = t(i) - lsrcp_moist * dpr
       qcf(i) = zero
 
          ! Update water tracers consistently
@@ -503,7 +548,13 @@ if ( .not. l_proc_fluxes ) then
       temp7 = max(temp7,zero)
 
           ! Calculate transfer rate
-      dpr  = temp7 / lfrcp ! Rate based on Tw excess
+
+      ! Calculate temperature-dependent CPML coefficients for fusion
+      L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+      cp_moist_val = cpd
+      lfrcp_moist  = L_fus_val / cp_moist_val
+
+      dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
       dpr2 = dpr*rho(i)*dhir(i)
 
           ! Limit to the amount of snow available
@@ -534,7 +585,7 @@ if ( .not. l_proc_fluxes ) then
           ! Update values of snow and rain
 
       snow_agg(i) = snow_agg(i) - dpr2
-      t(i)        = t(i)        - dpr * lfrcp
+      t(i)        = t(i)        - dpr * lfrcp_moist
 
       if ( l_mcr_precfrac ) then
         ! If using prognostic precip fraction, store increment for
@@ -579,7 +630,13 @@ if ( .not. l_proc_fluxes ) then
       temp7 = max(temp7,zero)
 
           ! Calculate transfer rate
-      dpr  = temp7 / lfrcp ! Rate based on Tw excess
+
+      ! Calculate temperature-dependent CPML coefficients for fusion
+      L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+      cp_moist_val = cpd
+      lfrcp_moist  = L_fus_val / cp_moist_val
+
+      dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
       dpr2 = dpr*rho(i)*dhir(i)
 
           ! Limit to the amount of snow available
@@ -594,7 +651,7 @@ if ( .not. l_proc_fluxes ) then
           ! Update values of snow and rain
 
       snow_cry(i) = snow_cry(i) - dpr2
-      t(i)        = t(i)        - dpr * lfrcp
+      t(i)        = t(i)        - dpr * lfrcp_moist
 
       if ( l_mcr_precfrac ) then
         ! If using prognostic precip fraction, store increment for

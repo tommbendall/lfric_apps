@@ -38,9 +38,14 @@ subroutine lsp_ice(                                                            &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod,           only: lcrcp, lfrcp, timestep, m0, t_scaling,         &
-                                qcf0, timestep_mp, zero, one, small_number
+                                qcf0, timestep_mp, zero, one, small_number,    &
+                                lc, lf, tm
 
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
 
   ! General atmosphere modules- logicals and integers
 use gen_phys_inputs_mod,  only: l_mr_physics
@@ -382,10 +387,24 @@ real (kind=real_lsprec), intent(out) :: dbz_r(points)
 type(mp_cpr_wtrac_type), intent(in out) :: wtrac_mp_cpr(n_wtrac)
 
 !  Local scalars and dynamic arrays
+
 integer ::  i     !  Loop counter (horizontal field index).
 integer ::  i_wt  !  Loop counter (water tracer index)
 
 real (kind=real_lsprec) :: lsrcp
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  L_sub_val,                                                                   &
+                        ! Temperature-dependent latent heat of sublimation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_con to cp_moist
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
 
 real (kind=real_lsprec) ::                                                     &
   qs(points),                                                                  &
@@ -1156,7 +1175,9 @@ if (l_orograin .and. l_orogrime) then
                      l_psd,                                                    &
                      psacw1b, one_over_tsi,                                    &
                      l_use_agg_vt                                              &
+
                        )
+
 
   end if
 
@@ -1174,7 +1195,13 @@ if (l_orograin .and. l_orogrime) then
       if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = dqsnow(i)
 
       !       Add LH for cond+freezing of rimed orog water
-      t(i) = t(i) + (dqsnow(i) * lsrcp)
+
+      ! Calculate temperature-dependent CPML coefficients for sublimation
+      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
+      t(i) = t(i) + (dqsnow(i) * lsrcp_moist)
 
       !       Add mass transfer
       psacw(i) = psacw(i) + (psacw1b(i) - psacw1a(i))
@@ -1668,7 +1695,13 @@ if (l_orograin) then
       !       Add orographic accretion to that from resolved cloud
       qrain(i) = qrain(i) + dqrain(i)
       q(i) = q(i) - dqrain(i)
-      t(i) = t(i) + (dqrain(i) * lcrcp)
+
+      ! Calculate temperature-dependent CPML coefficients for condensation
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+
+      t(i) = t(i) + (dqrain(i) * lcrcp_moist)
       if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = dqrain(i)
 
       !       Add mass transfer

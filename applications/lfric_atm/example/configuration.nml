@@ -476,6 +476,7 @@ graupel_scheme='none',
 heavy_rain_evap_fac=0.0,
 l_mcr_precfrac=.false.
 l_proc_fluxes=.false.
+lsp_moist_heat_cap='moist'
 microphysics_casim=.false.,
 mp_dz_scal=2.0,
 nscalesf=1.0,
