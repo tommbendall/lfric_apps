@@ -21,8 +21,9 @@ subroutine bm_ez_diagnosis( p_theta_levels, tgrad_bm, z_theta,                 &
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
-use planet_constants_mod,  only: r,lcrcp, kappa, repsilon, grcp
-use water_constants_mod,   only: lc
+use planet_constants_mod,  only: r, kappa, repsilon, grcp, cpd => cp
+use water_constants_mod,   only: lc, tm
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 use pc2_constants_mod,     only: bm_negative_init
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
@@ -235,8 +236,9 @@ end if
 !$OMP  PARALLEL                                                                &
 !$OMP  DEFAULT(none)                                                           &
 !$OMP  SHARED(tdims,t,q,p_theta_levels,l_mixing_ratio,grcp,                    &
-!$OMP  tgrad_bm,lcrcp,kappa,repsilon,r,z_theta,alphl,levels,ri_bm,             &
-!$OMP  zh_eff,i_bm_ez_opt,kez_top,kez_bottom,kez_inv,ez_max_bm)                &
+!$OMP  tgrad_bm,kappa,repsilon,r,z_theta,alphl,levels,ri_bm,                   &
+!$OMP  zh_eff,i_bm_ez_opt,kez_top,kez_bottom,kez_inv,ez_max_bm,                &
+!$OMP  cpd, cpv_cpml, cl_cpml)                                                 &
 !$OMP  private(j,i,k,kk,qs,alphal,alx,tlx,mux,mukp1,l_turb)
 do k = 2, levels-3
 !$OMP do SCHEDULE(DYNAMIC)
@@ -292,7 +294,8 @@ do k = 2, levels-3
           call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
         end if
         alphal = alphl * qs / (tlx * tlx)
-        alx = 1.0 / (1.0 + (lcrcp * alphal))
+        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+                           * (tlx - tm)) / cpd) * alphal))
         mux   = alx*(q(i,j,k) - qs)
 
         tlx = t(i,j,k+1)*(p_theta_levels(i,j,k)/                               &
@@ -304,7 +307,8 @@ do k = 2, levels-3
           call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
         end if
         alphal = alphl * qs / (tlx * tlx)
-        alx = 1.0 / (1.0 + (lcrcp * alphal))
+        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+                           * (tlx - tm)) / cpd) * alphal))
         mukp1 = alx*(q(i,j,k+1) - qs)
 
         kk=k+1
@@ -324,7 +328,8 @@ do k = 2, levels-3
             call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
           end if
           alphal = alphl * qs / (tlx * tlx)
-          alx = 1.0 / (1.0 + (lcrcp * alphal))
+          alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                      &
+                             * (tlx - tm)) / cpd) * alphal))
           mux   = alx*(q(i,j,kk) - qs)
 
           tlx = t(i,j,kk+1)*(p_theta_levels(i,j,k)/                            &
@@ -336,7 +341,8 @@ do k = 2, levels-3
             call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
           end if
           alphal = alphl * qs / (tlx * tlx)
-          alx = 1.0 / (1.0 + (lcrcp * alphal))
+          alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                      &
+                             * (tlx - tm)) / cpd) * alphal))
           mukp1 = alx*(q(i,j,kk+1) - qs)
 
           kez_top(i,j,k) = kk

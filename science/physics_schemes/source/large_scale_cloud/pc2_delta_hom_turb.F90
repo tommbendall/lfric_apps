@@ -27,8 +27,8 @@ subroutine pc2_delta_hom_turb(                                                 &
 !      Other quantities for the turbulence
  dbsdtbs0, dbsdtbs1, l_mixing_ratio)
 
-use water_constants_mod, only: lc
-use planet_constants_mod,  only: lcrcp, r, repsilon
+use water_constants_mod, only: lc, tm
+use planet_constants_mod,  only: r, repsilon, cpd => cp
 use timestep_mod, only: timestep
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
@@ -38,6 +38,7 @@ use pc2_constants_mod,     only: dbsdtbs_exp, pdf_power,                       &
                                  i_pc2_homog_g_cf, i_pc2_homog_g_width
 use cloud_inputs_mod,      only: l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph,     &
                                  i_pc2_homog_g_method
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
@@ -177,6 +178,12 @@ real(kind=real_umphys) ::                                                      &
 !       the saturation boundary (kg kg-1)-1
    qc,                                                                         &
 !       aL (q + l - qsat(TL) )  (kg kg-1)
+  L_con_val,                                                                  &
+!       Temperature-dependent latent heat of condensation (J/kg)
+  cp_moist_val,                                                               &
+!       Moist-air specific heat at constant pressure (J/kg/K)
+  lcrcp_moist,                                                                &
+!       L_con / cp_moist (K)
    sd
 !       Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
 
@@ -206,18 +213,24 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP  PARALLEL do DEFAULT(none) SCHEDULE(DYNAMIC) private(k,                  &
 !$OMP  j, i, tl, qsl_t, qsl_tl, alpha, al,                                     &
 !$OMP  sd, cfl_to_m, sky_to_m, g_mqc, dqcdt, qc, dbsdtbs,                      &
-!$OMP  c_1, deltal)                                                            &
-!$OMP  SHARED(tdims,cfl,t,lcrcp,qcl,p_theta_levels,l_mixing_ratio,             &
+!$OMP  c_1, deltal, L_con_val, cp_moist_val, lcrcp_moist)                      &
+!$OMP  SHARED(tdims,cfl,t,qcl,p_theta_levels,l_mixing_ratio,                   &
 !$OMP     repsilon,r,q,dqin,dtin,dbsdtbs0,dbsdtbs1,                            &
 !$OMP     timestep,dcflpc2,                                                    &
 !$OMP     dcfpc2,cf,cff,dqclpc2,dqpc2,dtpc2,                                   &
-!$OMP     i_pc2_homog_g_method)
+!$OMP     i_pc2_homog_g_method,cpd,cpv_cpml,cl_cpml)
 
 ! Loop round levels to be processed
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
 
     do i = tdims%i_start, tdims%i_end
+
+      ! Provide safe defaults for all branches before cloud-regime tests.
+      g_mqc = 0.0
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
 
       ! There is no need to perform the total cloud fraction calculation in
       ! this subroutine if there is no, or full, liquid cloud cover.
@@ -248,9 +261,12 @@ do k = 1, tdims%k_end
         ! Need to estimate the rate of change of saturated specific humidity
         ! with respect to temperature (alpha) first, then use this to calculate
         ! factor aL. Also estimate the rate of change of qsat with pressure.
-        alpha = repsilon*lc*qsl_t /                                            &
-                (r*t(i,j,k)**2)
-        al = 1.0 / (1.0 + lcrcp*alpha)
+        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        lcrcp_moist  = L_con_val / cp_moist_val
+        alpha = repsilon*L_con_val*qsl_t /                                     &
+          (r*t(i,j,k)**2)
+        al = 1.0 / (1.0 + lcrcp_moist*alpha)
 
         ! Calculate the saturation deficit SD
 
@@ -297,7 +313,7 @@ do k = 1, tdims%k_end
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! for wet bulb temperature.
 
-        tl = t(i,j,k)-lcrcp*qcl(i,j,k)
+        tl = t(i,j,k)-lcrcp_moist*qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else
@@ -396,9 +412,12 @@ do k = 1, tdims%k_end
           call qsat_wat(qsl_t, t(i,j,k), p_theta_levels(i,j,k))
         end if
 
-        alpha = repsilon * lc * qsl_t /                                        &
-                (r * t(i,j,k)**2)
-        al = 1.0 / (1.0 + lcrcp*alpha)
+        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        lcrcp_moist  = L_con_val / cp_moist_val
+        alpha = repsilon * L_con_val * qsl_t /                                 &
+          (r * t(i,j,k)**2)
+        al = 1.0 / (1.0 + lcrcp_moist*alpha)
         deltal = al * (dqin(i,j,k) - alpha*dtin(i,j,k))
 
       else
@@ -432,7 +451,7 @@ do k = 1, tdims%k_end
       end if
 
       dqpc2(i,j,k)   = - dqclpc2(i,j,k)
-      dtpc2(i,j,k)   = lcrcp * dqclpc2(i,j,k)
+      dtpc2(i,j,k) = lcrcp_moist * dqclpc2(i,j,k)
 
     end do !i
   end do !j

@@ -27,8 +27,8 @@ subroutine pc2_initiate(                                                       &
    l_mixing_ratio)
 
 use conversions_mod,       only: zerodegc
-use water_constants_mod,   only: lc
-use planet_constants_mod,  only: lcrcp, r, repsilon
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: lcrcp, r, repsilon, cpd => cp
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims, pdims_l
@@ -38,6 +38,7 @@ use pc2_constants_mod,     only: init_iterations, rhcrit_tol,                  &
                                  pc2init_logic_simplified,                     &
                                  pc2init_logic_smooth
 use cloud_inputs_mod,      only: i_rhcpt, i_pc2_init_logic, cloud_pc2_tol
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 use pc2_total_cf_mod,      only: pc2_total_cf
 
@@ -163,6 +164,14 @@ real(kind=real_umphys) ::                                                      &
    frac_init
 !       Fraction of final liquid water initiated this timestep
 
+real(kind=real_umphys) ::                                                      &
+  L_con_val,                                                                  &
+!       Temperature-dependent latent heat of condensation (J/kg)
+   cp_moist_val,                                                               &
+!       Moist air heat capacity at constant pressure (J/kg/K)
+   lcrcp_moist
+!       L_con / cp_moist (K)
+
 !  (b)  Others.
 integer :: k,i,j,l,                                                            &
 !       Loop counters: K   - vertical level index
@@ -249,7 +258,8 @@ end if
 !$OMP  qn_c, rh0_c, qsl_tl_c, cf_c, cfl_c, cff_c,                              &
 !$OMP  qcl_c, q_c, deltacl_c, deltacf_c, qsl_t_c, l_out, l_bs, al,             &
 !$OMP  deltal, descent_factor, q_out, bs, i, j, k, l, qsl_tl, tl_c,            &
-!$OMP  alpha, qc, frac_init)
+!$OMP  alpha, qc, frac_init,                                                   &
+!$OMP  L_con_val, cp_moist_val, lcrcp_moist)
 do k = 1, nlevels
 
   if ( i_pc2_init_logic == pc2init_logic_simplified ) then
@@ -326,7 +336,13 @@ do k = 1, nlevels
       ! 2. Calculate Saturated Specific Humidity with respect to liquid water
       !    for liquid temperatures.
       ! ----------------------------------------------------------------------
-      tl_c = t(ind_i(i),ind_j(i),k) - lcrcp * qcl(ind_i(i),ind_j(i),k)
+      L_con_val    = lc - (cl_cpml - cpv_cpml)                                 &
+                         * (t(ind_i(i),ind_j(i),k) - tm)
+      cp_moist_val = cpd + q(ind_i(i),ind_j(i),k)*cpv_cpml                    &
+                        + qcl(ind_i(i),ind_j(i),k)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      tl_c = t(ind_i(i),ind_j(i),k) - lcrcp_moist                              &
+                                     * qcl(ind_i(i),ind_j(i),k)
 
       if ( l_mixing_ratio ) then
         call qsat_wat_mix(qsl_tl, tl_c, p_theta_levels(ind_i(i),ind_j(i),k))
@@ -511,13 +527,12 @@ do k = 1, nlevels
         call qsat_wat(qsl_t_c,t_c(i),p_theta_levels(ni(i),nj(i),k))
       end if
 
-      alpha=repsilon*lc*qsl_t_c/(r*t_c(i)**2)
-      al=1.0/(1.0+lcrcp*alpha)
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_c(i) - tm)
+      cp_moist_val = cpd + q_c(i)*cpv_cpml + qcl_c(i)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      alpha=repsilon*L_con_val*qsl_t_c/(r*t_c(i)**2)
+      al=1.0/(1.0+lcrcp_moist*alpha)
       bs=al*(1.0-rh0_c(i))*qsl_tl_c(i)
-
-      ! when using the TKE based RHcrit parametrization, force the scheme
-      ! to always use a symmetric triangular PDF, otherwise use the original
-      ! PC2 method
 
       if (qn_c(i) <= -1.0) then
         l_bs = 0.0
@@ -553,7 +568,7 @@ do k = 1, nlevels
       deltal         = descent_factor*(l_out-qcl_c(i))
       q_c(i)         = q_c(i)   - deltal
       qcl_c(i)       = qcl_c(i) + deltal
-      t_c(i)         = t_c(i)   + deltal*lcrcp
+      t_c(i)         = t_c(i)   + deltal*lcrcp_moist
 
     end do ! Points_do1
 
@@ -586,8 +601,11 @@ do k = 1, nlevels
         !         = qcl
         ! => sd = qcl - qc
 
-        alpha=repsilon*lc*qsl_t_c/(r*t_c(i)**2)
-        al=1.0/(1.0+lcrcp*alpha)
+        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_c(i) - tm)
+        cp_moist_val = cpd + q_c(i)*cpv_cpml + qcl_c(i)*cl_cpml
+        lcrcp_moist  = L_con_val / cp_moist_val
+        alpha=repsilon*L_con_val*qsl_t_c/(r*t_c(i)**2)
+        al=1.0/(1.0+lcrcp_moist*alpha)
         qc = al * ( q_c(i) + qcl_c(i) - qsl_tl_c(i) )
 
         if ( qc < 0.0 ) then

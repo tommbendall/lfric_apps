@@ -29,8 +29,8 @@ subroutine pc2_bm_initiate(                                                    &
    l_calc_diag, l_mixing_ratio)
 
 use conversions_mod,       only: zerodegc
-use water_constants_mod,   only: lc
-use planet_constants_mod,  only: g,r,lcrcp,kappa,repsilon,cp
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: g,r,kappa,repsilon,cpd => cp
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims, pdims_l
@@ -43,6 +43,7 @@ use cloud_inputs_mod,      only: i_pc2_init_logic, cloud_pc2_tol,              &
                                  i_bm_ez_opt, i_bm_ez_orig, i_bm_ez_subcrit,   &
                                  i_bm_ez_entpar, turb_var_fac_bm, max_sigmas,  &
                                  min_sigx_ft, min_sigx_fac
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 use qsat_mod,              only: qsat_wat, qsat_wat_mix, qsat, qsat_mix
 
 use pc2_total_cf_mod,    only: pc2_total_cf
@@ -222,7 +223,7 @@ real(kind=real_umphys) ::                                                      &
                 tdims%j_start:tdims%j_end,nlevels,3),                          &
    sd_modes(    tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,nlevels,3)
-!       Diagnostics of SL = T + g/cp z - Lc/cp qcl,  qw = q + qcl,
+!       Diagnostics of SL = T + g/cpd z - Lc/cpd qcl,  qw = q + qcl,
 !       RHt = qw / qsat(Tl), and local turbulent standard-deviation of RHt
 !       for the current level plus modes from above and below
 
@@ -438,17 +439,23 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 alphl=repsilon*lc/r
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
-!$OMP SHARED(nlevels,tdims,qt_in,tl_in,qt3d,tl3d,q,qcl,t,lcrcp,qcl3d,cfl3d,    &
-!$OMP qcf,qcf3d,cff3d,cf3d,cff,cfl_max)                                        &
+!$OMP SHARED(nlevels,tdims,qt_in,tl_in,qt3d,tl3d,q,qcl,t,qcl3d,cfl3d,           &
+!$OMP qcf,qcf3d,cff3d,cf3d,cff,cfl_max,cpd,cl_cpml,cpv_cpml)                                        &
 !$OMP private(k,j,i)
 !$OMP do SCHEDULE(STATIC)
 do k = 1, nlevels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       qt_in(i,j,k)     = q(i,j,k)+qcl(i,j,k)
-      tl_in(i,j,k)     = t(i,j,k)-lcrcp*qcl(i,j,k)
+      tl_in(i,j,k)     = t(i,j,k) -                                            &
+                         ((lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)) /      &
+                          (cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml))       &
+                         * qcl(i,j,k)
       qt3d(i,j,k)      = q(i,j,k)+qcl(i,j,k)
-      tl3d(i,j,k)      = t(i,j,k)-lcrcp*qcl(i,j,k)
+      tl3d(i,j,k)      = t(i,j,k) -                                            &
+                         ((lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)) /      &
+                          (cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml))       &
+                         * qcl(i,j,k)
       cff3d(i,j,k)     = cff(i,j,k)
       qcf3d(i,j,k)     = qcf(i,j,k)
       cfl3d(i,j,k)     = 0.0
@@ -509,8 +516,8 @@ end select  ! ( i_bm_ez_opt )
 
 !$OMP  PARALLEL                                                                &
 !$OMP  DEFAULT(none)                                                           &
-!$OMP  SHARED(nlevels,tdims,repsilon,r,g,cp,q,t,qt3d,tl3d,cfl3d,qcl3d,alphl,   &
-!$OMP  lcrcp,kappa,sskew,svar_turb,svar_bm,tl_in,qt_in,p_theta_levels,         &
+!$OMP  SHARED(nlevels,tdims,repsilon,r,g,cpd,q,t,qt3d,tl3d,cfl3d,qcl3d,alphl,   &
+!$OMP  kappa,sskew,svar_turb,svar_bm,tl_in,qt_in,p_theta_levels,                &
 !$OMP  svar_ini,l_mixing_ratio,lqc_max,lqc_min,bl_w_var,                       &
 !$OMP  kez_top,kez_bottom,kez_inv,tau_dec_bm,tau_hom_bm,tau_mph_bm,            &
 !$OMP  cfl,cf,cff,qcl,qcf,i_pc2_init_logic,r_theta_levels,                     &
@@ -523,6 +530,7 @@ end select  ! ( i_bm_ez_opt )
 !$OMP  tl_below, qt_below, wvar_below, tau_dec_below, tau_hom_below,           &
 !$OMP  dtldz_below, dqtdz_below,                                               &
 !$OMP  ql_mean, l_calc_diag,                                                   &
+!$OMP  cpv_cpml, cl_cpml,                                                      &
 !$OMP  sl_modes, qw_modes, rh_modes, sd_modes, entzone)                        &
 !$OMP  private(j,i,kk,qsl,qsi,alphal,alx,tlx,mux,sigx,deltacl_c,qc_points,idx, &
 !$OMP  deltacf_c,cf_c,cfl_c,cff_c,deltaql_c,qnx_min,qnx_max,                   &
@@ -601,17 +609,18 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
       qsl_lay(i,j,2) = qsl
       qsi_lay(i,j,2) = qsi
       alphal = alphl * qsl / (tl_in(i,j,k) * tl_in(i,j,k))
-      alx  = 1.0 / (1.0 + (lcrcp * alphal))
+      alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                         &
+                           * (tl_in(i,j,k) - tm)) / cpd) * alphal))
 
       if ( l_bm_sigma_s_grad ) then
         ! Account for local gradients in calculation of sigma_S
         sigx(i,2) = alx * sqrt(svar_ini(i,j,2))                                &
-                        * abs( alphal*( g/cp + dtldz_lay(i,j,2) )              &
+                        * abs( alphal*( g/cpd + dtldz_lay(i,j,2) )              &
                              - dqtdz_lay(i,j,2) ) * turb_var_fac_bm
       else
         ! Don't account for local gradients
         sigx(i,2) = alx * sqrt(svar_ini(i,j,2))                                &
-                        * alphal*g/cp * turb_var_fac_bm
+                        * alphal*g/cpd * turb_var_fac_bm
       end if
       ! Impose minimum variance
       tmp = min_sigx_fac * max( ql_mean(i,j,k) - ql_lay(i,j,2), 0.0 )
@@ -770,17 +779,18 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,3)
         alphal = alphl*qsl / (tl_lay(i,j,3)*tl_lay(i,j,3))
-        alx = 1.0 / (1.0 + (lcrcp * alphal))
+        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+                           * (tl_lay(i,j,3) - tm)) / cpd) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
           ! Account for local gradients in calculation of sigma_S
           sigx(i,3) = alx * sqrt(svar_ini(i,j,3))                              &
-                          * abs( alphal*( g/cp + dtldz_lay(i,j,3) )            &
+                          * abs( alphal*( g/cpd + dtldz_lay(i,j,3) )            &
                                - dqtdz_lay(i,j,3) ) * turb_var_fac_bm
         else
           ! Don't account for local gradients
           sigx(i,3) = alx * sqrt(svar_ini(i,j,3))                              &
-                          * alphal*g/cp * turb_var_fac_bm
+                          * alphal*g/cpd * turb_var_fac_bm
         end if
         ! Impose minimum variance
         tmp = min_sigx_fac * max( ql_mean(i,j,k) - ql_lay(i,j,3), 0.0 )
@@ -800,17 +810,18 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,1)
         alphal = alphl*qsl / (tl_lay(i,j,1)*tl_lay(i,j,1))
-        alx = 1.0 / (1.0 + (lcrcp * alphal))
+        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+                           * (tl_lay(i,j,1) - tm)) / cpd) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
           ! Account for local gradients in calculation of sigma_S
           sigx(i,1) = alx * sqrt(svar_ini(i,j,1))                              &
-                          * abs( alphal*( g/cp + dtldz_lay(i,j,1) )            &
+                          * abs( alphal*( g/cpd + dtldz_lay(i,j,1) )            &
                                - dqtdz_lay(i,j,1) ) * turb_var_fac_bm
         else
           ! Don't account for local gradients
           sigx(i,1) = alx * sqrt(svar_ini(i,j,1))                              &
-                          * alphal*g/cp * turb_var_fac_bm
+                          * alphal*g/cpd * turb_var_fac_bm
         end if
         ! Impose minimum variance
         tmp = min_sigx_fac * max( ql_mean(i,j,k) - ql_lay(i,j,1), 0.0 )
@@ -836,8 +847,9 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
 
         ! Copy properties of middle mode, from current level
         alphal = alphl * qsl_lay(i,j,2) / (tl_lay(i,j,2) * tl_lay(i,j,2))
-        alx  = 1.0 / (1.0 + (lcrcp * alphal))
-        sl_modes(i,j,k,2) = tl_lay(i,j,2) + (g/cp) * z_theta(i,j,k)
+        alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                       &
+                            * (tl_lay(i,j,2) - tm)) / cpd) * alphal))
+        sl_modes(i,j,k,2) = tl_lay(i,j,2) + (g/cpd) * z_theta(i,j,k)
         qw_modes(i,j,k,2) = ql_lay(i,j,2)
         rh_modes(i,j,k,2) = ql_lay(i,j,2) / qsl_lay(i,j,2)
         sd_modes(i,j,k,2) = sigx(i,2) / ( alx * qsl_lay(i,j,2) )
@@ -846,15 +858,17 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
           ! Modes from above and below defined;
           ! Copy properties of mode from below
           alphal = alphl * qsl_lay(i,j,1) / (tl_lay(i,j,1) * tl_lay(i,j,1))
-          alx  = 1.0 / (1.0 + (lcrcp * alphal))
-          sl_modes(i,j,k,1) = tl_lay(i,j,1) + (g/cp) * z_theta(i,j,k)
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+                              * (tl_lay(i,j,1) - tm)) / cpd) * alphal))
+          sl_modes(i,j,k,1) = tl_lay(i,j,1) + (g/cpd) * z_theta(i,j,k)
           qw_modes(i,j,k,1) = ql_lay(i,j,1)
           rh_modes(i,j,k,1) = ql_lay(i,j,1) / qsl_lay(i,j,1)
           sd_modes(i,j,k,1) = sigx(i,1) / ( alx * qsl_lay(i,j,1) )
           ! Copy properties of mode from above
           alphal = alphl * qsl_lay(i,j,3) / (tl_lay(i,j,3) * tl_lay(i,j,3))
-          alx  = 1.0 / (1.0 + (lcrcp * alphal))
-          sl_modes(i,j,k,3) = tl_lay(i,j,3) + (g/cp) * z_theta(i,j,k)
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+                              * (tl_lay(i,j,3) - tm)) / cpd) * alphal))
+          sl_modes(i,j,k,3) = tl_lay(i,j,3) + (g/cpd) * z_theta(i,j,k)
           qw_modes(i,j,k,3) = ql_lay(i,j,3)
           rh_modes(i,j,k,3) = ql_lay(i,j,3) / qsl_lay(i,j,3)
           sd_modes(i,j,k,3) = sigx(i,3) / ( alx * qsl_lay(i,j,3) )
@@ -1014,8 +1028,8 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
           ! qc = al ( q + qcl - qsl(Tl) )
           ! sd = al ( qsl(T) - q )
           ! qc + sd = al ( qcl + qsl(T) - qsl(Tl) )
-          !         = al ( qcl + qsl(T) - qsl(T) + alpha lcrcp qcl )
-          !         = al qcl ( 1 + alpha lcrcp )
+          !         = al ( qcl + qsl(T) - qsl(T) + alpha lcrcp_moist qcl )
+          !         = al qcl ( 1 + alpha lcrcp_moist )
           !         = qcl
           ! => sd = qcl - qc
 
@@ -1026,7 +1040,8 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
             call qsat_wat(qsl,tlx,p_theta_levels(idx(i,1),idx(i,2),k))
           end if
           alphal = alphl * qsl / (tlx * tlx)
-          alx  = 1.0 / (1.0 + (lcrcp * alphal))
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+                              * (tlx - tm)) / cpd) * alphal))
           qc = alx * ( qt_in(idx(i,1),idx(i,2),k) - qsl )
 
           if ( qc < 0.0 ) then

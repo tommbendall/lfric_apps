@@ -23,8 +23,9 @@ subroutine bm_cld( p_l, qsl_l, qsi_l, q_l, t_l, inv_thm_l, tdc_l, inv_tmp_l,   &
                    qcl_f, qcf_f, cfl_f, cff_f, cf_f, cfl_max, q_f, t_f,        &
                    sskew, svar_turb, svar_bm, indx,points, l_mixing_ratio)
 
-use water_constants_mod,  only: lc, lf
-use planet_constants_mod, only: lcrcp, r, repsilon, g, cp
+use water_constants_mod,  only: lc, lf, tm
+use planet_constants_mod, only: r, repsilon, g, cpd => cp
+use lsc_cpml_mod,         only: cpv_cpml, cl_cpml
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims, pdims
@@ -415,7 +416,8 @@ do i = 1, points
 
       do kk=idn,iup
         ! Latent heating correction term:
-        al(kk)     = 1.0 / (1.0 + (lcrcp * alphal(kk)))
+        al(kk)     = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                 &
+                                   * (t_l(ii,ij,kk) - tm)) / cpd) * alphal(kk)))
         ! first moment of pure liquid SD distribution for each mode:
         mullay(kk) = al(kk)*(q_l(ii,ij,kk)-qsl_l(ii,ij,kk))
         ! first moment of mixed-phase liquid SD distribution for each mode,
@@ -426,11 +428,11 @@ do i = 1, points
                      (inv_thm_l(ii,ij,kk)+inv_tmp_l(ii,ij,kk)))
         if ( l_bm_sigma_s_grad ) then
           ! Account for local gradients in calculation of sigma_s
-          sgllay(kk) = al(kk) * abs( alphal(kk)*( g/cp + dtldz_l(ii,ij,kk) )   &
+          sgllay(kk) = al(kk) * abs( alphal(kk)*( g/cpd + dtldz_l(ii,ij,kk) )   &
                                    - dqtdz_l(ii,ij,kk) ) * turb_var_fac_bm     &
                      * sqrt( 0.5*wvar_l(ii,ij,kk) * tdc_l(ii,ij,kk)            &
                            / inv_thm_l(ii,ij,kk) )
-          sgilay(kk) = al(kk) * abs( alphai(kk)*( g/cp + dtldz_l(ii,ij,kk) )   &
+          sgilay(kk) = al(kk) * abs( alphai(kk)*( g/cpd + dtldz_l(ii,ij,kk) )   &
                                    - dqtdz_l(ii,ij,kk) ) * turb_var_fac_bm     &
                      * sqrt( 0.5*wvar_l(ii,ij,kk) * tdc_l(ii,ij,kk)            &
                            / ( inv_tmp_l(ii,ij,kk) + inv_thm_l(ii,ij,kk) ) )
@@ -438,12 +440,12 @@ do i = 1, points
           ! Don't account for local gradients
           ! standard deviation of liquid SD distribution for each mode (ignoring
           ! phase-relaxation time scale):
-          sgllay(kk) = al(kk)*alphal(kk)*g/cp * turb_var_fac_bm                &
+          sgllay(kk) = al(kk)*alphal(kk)*g/cpd * turb_var_fac_bm                &
                        *sqrt(0.5*wvar_l(ii,ij,kk)*tdc_l(ii,ij,kk)              &
                              /inv_thm_l(ii,ij,kk))
           ! standard deviation of ice SD distribution for each mode (including
           ! phase-relaxation time scale):
-          sgilay(kk) = al(kk)*alphai(kk)*g/cp * turb_var_fac_bm                &
+          sgilay(kk) = al(kk)*alphai(kk)*g/cpd * turb_var_fac_bm                &
                        *sqrt(0.5*wvar_l(ii,ij,kk)*tdc_l(ii,ij,kk)              &
                              /(inv_tmp_l(ii,ij,kk)+inv_thm_l(ii,ij,kk)))
         end if
@@ -739,11 +741,17 @@ do i = 1, points
       ! ----------------------------------------------------------------------
 
       do kk=idn,iup
-        t(i,kk) = t_l(ii,ij,kk) + lcrcp*qcl(kk)
+        t(i,kk) = t_l(ii,ij,kk) +                                              &
+                  ((lc - (cl_cpml - cpv_cpml) * (t_l(ii,ij,kk) - tm)) /       &
+                   (cpd + (q_l(ii,ij,kk)-qcl(kk))*cpv_cpml + qcl(kk)*cl_cpml)) &
+                  * qcl(kk)
         p(i,kk) = p_l(ii,ij)
       end do
 
-      t_f(ii,ij) = t_l(ii,ij,ikk) + lcrcp*qcl_f(ii,ij)
+      t_f(ii,ij) = t_l(ii,ij,ikk) +                                            &
+                   ((lc - (cl_cpml - cpv_cpml) * (t_l(ii,ij,ikk) - tm)) /     &
+                    (cpd + (q_l(ii,ij,ikk)-qcl_f(ii,ij))*cpv_cpml              &
+                        + qcl_f(ii,ij)*cl_cpml)) * qcl_f(ii,ij)
       q_f(ii,ij) = q_l(ii,ij,ikk) - qcl_f(ii,ij)
 
     end if ! T_if

@@ -30,13 +30,14 @@ subroutine pc2_hom_conv(                                                       &
 !      Other quantities for the turbulence
  pc2mixingrate, dbsdtbs1 )
 
-use water_constants_mod,   only: lc
-use planet_constants_mod,  only: lcrcp, r, repsilon
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: r, repsilon, cpd => cp
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use cloud_inputs_mod,      only: i_pc2_erosion_method, i_pc2_erosion_numerics, &
-     l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph, i_pc2_homog_g_method
+  l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph, i_pc2_homog_g_method
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 use pc2_constants_mod,     only: pc2eros_exp_rh,                               &
      pc2eros_hybrid_sidesonly,                                                 &
      i_pc2_erosion_explicit, i_pc2_erosion_implicit, i_pc2_erosion_analytic,   &
@@ -188,6 +189,12 @@ real(kind=real_umphys) ::                                                      &
 !       the saturation boundary (kg kg-1)-1
    qc,                                                                         &
 !       aL (q + l - qsat(TL) )  (kg kg-1)
+  L_con_val,                                                                  &
+!       Temperature-dependent latent heat of condensation (J/kg)
+  cp_moist_val,                                                               &
+!       Moist-air specific heat at constant pressure (J/kg/K)
+  lcrcp_moist,                                                                &
+!       L_con / cp_moist (K)
    sd,                                                                         &
 !       Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
    dcs
@@ -266,8 +273,11 @@ do j = tdims%j_start, tdims%j_end
       ! Need to estimate the rate of change of saturated specific humidity
       ! with respect to temperature (alpha) first, then use this to calculate
       ! factor aL. Also estimate the rate of change of qsat with pressure.
-      alpha   = repsilon*lc*qsl_t / (r*t(i,j)**2)
-      al      = 1.0 / ( 1.0 + lcrcp * alpha )
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j) - tm)
+      cp_moist_val = cpd + q(i,j)*cpv_cpml + qcl(i,j)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      alpha   = repsilon*L_con_val*qsl_t / (r*t(i,j)**2)
+      al      = 1.0 / ( 1.0 + lcrcp_moist * alpha )
       alpha_p = -qsl_t / p_theta_levels(i,j)
 
       ! Calculate the saturation deficit SD
@@ -332,7 +342,7 @@ do j = tdims%j_start, tdims%j_end
       dqcdt = dqcdt - al * dcs * (qsl_t-q(i,j))
 
       ! Calculate Qc
-      tl = t(i,j)-lcrcp*qcl(i,j)
+      tl = t(i,j)-lcrcp_moist*qcl(i,j)
       if ( l_mr_physics ) then
         call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j))
       else
@@ -457,8 +467,11 @@ do j = tdims%j_start, tdims%j_end
         call qsat_wat(qsl_t, t(i,j), p_theta_levels(i,j))
       end if
 
-      alpha   = repsilon * lc * qsl_t / (r * t(i,j)**2)
-      al      = 1.0 / (1.0 + lcrcp*alpha)
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j) - tm)
+      cp_moist_val = cpd + q(i,j)*cpv_cpml + qcl(i,j)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      alpha   = repsilon * L_con_val * qsl_t / (r * t(i,j)**2)
+      al      = 1.0 / (1.0 + lcrcp_moist*alpha)
       alpha_p = -qsl_t / p_theta_levels(i,j)
       deltal  = al * (dqin(i,j) - alpha*dtin(i,j)                              &
             -alpha_p*dpdt(i,j)) + dqclin(i,j)
@@ -470,7 +483,9 @@ do j = tdims%j_start, tdims%j_end
       dcfpc2(i,j)  = 0.0
       dcflpc2(i,j) = 0.0
 
-      deltal         = 0.0
+      deltal       = 0.0
+      lcrcp_moist  = 0.0
+
 
     end if
 
@@ -785,7 +800,7 @@ do j = tdims%j_start, tdims%j_end
     end if
 
     dqpc2(i,j)   = - dqclpc2(i,j)
-    dtpc2(i,j)   = lcrcp * dqclpc2(i,j)
+    dtpc2(i,j) = lcrcp_moist * dqclpc2(i,j)
 
   end do  ! i
 end do  ! j

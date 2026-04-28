@@ -24,12 +24,13 @@ subroutine ls_cld_c(                                                           &
  indx,points,rhc_row_length,rhc_rows,                                          &
  bl_levels,k, l_mixing_ratio)
 
-use water_constants_mod,  only: lc
-use planet_constants_mod, only: lcrcp, r, repsilon
+use water_constants_mod,  only: lc, tm
+use planet_constants_mod, only: cpd => cp, r, repsilon
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims
 use cloud_inputs_mod,     only: i_eacf, all_clouds
+use lsc_cpml_mod,         only: cpv_cpml, cl_cpml
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
 implicit none
@@ -125,6 +126,12 @@ real(kind=real_umphys) ::                                                      &
                        ! LOCAL AL (see equation P292.6).
  alphal,                                                                       &
                        ! LOCAL ALPHAL (see equation P292.5).
+ L_con_val,                                                                    &
+                       ! Temperature-dependent latent heat of condensation
+ cp_moist_val,                                                                 &
+                       ! Moist air heat capacity at constant pressure
+ lcrcp_moist,                                                                  &
+                       ! L_con / cp_moist
  qn_adj,                                                                       &
  rhcritx          ! scalar copy of RHCRIT(I,J)
 integer ::                                                                     &
@@ -191,8 +198,11 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  alphal = alphl * qsl_f(ii,ij) / (t_f(ii,ij) * t_f(ii,ij)) !P292.5
-  al = 1.0 / (1.0 + (lcrcp * alphal))                    ! P292.6
+  L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_f(ii,ij) - tm)
+  cp_moist_val = cpd + q_f(ii,ij)*cpv_cpml
+  lcrcp_moist  = L_con_val / cp_moist_val
+  alphal = repsilon * L_con_val * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
+  al = 1.0 / (1.0 + (lcrcp_moist * alphal))
   alphal_nm1(i) = alphal
 
   ! Rhcrit_if1:
@@ -268,7 +278,7 @@ do i = 1, points
   ! 3.3 Calculate 1st approx. to temperature, adjusting for latent heating
   ! ----------------------------------------------------------------------
 
-  t(i) = t_f(ii,ij) + lcrcp*qcl_f(ii,ij)
+  t(i) = t_f(ii,ij) + lcrcp_moist*qcl_f(ii,ij)
 end do ! Points_do1
 
 ! ----------------------------------------------------------------------
@@ -302,7 +312,10 @@ if (its  >=  2) then
         alphal = (qs - qsl_f(ii,ij)) / (t(i) - t_f(ii,ij))
         alphal = wtn * alphal + (1.0 - wtn) * alphal_nm1(i)
         alphal_nm1(i) = alphal
-        al = 1.0 / (1.0 + (lcrcp * alphal))
+        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
+        cp_moist_val = cpd + q(i)*cpv_cpml + qcl_f(ii,ij)*cl_cpml
+        lcrcp_moist  = L_con_val / cp_moist_val
+        al = 1.0 / (1.0 + (lcrcp_moist * alphal))
         ! Rhcrit_if2:
         if (rhcritx  <   1.0) then
           bs(i) = (1.0-rhcritx) * al * qsl_f(ii,ij)
@@ -327,7 +340,7 @@ if (its  >=  2) then
         ! 4.3 Calculate Nth approx. to temperature, adjusting for latent heating
         ! ----------------------------------------------------------------------
 
-        t(i) = t_f(ii,ij) + lcrcp * qcl_f(ii,ij)
+        t(i) = t_f(ii,ij) + lcrcp_moist * qcl_f(ii,ij)
 
       end if ! T_if
     end do ! Points_do2

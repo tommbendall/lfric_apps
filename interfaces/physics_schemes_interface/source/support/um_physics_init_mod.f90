@@ -117,7 +117,12 @@ module um_physics_init_mod
                                     i_pc2_erosion_numerics_implicit,           &
                                     i_pc2_erosion_numerics_analytic,           &
                                     i_bm_ez_opt_orig, i_bm_ez_opt_subcrit,     &
-                                    i_bm_ez_opt_entpar
+                                    i_bm_ez_opt_entpar,                        &
+                                    lsc_moist_heat_cap_in                      &
+                                      => lsc_moist_heat_cap,                   &
+                                    lsc_moist_heat_cap_none,                   &
+                                    lsc_moist_heat_cap_dry,                    &
+                                    lsc_moist_heat_cap_moist
 
   use convection_config_mod,     only : cv_scheme,                    &
                                         cv_scheme_gregory_rowntree,   &
@@ -356,7 +361,8 @@ contains
          ent_coef_bm, ez_max_bm, i_bm_ez_opt, l_bm_sigma_s_grad,           &
          l_bm_tweaks, max_sigmas, min_sigx_ft, turb_var_fac_bm,            &
          l_pc2_homog_conv_pressure,                                        &
-         i_bm_ez_orig, i_bm_ez_subcrit, i_bm_ez_entpar
+         i_bm_ez_orig, i_bm_ez_subcrit, i_bm_ez_entpar,                    &
+         lsc_moist_heat_cap
     use cloud_config_mod, only: cld_fsd_hill
     use comorph_um_namelist_mod, only: ass_min_radius, autoc_opt,            &
          cf_conv_fac, coef_auto, col_eff_coef, core_ent_fac, drag_coef_cond, &
@@ -1120,6 +1126,14 @@ contains
             i_pc2_erosion_numerics = i_pc2_erosion_implicit
           case(i_pc2_erosion_numerics_analytic)
             i_pc2_erosion_numerics = i_pc2_erosion_analytic
+        end select
+        select case (lsc_moist_heat_cap_in)
+          case (lsc_moist_heat_cap_none)
+            lsc_moist_heat_cap = lsc_moist_heat_cap_none
+          case (lsc_moist_heat_cap_dry)
+            lsc_moist_heat_cap = lsc_moist_heat_cap_dry
+          case (lsc_moist_heat_cap_moist)
+            lsc_moist_heat_cap = lsc_moist_heat_cap_moist
         end select
 
       case(scheme_bimodal)

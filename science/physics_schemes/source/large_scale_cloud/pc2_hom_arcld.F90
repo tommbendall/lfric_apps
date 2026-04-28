@@ -24,10 +24,12 @@ subroutine pc2_hom_arcld(                                                      &
 !      Logical control
  l_mixing_ratio)
 
-use planet_constants_mod, only: lcrcp
+use water_constants_mod,  only: lc, tm
+use planet_constants_mod, only: cpd => cp
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: pdims,tdims
+use lsc_cpml_mod,         only: cpv_cpml, cl_cpml
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
@@ -123,7 +125,10 @@ real(kind=real_umphys) ::                                                      &
     qt_norm_next,                                                              &
 !       Temporary space for qT_norm
     stretcher,                                                                 &
-    delta_p
+  delta_p,                                                                   &
+  L_con_val,                                                                 &
+  cp_moist_val,                                                              &
+  lcrcp_moist
 !       Layer pressure thickness * inverse_level
 
 real(kind=real_umphys) ::                                                      &
@@ -210,7 +215,10 @@ inverse_level = 1.0 / levels_per_level
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      tl(i,j,k) = t(i,j,k) - lcrcp*qcl(i,j,k)
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
+      tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k)
     end do
   end do
 end do

@@ -80,6 +80,7 @@ i_pc2_erosion_numerics='implicit',
 ice_width=0.02,
 l_bm_sigma_s_grad=.false.,
 l_bm_tweaks=.false.,
+lsc_moist_heat_cap='moist'
 max_sigmas=3.0,
 min_sigx_ft=0.0,
 opt_depth_thresh=0.01,

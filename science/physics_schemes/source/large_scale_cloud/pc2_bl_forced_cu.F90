@@ -31,7 +31,9 @@ use bl_option_mod,         only: kprof_cu, on
 use cloud_inputs_mod,      only: forced_cu_fac, forced_cu
 use mphys_constants_mod,   only: mprog_min
 use pc2_constants_mod,     only: cbl_and_cu, forced_cu_cca
-use planet_constants_mod,  only: lcrcp
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: cpd => cp
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 use wtrac_pc2_mod,         only: wtrac_pc2
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
@@ -111,7 +113,10 @@ real ::                                                                        &
             ! max tolerated forced cloud water content
  cf_base,                                                                      &
             ! forced cloud fraction at cloud base
- zc_depth
+ zc_depth,                                                                     &
+ L_con_val,                                                                    &
+ cp_moist_val,                                                                 &
+ lcrcp_moist
             ! forced cloud depth
 
 real, parameter :: qcl_forced_min = 0.00005
@@ -136,11 +141,11 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do SCHEDULE(DYNAMIC) DEFAULT(none)                              &
 !$OMP SHARED( tdims, zhnl, dzh, zlcl, bl_type_3, z_theta,                      &
 !$OMP         cfl_latest, qcl_inv_top, cf_latest, qcl_latest,                  &
-!$OMP         q_latest, forced_cu_fac, t_latest, lcrcp,                        &
-!$OMP         forced_cu, cca0, ccw0, cct0, ccb0, lcbase0, l_wtrac_bl,          &
-!$OMP         wtrac_pc2)                                                       &
+!$OMP         q_latest, forced_cu_fac, t_latest, forced_cu, cca0, ccw0,        &
+!$OMP         cct0, ccb0, lcbase0, l_wtrac_bl, wtrac_pc2,                      &
+!$OMP         cpd, cpv_cpml, cl_cpml )                                         &
 !$OMP private ( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced,             &
-!$OMP           dqcl, qcl_tol, dcfl )
+!$OMP           dqcl, qcl_tol, dcfl, L_con_val, cp_moist_val, lcrcp_moist )
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
     zc_depth = zhnl(i,j)+dzh(i,j)-zlcl(i,j)
@@ -212,7 +217,11 @@ do j = tdims%j_start, tdims%j_end
                 dqcl = 0.0
               end if
               qcl_latest(i,j,k) = qcl_forced
-              t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp*dqcl
+              L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_latest(i,j,k) - tm)
+              cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpml                    &
+                                  + qcl_latest(i,j,k)*cl_cpml
+              lcrcp_moist  = L_con_val / cp_moist_val
+              t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
               q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
               if (l_wtrac_bl) then
                 wtrac_pc2%q_cond(i,j,k) = dqcl
@@ -242,11 +251,10 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 !$OMP PARALLEL do SCHEDULE(STATIC) DEFAULT(none)                               &
 !$OMP SHARED( tdims, zhnl, zlcl, bl_type_6, z_theta, cfl_latest,               &
 !$OMP         qcl_inv_top, forced_cu_fac, qcl_latest, q_latest,                &
-!$OMP         t_latest, lcrcp, cf_latest,                                      &
-!$OMP         forced_cu, cca0, ccw0, cct0, ccb0, lcbase0, l_wtrac_bl,          &
-!$OMP         wtrac_pc2)                                                       &
+!$OMP         t_latest, cf_latest, forced_cu, cca0, ccw0, cct0, ccb0,          &
+!$OMP         lcbase0, l_wtrac_bl, wtrac_pc2, cpd, cpv_cpml, cl_cpml )         &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &
-!$OMP          qcl_tol, dcfl )
+!$OMP          qcl_tol, dcfl, L_con_val, cp_moist_val, lcrcp_moist )
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       zc_depth = zhnl(i,j)-zlcl(i,j)
@@ -323,7 +331,12 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
                   dqcl = 0.0
                 end if
                 qcl_latest(i,j,k) = qcl_forced
-                t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp*dqcl
+                L_con_val    = lc - (cl_cpml - cpv_cpml)                       &
+                                    * (t_latest(i,j,k) - tm)
+                cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpml                  &
+                                    + qcl_latest(i,j,k)*cl_cpml
+                lcrcp_moist  = L_con_val / cp_moist_val
+                t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
                 q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
                 if (l_wtrac_bl) then
                   wtrac_pc2%q_cond(i,j,k) = wtrac_pc2%q_cond(i,j,k) + dqcl

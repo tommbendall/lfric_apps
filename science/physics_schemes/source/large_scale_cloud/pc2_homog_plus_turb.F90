@@ -31,8 +31,8 @@ subroutine pc2_homog_plus_turb(                                                &
 !   Model switches
  l_mixing_ratio)
 
-use water_constants_mod,   only: lc
-use planet_constants_mod,  only: lcrcp, r, repsilon
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: lcrcp, r, repsilon, cpd => cp
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
@@ -41,6 +41,7 @@ use pc2_constants_mod,     only: dbsdtbs_exp, pdf_power,                       &
                                  i_pc2_homog_g_cf, i_pc2_homog_g_width
 use cloud_inputs_mod,      only: l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph,     &
                                  i_pc2_homog_g_method
+use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
 use science_fixes_mod,     only: l_pc2_homog_turb_q_neg
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 use pc2_total_cf_mod,      only: pc2_total_cf
@@ -180,6 +181,12 @@ real(kind=real_umphys) ::                                                      &
                 ! (1-CFL(i,j,k))**PDF_MERGE_POWER
  qc,                                                                           &
                 ! aL (q + l - qsat(TL) )  (kg kg-1)
+ L_con_val,                                                                    &
+                ! Temperature-dependent latent heat of condensation (J/kg)
+ cp_moist_val,                                                                 &
+                ! Moist-air specific heat at constant pressure (J/kg/K)
+ lcrcp_moist,                                                                  &
+                ! L_con / cp_moist (K)
  sd             ! Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
 
 !  (b) Others.
@@ -235,7 +242,8 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP  PARALLEL do DEFAULT(SHARED) SCHEDULE(DYNAMIC) private(cfl_c,            &
 !$OMP  index_npt, npt, cf_c, cff_c, deltacf_c, qsl_t, tl,                      &
 !$OMP  qsl_tl, alpha, al, alpha_p, sd, g_mqc, dqcdt, dbsdtbs, qc, deltal, i,   &
-!$OMP  j, k, c_1, deltacl_c, cfl_to_m, sky_to_m)
+!$OMP  j, k, c_1, deltacl_c, cfl_to_m, sky_to_m, L_con_val,                     &
+!$OMP  cp_moist_val, lcrcp_moist)
 do k = 1, nlevels
 
   ! Copy points into compressed arrays
@@ -264,6 +272,12 @@ do k = 1, nlevels
   do j = tdims%j_start, tdims%j_end
 
     do i = tdims%i_start, tdims%i_end
+
+      ! Provide safe defaults for all branches before cloud-regime tests.
+      g_mqc = 0.0
+      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+      lcrcp_moist  = L_con_val / cp_moist_val
 
       ! There is no need to perform the total cloud fraction calculation in
       ! this subroutine if there is no, or full, liquid cloud cover.
@@ -294,8 +308,11 @@ do k = 1, nlevels
         ! Need to estimate the rate of change of saturated specific humidity
         ! with respect to temperature (alpha) first, then use this to calculate
         ! factor aL. Also estimate the rate of change of qsat with pressure.
-        alpha=repsilon*lc*qsl_t/(r*t(i,j,k)**2)
-        al=1.0/(1.0+lcrcp*alpha)
+        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        lcrcp_moist  = L_con_val / cp_moist_val
+        alpha=repsilon*L_con_val*qsl_t/(r*t(i,j,k)**2)
+        al=1.0/(1.0+lcrcp_moist*alpha)
         alpha_p = -qsl_t/p_theta_levels(i,j,k)
 
         ! Calculate the saturation deficit SD
@@ -344,7 +361,7 @@ do k = 1, nlevels
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! wet bulb temperature.
-        tl = t(i,j,k)-lcrcp*qcl(i,j,k)
+        tl = t(i,j,k)-lcrcp_moist*qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else
@@ -410,8 +427,11 @@ do k = 1, nlevels
           call qsat_wat(qsl_t, t(i,j,k), p_theta_levels(i,j,k))
         end if
 
-        alpha=repsilon*lc*qsl_t/(r*t(i,j,k)**2)
-        al=1.0/(1.0+lcrcp*alpha)
+        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        lcrcp_moist  = L_con_val / cp_moist_val
+        alpha=repsilon*L_con_val*qsl_t/(r*t(i,j,k)**2)
+        al=1.0/(1.0+lcrcp_moist*alpha)
         alpha_p = -qsl_t/p_theta_levels(i,j,k)
         deltal=al * (dqdt(i,j,k)-alpha*dtdt(i,j,k)                             &
                      -alpha_p*dpdt(i,j,k)) + dldt(i,j,k)
@@ -458,8 +478,8 @@ do k = 1, nlevels
                   - (deltal - dldt(i,j,k))
 
       ! Update temperature due to latent heating
-      t(i,j,k)   = t(i,j,k)   + dtdt(i,j,k)                                    &
-                    + lcrcp * (deltal - dldt(i,j,k))
+      t(i,j,k) = t(i,j,k) + dtdt(i,j,k)                                        &
+                 + lcrcp_moist * (deltal - dldt(i,j,k))
 
       if (l_wtrac) wtrac_pc2%q_cond(i,j,k) = deltal
     end do !i
