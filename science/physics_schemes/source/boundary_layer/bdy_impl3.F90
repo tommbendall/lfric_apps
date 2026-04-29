@@ -45,8 +45,7 @@ subroutine bdy_impl3 (                                                         &
 use atm_fields_bounds_mod, only:                                               &
  udims, vdims, udims_s, vdims_s, pdims, tdims, tdims_l
 use bl_option_mod, only: one
-use planet_constants_mod, only: lcrcp => lcrcp_bl, lsrcp => lsrcp_bl,          &
-     cp_bl
+use planet_constants_mod, only: cp_bl
 use water_constants_mod, only: lc, tm, lf
 use bl_cpml_mod, only: cpv_cpml_bl, cl_cpml_bl, ci_cpml_bl
 use vectlib_mod, only: oneover_v => oneover_v_interface
@@ -363,7 +362,7 @@ tdims_seg_block = min(tdims_omp_block, tdims%i_len)
 !$OMP  cq_cm_u_1,cq_cm_v_1,du_1,dv_1,                                          &
 !$OMP  dqw1_1,dtl1_1,ctctq1_1,                                                 &
 !$OMP  ct_prod, cu_prod, cv_prod,k_blend_tq,k_blend_u,k_blend_v,               &
-!$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,lcrcp,lsrcp,             &
+!$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,                          &
 !$OMP  cp_bl,cpv_cpml_bl,cl_cpml_bl,ci_cpml_bl,lc_bl,lf_bl,tm_bl)              &
 !$OMP  private(k,j,i,r_sq,rbt,temp,temp_u,temp_v,l,temp_out,temp_u_out,        &
 !$OMP  temp_v_out,at,am,rbm,rr_sq,ii,gamma1_uv,gamma2_uv,                      &
@@ -380,7 +379,7 @@ if ( l_correct ) then
                       + qcf_latest(i,j,k)                                      &
                       - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)
 
-        ! Calculate temperature-dependent CPML coefficients
+        ! CPML coefficients at latest time level
         L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
         L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
         cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpml_bl                     &
@@ -389,10 +388,22 @@ if ( l_correct ) then
         lcrcp_moist  = L_con_val / cp_moist_val
         lsrcp_moist  = L_sub_val / cp_moist_val
 
+        ! For now store TL_latest in dtl_nt
         dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
              - lcrcp_moist * qcl_latest(i,j,k)                                 &
-             - lsrcp_moist * qcf_latest(i,j,k)                                 &
-             - ( t(i,j,k) - lcrcp*qcl(i,j,k) - lsrcp*qcf(i,j,k) )
+             - lsrcp_moist * qcf_latest(i,j,k)
+
+        ! CPML coefficients at old time level
+        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                            &
+                     + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
+
+        ! Now subtract original TL so that dtl_nt is the difference in TL
+        dtl_nt(i,j,k) = dtl_nt(i,j,k)                                          &
+             - ( t(i,j,k) - lcrcp_moist*qcl(i,j,k) - lsrcp_moist*qcf(i,j,k) )
       end do
     end do
   end do
