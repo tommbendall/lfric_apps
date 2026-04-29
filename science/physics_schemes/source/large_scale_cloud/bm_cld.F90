@@ -25,7 +25,7 @@ subroutine bm_cld( p_l, qsl_l, qsi_l, q_l, t_l, inv_thm_l, tdc_l, inv_tmp_l,   &
 
 use water_constants_mod,  only: lc, lf, tm
 use planet_constants_mod, only: r, repsilon, g, cpd => cp
-use lsc_cpml_mod,         only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,         only: cpv_cpm, cl_cpm
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims, pdims
@@ -416,7 +416,7 @@ do i = 1, points
 
       do kk=idn,iup
         ! Latent heating correction term:
-        al(kk)     = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                 &
+        al(kk)     = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                 &
                                    * (t_l(ii,ij,kk) - tm)) / cpd) * alphal(kk)))
         ! first moment of pure liquid SD distribution for each mode:
         mullay(kk) = al(kk)*(q_l(ii,ij,kk)-qsl_l(ii,ij,kk))
@@ -742,16 +742,16 @@ do i = 1, points
 
       do kk=idn,iup
         t(i,kk) = t_l(ii,ij,kk) +                                              &
-                  ((lc - (cl_cpml - cpv_cpml) * (t_l(ii,ij,kk) - tm)) /       &
-                   (cpd + (q_l(ii,ij,kk)-qcl(kk))*cpv_cpml + qcl(kk)*cl_cpml)) &
+                  ((lc - (cl_cpm - cpv_cpm) * (t_l(ii,ij,kk) - tm)) /       &
+                   (cpd + (q_l(ii,ij,kk)-qcl(kk))*cpv_cpm + qcl(kk)*cl_cpm)) &
                   * qcl(kk)
         p(i,kk) = p_l(ii,ij)
       end do
 
       t_f(ii,ij) = t_l(ii,ij,ikk) +                                            &
-                   ((lc - (cl_cpml - cpv_cpml) * (t_l(ii,ij,ikk) - tm)) /     &
-                    (cpd + (q_l(ii,ij,ikk)-qcl_f(ii,ij))*cpv_cpml              &
-                        + qcl_f(ii,ij)*cl_cpml)) * qcl_f(ii,ij)
+                   ((lc - (cl_cpm - cpv_cpm) * (t_l(ii,ij,ikk) - tm)) /     &
+                    (cpd + (q_l(ii,ij,ikk)-qcl_f(ii,ij))*cpv_cpm              &
+                        + qcl_f(ii,ij)*cl_cpm)) * qcl_f(ii,ij)
       q_f(ii,ij) = q_l(ii,ij,ikk) - qcl_f(ii,ij)
 
     end if ! T_if

@@ -43,7 +43,7 @@ use cloud_inputs_mod,      only: i_pc2_init_logic, cloud_pc2_tol,              &
                                  i_bm_ez_opt, i_bm_ez_orig, i_bm_ez_subcrit,   &
                                  i_bm_ez_entpar, turb_var_fac_bm, max_sigmas,  &
                                  min_sigx_ft, min_sigx_fac
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use qsat_mod,              only: qsat_wat, qsat_wat_mix, qsat, qsat_mix
 
 use pc2_total_cf_mod,    only: pc2_total_cf
@@ -440,7 +440,7 @@ alphl=repsilon*lc/r
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED(nlevels,tdims,qt_in,tl_in,qt3d,tl3d,q,qcl,t,qcl3d,cfl3d,           &
-!$OMP qcf,qcf3d,cff3d,cf3d,cff,cfl_max,cpd,cl_cpml,cpv_cpml)                                        &
+!$OMP qcf,qcf3d,cff3d,cf3d,cff,cfl_max,cpd,cl_cpm,cpv_cpm)                                        &
 !$OMP private(k,j,i)
 !$OMP do SCHEDULE(STATIC)
 do k = 1, nlevels
@@ -448,13 +448,13 @@ do k = 1, nlevels
     do i = tdims%i_start, tdims%i_end
       qt_in(i,j,k)     = q(i,j,k)+qcl(i,j,k)
       tl_in(i,j,k)     = t(i,j,k) -                                            &
-                         ((lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)) /      &
-                          (cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml))       &
+                         ((lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)) /      &
+                          (cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm))       &
                          * qcl(i,j,k)
       qt3d(i,j,k)      = q(i,j,k)+qcl(i,j,k)
       tl3d(i,j,k)      = t(i,j,k) -                                            &
-                         ((lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)) /      &
-                          (cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml))       &
+                         ((lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)) /      &
+                          (cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm))       &
                          * qcl(i,j,k)
       cff3d(i,j,k)     = cff(i,j,k)
       qcf3d(i,j,k)     = qcf(i,j,k)
@@ -530,7 +530,7 @@ end select  ! ( i_bm_ez_opt )
 !$OMP  tl_below, qt_below, wvar_below, tau_dec_below, tau_hom_below,           &
 !$OMP  dtldz_below, dqtdz_below,                                               &
 !$OMP  ql_mean, l_calc_diag,                                                   &
-!$OMP  cpv_cpml, cl_cpml,                                                      &
+!$OMP  cpv_cpm, cl_cpm,                                                      &
 !$OMP  sl_modes, qw_modes, rh_modes, sd_modes, entzone)                        &
 !$OMP  private(j,i,kk,qsl,qsi,alphal,alx,tlx,mux,sigx,deltacl_c,qc_points,idx, &
 !$OMP  deltacf_c,cf_c,cfl_c,cff_c,deltaql_c,qnx_min,qnx_max,                   &
@@ -609,7 +609,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
       qsl_lay(i,j,2) = qsl
       qsi_lay(i,j,2) = qsi
       alphal = alphl * qsl / (tl_in(i,j,k) * tl_in(i,j,k))
-      alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                         &
+      alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                         &
                            * (tl_in(i,j,k) - tm)) / cpd) * alphal))
 
       if ( l_bm_sigma_s_grad ) then
@@ -779,7 +779,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,3)
         alphal = alphl*qsl / (tl_lay(i,j,3)*tl_lay(i,j,3))
-        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
                            * (tl_lay(i,j,3) - tm)) / cpd) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
@@ -810,7 +810,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,1)
         alphal = alphl*qsl / (tl_lay(i,j,1)*tl_lay(i,j,1))
-        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
                            * (tl_lay(i,j,1) - tm)) / cpd) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
@@ -847,7 +847,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
 
         ! Copy properties of middle mode, from current level
         alphal = alphl * qsl_lay(i,j,2) / (tl_lay(i,j,2) * tl_lay(i,j,2))
-        alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                       &
+        alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
                             * (tl_lay(i,j,2) - tm)) / cpd) * alphal))
         sl_modes(i,j,k,2) = tl_lay(i,j,2) + (g/cpd) * z_theta(i,j,k)
         qw_modes(i,j,k,2) = ql_lay(i,j,2)
@@ -858,7 +858,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
           ! Modes from above and below defined;
           ! Copy properties of mode from below
           alphal = alphl * qsl_lay(i,j,1) / (tl_lay(i,j,1) * tl_lay(i,j,1))
-          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
                               * (tl_lay(i,j,1) - tm)) / cpd) * alphal))
           sl_modes(i,j,k,1) = tl_lay(i,j,1) + (g/cpd) * z_theta(i,j,k)
           qw_modes(i,j,k,1) = ql_lay(i,j,1)
@@ -866,7 +866,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
           sd_modes(i,j,k,1) = sigx(i,1) / ( alx * qsl_lay(i,j,1) )
           ! Copy properties of mode from above
           alphal = alphl * qsl_lay(i,j,3) / (tl_lay(i,j,3) * tl_lay(i,j,3))
-          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
                               * (tl_lay(i,j,3) - tm)) / cpd) * alphal))
           sl_modes(i,j,k,3) = tl_lay(i,j,3) + (g/cpd) * z_theta(i,j,k)
           qw_modes(i,j,k,3) = ql_lay(i,j,3)
@@ -1040,7 +1040,7 @@ do k = nlevels, 1, -1   ! need to work down for cfl_max
             call qsat_wat(qsl,tlx,p_theta_levels(idx(i,1),idx(i,2),k))
           end if
           alphal = alphl * qsl / (tlx * tlx)
-          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
                               * (tlx - tm)) / cpd) * alphal))
           qc = alx * ( qt_in(idx(i,1),idx(i,2),k) - qsl )
 

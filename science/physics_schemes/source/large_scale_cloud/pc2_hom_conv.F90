@@ -37,7 +37,7 @@ use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use cloud_inputs_mod,      only: i_pc2_erosion_method, i_pc2_erosion_numerics, &
   l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph, i_pc2_homog_g_method
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use pc2_constants_mod,     only: pc2eros_exp_rh,                               &
      pc2eros_hybrid_sidesonly,                                                 &
      i_pc2_erosion_explicit, i_pc2_erosion_implicit, i_pc2_erosion_analytic,   &
@@ -273,8 +273,8 @@ do j = tdims%j_start, tdims%j_end
       ! Need to estimate the rate of change of saturated specific humidity
       ! with respect to temperature (alpha) first, then use this to calculate
       ! factor aL. Also estimate the rate of change of qsat with pressure.
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j) - tm)
-      cp_moist_val = cpd + q(i,j)*cpv_cpml + qcl(i,j)*cl_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
+      cp_moist_val = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       alpha   = repsilon*L_con_val*qsl_t / (r*t(i,j)**2)
       al      = 1.0 / ( 1.0 + lcrcp_moist * alpha )
@@ -467,8 +467,8 @@ do j = tdims%j_start, tdims%j_end
         call qsat_wat(qsl_t, t(i,j), p_theta_levels(i,j))
       end if
 
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j) - tm)
-      cp_moist_val = cpd + q(i,j)*cpv_cpml + qcl(i,j)*cl_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
+      cp_moist_val = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       alpha   = repsilon * L_con_val * qsl_t / (r * t(i,j)**2)
       al      = 1.0 / (1.0 + lcrcp_moist*alpha)

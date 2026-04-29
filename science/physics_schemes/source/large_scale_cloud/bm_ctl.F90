@@ -42,7 +42,7 @@ use cloud_inputs_mod,      only: ice_fraction_method, cloud_top_temp,          &
                                  min_sigx_ft, min_sigx_fac
 use planet_constants_mod,  only: g,r,kappa, repsilon,cpd => cp
 use water_constants_mod,   only: lc, tm
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use pc2_constants_mod,     only: bm_tiny
 use ereport_mod,           only: ereport
 use errormessagelength_mod,only: errormessagelength
@@ -464,7 +464,7 @@ end if
 !$OMP        cfl_max,kappa,repsilon,lcld,alphl,kez_top,kez_bottom,kez_inv,t,q, &
 !$OMP        tau_dec_bm,tau_hom_bm,tau_mph_bm,bl_w_var,l_bm_sigma_s_grad,      &
 !$OMP        i_bm_ez_opt, turb_var_fac_bm, mix_len_bm, max_sigmas,             &
-!$OMP        min_sigx_ft, min_sigx_fac, cpv_cpml, cl_cpml,                     &
+!$OMP        min_sigx_ft, min_sigx_fac, cpv_cpm, cl_cpm,                     &
 !$OMP        tl_above, qt_above, wvar_above, tau_dec_above, tau_hom_above,     &
 !$OMP        dtldz_above, dqtdz_above,                                         &
 !$OMP        tl_below, qt_below, wvar_below, tau_dec_below, tau_hom_below,     &
@@ -580,7 +580,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       qsi_lay(i,j,2) = qsi_v(i)
 
       alphal = alphl * qsl_v(i) / (t_in(i,j,k) * t_in(i,j,k))
-      alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                         &
+      alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                         &
                            * (t_in(i,j,k) - tm)) / cpd) * alphal))
 
       if ( l_bm_sigma_s_grad ) then
@@ -750,7 +750,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,3)
         alphal = alphl*qsl / (tl_lay(i,j,3)*tl_lay(i,j,3))
-        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
                            * (tl_lay(i,j,3) - tm)) / cpd) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
@@ -779,7 +779,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
 
         qsl = qsl_lay(i,j,1)
         alphal = alphl*qsl / (tl_lay(i,j,1)*tl_lay(i,j,1))
-        alx = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                        &
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
                            * (tl_lay(i,j,1) - tm)) / cpd) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
@@ -814,7 +814,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
 
         ! Copy properties of middle mode, from current level
         alphal = alphl * qsl_lay(i,j,2) / (tl_lay(i,j,2) * tl_lay(i,j,2))
-        alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                       &
+        alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
                             * (tl_lay(i,j,2) - tm)) / cpd) * alphal))
         sl_modes(i,j,k,2) = tl_lay(i,j,2) + (g/cpd) * z_theta(i,j,k)
         qw_modes(i,j,k,2) = ql_lay(i,j,2)
@@ -825,7 +825,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           ! Modes from above and below defined;
           ! Copy properties of mode from below
           alphal = alphl * qsl_lay(i,j,1) / (tl_lay(i,j,1) * tl_lay(i,j,1))
-          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
                               * (tl_lay(i,j,1) - tm)) / cpd) * alphal))
           sl_modes(i,j,k,1) = tl_lay(i,j,1) + (g/cpd) * z_theta(i,j,k)
           qw_modes(i,j,k,1) = ql_lay(i,j,1)
@@ -833,7 +833,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           sd_modes(i,j,k,1) = sigx(i,1) / ( alx * qsl_lay(i,j,1) )
           ! Copy properties of mode from above
           alphal = alphl * qsl_lay(i,j,3) / (tl_lay(i,j,3) * tl_lay(i,j,3))
-          alx  = 1.0 / (1.0 + (((lc - (cl_cpml - cpv_cpml)                     &
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
                               * (tl_lay(i,j,3) - tm)) / cpd) * alphal))
           sl_modes(i,j,k,3) = tl_lay(i,j,3) + (g/cpd) * z_theta(i,j,k)
           qw_modes(i,j,k,3) = ql_lay(i,j,3)

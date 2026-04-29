@@ -31,7 +31,7 @@ use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use cloud_inputs_mod,      only: cloud_pc2_tol, cloud_pc2_tol_2
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 
 use free_tracers_inputs_mod, only: l_wtrac
@@ -205,8 +205,8 @@ do k = 1, tdims%k_end
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! for liquid temperature.
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         tl = t(i,j,k)-lcrcp_moist*qcl(i,j,k)
         if ( l_mixing_ratio ) then
@@ -242,8 +242,8 @@ do k = 1, tdims%k_end
           end if
 
           ! Calculate the saturation deficit
-              L_con_val = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-              cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+              L_con_val = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+              cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
               lcrcp_moist = L_con_val / cp_moist_val
               alpha = repsilon * L_con_val * qsl_t /                               &
                 (r * t(i,j,k) ** 2)
@@ -275,8 +275,8 @@ do k = 1, tdims%k_end
             wtrac_pc2%q_cond(i,j,k) = wtrac_pc2%q_cond(i,j,k) - qcl(i,j,k)
           end if
 
-          L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+          L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
           lcrcp_moist  = L_con_val / cp_moist_val
           t(i,j,k)   = t(i,j,k) - qcl(i,j,k) * lcrcp_moist
           qcl(i,j,k) = 0.0
@@ -293,8 +293,8 @@ do k = 1, tdims%k_end
           wtrac_pc2%q_cond(i,j,k) = wtrac_pc2%q_cond(i,j,k) - qcl(i,j,k)
         end if
 
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         t(i,j,k)   = t(i,j,k) - qcl(i,j,k) * lcrcp_moist
         qcl(i,j,k) = 0.0

@@ -41,7 +41,7 @@ use pc2_constants_mod,     only: dbsdtbs_exp, pdf_power,                       &
                                  i_pc2_homog_g_cf, i_pc2_homog_g_width
 use cloud_inputs_mod,      only: l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph,     &
                                  i_pc2_homog_g_method
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use science_fixes_mod,     only: l_pc2_homog_turb_q_neg
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 use pc2_total_cf_mod,      only: pc2_total_cf
@@ -275,8 +275,8 @@ do k = 1, nlevels
 
       ! Provide safe defaults for all branches before cloud-regime tests.
       g_mqc = 0.0
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
 
       ! There is no need to perform the total cloud fraction calculation in
@@ -308,8 +308,8 @@ do k = 1, nlevels
         ! Need to estimate the rate of change of saturated specific humidity
         ! with respect to temperature (alpha) first, then use this to calculate
         ! factor aL. Also estimate the rate of change of qsat with pressure.
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         alpha=repsilon*L_con_val*qsl_t/(r*t(i,j,k)**2)
         al=1.0/(1.0+lcrcp_moist*alpha)
@@ -427,8 +427,8 @@ do k = 1, nlevels
           call qsat_wat(qsl_t, t(i,j,k), p_theta_levels(i,j,k))
         end if
 
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         alpha=repsilon*L_con_val*qsl_t/(r*t(i,j,k)**2)
         al=1.0/(1.0+lcrcp_moist*alpha)

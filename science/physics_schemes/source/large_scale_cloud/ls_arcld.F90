@@ -41,7 +41,7 @@ use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims, pdims, tdims_s
 use cloud_inputs_mod,     only: i_cld_area
 use pc2_constants_mod,    only: acf_off, acf_cusack, acf_brooks
-use lsc_cpml_mod,         only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,         only: cpv_cpm, cl_cpm
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
@@ -520,7 +520,7 @@ else if (i_cld_area == acf_cusack) then
 !$OMP        cloud_fraction_liquid, cloud_fraction_liquid_large,               &
 !$OMP        cloud_fraction_frozen, cloud_fraction_frozen_large,               &
 !$OMP        q_latest, t_latest, tdims, t_large, q_large, large_levels,        &
-!$OMP        cpd, cpv_cpml, cl_cpml )                                          &
+!$OMP        cpd, cpv_cpm, cl_cpm )                                          &
 !$OMP private(i, j, k, k_index, L_con_val, cp_moist_val, lcrcp_moist)
 !$OMP do SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
@@ -602,8 +602,8 @@ else if (i_cld_area == acf_cusack) then
         ! Transform q_latest from qT(vapour + liquid) to specific humidity.
         ! Transform T_latest from TL(vapour + liquid) to temperature.
         q_latest(i,j,k) = q_latest(i,j,k) - qcl_latest(i,j,k)
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_latest(i,j,k) - tm)
-        cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpml + qcl_latest(i,j,k)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
+        cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpm + qcl_latest(i,j,k)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         t_latest(i,j,k) = t_latest(i,j,k) +                                    &
                             (qcl_latest(i,j,k) * lcrcp_moist)

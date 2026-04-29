@@ -36,10 +36,10 @@ use umprintmgr,  only: newline
 
 use um_types, only: real_umphys
 
-use microphysics_config_mod, only: lsp_moist_heat_cap_none,                    &
-                                   lsp_moist_heat_cap_dry,                     &
-                                   lsp_moist_heat_cap_moist
-use lsp_cpml_mod,            only: set_lsp_moist_heat_cap_coeffs
+use microphysics_config_mod, only: lsp_cp_none,                    &
+                                   lsp_cp_dry,                     &
+                                   lsp_cp_moist
+use lsp_cpm_mod,            only: set_lsp_cp_coeffs
 
 implicit none
 
@@ -346,7 +346,7 @@ real(kind=real_umphys) :: heavy_rain_evap_fac = rmdi
 ! 'dry':  use dry-air approximation
 ! 'moist': use correct moist heat capacities
 !          + temperature-dependent latent heats
-integer :: lsp_moist_heat_cap = imdi
+integer :: lsp_cp = imdi
 
 !----------------------------------------------------------------------
 
@@ -372,7 +372,7 @@ namelist/run_precip/                                                           &
        l_mcr_precfrac, l_subgrid_graupel_frac, l_proc_fluxes,                  &
        i_update_precfrac,                                                      &
        mp_czero, mp_tau_lim, l_casim_warmstart, l_micro_in_rim,               &
-       lsp_moist_heat_cap
+       lsp_cp
 
 !===========================================================================
 ! logical options not set in namelist
@@ -574,7 +574,7 @@ write(lineBuffer,'(A,L1)')' l_casim_warmstart = ',l_casim_warmstart
 call umPrint(lineBuffer,src='mphys_inputs_mod')
 write(lineBuffer,'(A,L1)')' l_micro_in_rim = ',l_micro_in_rim
 call umPrint(lineBuffer,src='mphys_inputs_mod')
-write(lineBuffer,'(A,I0)')' lsp_moist_heat_cap = ',lsp_moist_heat_cap
+write(lineBuffer,'(A,I0)')' lsp_cp = ',lsp_cp
 call umPrint(lineBuffer,src='mphys_inputs_mod')
 call umPrint('- - - - - - end of namelist - - - - - -',                        &
     src='mphys_inputs_mod')
@@ -883,10 +883,10 @@ if (l_rain) then
 end if ! l_rain
 
 ! Check and set the precipitation moist heat capacity coefficients
-call chk_var(lsp_moist_heat_cap,'lsp_moist_heat_cap',                          &
-     [lsp_moist_heat_cap_none, lsp_moist_heat_cap_dry,                         &
-      lsp_moist_heat_cap_moist])
-call set_lsp_moist_heat_cap_coeffs(lsp_moist_heat_cap)
+call chk_var(lsp_cp,'lsp_cp',                          &
+     [lsp_cp_none, lsp_cp_dry,                         &
+      lsp_cp_moist])
+call set_lsp_cp_coeffs(lsp_cp)
 
 def_src = ''
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

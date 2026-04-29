@@ -33,7 +33,7 @@ use mphys_constants_mod,   only: mprog_min
 use pc2_constants_mod,     only: cbl_and_cu, forced_cu_cca
 use water_constants_mod,   only: lc, tm
 use planet_constants_mod,  only: cpd => cp
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use wtrac_pc2_mod,         only: wtrac_pc2
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
@@ -143,7 +143,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP         cfl_latest, qcl_inv_top, cf_latest, qcl_latest,                  &
 !$OMP         q_latest, forced_cu_fac, t_latest, forced_cu, cca0, ccw0,        &
 !$OMP         cct0, ccb0, lcbase0, l_wtrac_bl, wtrac_pc2,                      &
-!$OMP         cpd, cpv_cpml, cl_cpml )                                         &
+!$OMP         cpd, cpv_cpm, cl_cpm )                                         &
 !$OMP private ( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced,             &
 !$OMP           dqcl, qcl_tol, dcfl, L_con_val, cp_moist_val, lcrcp_moist )
 do j = tdims%j_start, tdims%j_end
@@ -217,9 +217,9 @@ do j = tdims%j_start, tdims%j_end
                 dqcl = 0.0
               end if
               qcl_latest(i,j,k) = qcl_forced
-              L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_latest(i,j,k) - tm)
-              cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpml                    &
-                                  + qcl_latest(i,j,k)*cl_cpml
+              L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
+              cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpm                    &
+                                  + qcl_latest(i,j,k)*cl_cpm
               lcrcp_moist  = L_con_val / cp_moist_val
               t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
               q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
@@ -252,7 +252,7 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 !$OMP SHARED( tdims, zhnl, zlcl, bl_type_6, z_theta, cfl_latest,               &
 !$OMP         qcl_inv_top, forced_cu_fac, qcl_latest, q_latest,                &
 !$OMP         t_latest, cf_latest, forced_cu, cca0, ccw0, cct0, ccb0,          &
-!$OMP         lcbase0, l_wtrac_bl, wtrac_pc2, cpd, cpv_cpml, cl_cpml )         &
+!$OMP         lcbase0, l_wtrac_bl, wtrac_pc2, cpd, cpv_cpm, cl_cpm )         &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &
 !$OMP          qcl_tol, dcfl, L_con_val, cp_moist_val, lcrcp_moist )
   do j = tdims%j_start, tdims%j_end
@@ -331,10 +331,10 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
                   dqcl = 0.0
                 end if
                 qcl_latest(i,j,k) = qcl_forced
-                L_con_val    = lc - (cl_cpml - cpv_cpml)                       &
+                L_con_val    = lc - (cl_cpm - cpv_cpm)                       &
                                     * (t_latest(i,j,k) - tm)
-                cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpml                  &
-                                    + qcl_latest(i,j,k)*cl_cpml
+                cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpm                  &
+                                    + qcl_latest(i,j,k)*cl_cpm
                 lcrcp_moist  = L_con_val / cp_moist_val
                 t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
                 q_latest(i,j,k)  = q_latest(i,j,k) - dqcl

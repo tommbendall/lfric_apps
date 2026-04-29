@@ -32,7 +32,7 @@ use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims, pdims_l
 use level_heights_mod,     only: r_theta_levels
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
@@ -261,8 +261,8 @@ inverse_level = 1.0 / levels_per_level
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       tl(i,j,k)         = t(i,j,k) - lcrcp_moist*qcl(i,j,k)
       qcl_latest(i,j,k) = qcl(i,j,k)
@@ -620,8 +620,8 @@ do k = 2, (tdims%k_end - 1)
       ! Update T
       ! Move qcl_latest into qcl.
       q(i,j,k)   = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       t(i,j,k)   = t(i,j,k) - (qcl(i,j,k)*lcrcp_moist) +                       &
               (qcl_latest(i,j,k) * lcrcp_moist)

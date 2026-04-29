@@ -49,7 +49,7 @@ use lsp_evap_precfrac_mod, only: lsp_evap_precfrac
 
 ! Constants for heat capacity calculations
 use planet_constants_mod, only: cpd => cp
-use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
@@ -245,8 +245,8 @@ do i = 1, points
     dpr(i) = qrain(i)
 
     ! Calculate temperature-dependent CPML coefficients
-    L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpml
+    L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpm
     lcrcp_moist  = L_con_val / cp_moist_val
     
     t(i)   = t(i) - lcrcp_moist * dpr(i)
@@ -451,8 +451,8 @@ do c = 1, npts
   q(i)     = q(i)     + dpr(i)
   
   ! Calculate temperature-dependent CPML coefficients
-  L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
-  cp_moist_val = cpd + q(i) * cpv_cpml
+  L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+  cp_moist_val = cpd + q(i) * cpv_cpm
   lcrcp_moist  = L_con_val / cp_moist_val
   
   t(i)     = t(i)     - dpr(i) * lcrcp_moist

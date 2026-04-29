@@ -38,7 +38,7 @@ use pc2_constants_mod,     only: init_iterations, rhcrit_tol,                  &
                                  pc2init_logic_simplified,                     &
                                  pc2init_logic_smooth
 use cloud_inputs_mod,      only: i_rhcpt, i_pc2_init_logic, cloud_pc2_tol
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 use pc2_total_cf_mod,      only: pc2_total_cf
 
@@ -336,10 +336,10 @@ do k = 1, nlevels
       ! 2. Calculate Saturated Specific Humidity with respect to liquid water
       !    for liquid temperatures.
       ! ----------------------------------------------------------------------
-      L_con_val    = lc - (cl_cpml - cpv_cpml)                                 &
+      L_con_val    = lc - (cl_cpm - cpv_cpm)                                 &
                          * (t(ind_i(i),ind_j(i),k) - tm)
-      cp_moist_val = cpd + q(ind_i(i),ind_j(i),k)*cpv_cpml                    &
-                        + qcl(ind_i(i),ind_j(i),k)*cl_cpml
+      cp_moist_val = cpd + q(ind_i(i),ind_j(i),k)*cpv_cpm                    &
+                        + qcl(ind_i(i),ind_j(i),k)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       tl_c = t(ind_i(i),ind_j(i),k) - lcrcp_moist                              &
                                      * qcl(ind_i(i),ind_j(i),k)
@@ -527,8 +527,8 @@ do k = 1, nlevels
         call qsat_wat(qsl_t_c,t_c(i),p_theta_levels(ni(i),nj(i),k))
       end if
 
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_c(i) - tm)
-      cp_moist_val = cpd + q_c(i)*cpv_cpml + qcl_c(i)*cl_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_c(i) - tm)
+      cp_moist_val = cpd + q_c(i)*cpv_cpm + qcl_c(i)*cl_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       alpha=repsilon*L_con_val*qsl_t_c/(r*t_c(i)**2)
       al=1.0/(1.0+lcrcp_moist*alpha)
@@ -601,8 +601,8 @@ do k = 1, nlevels
         !         = qcl
         ! => sd = qcl - qc
 
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_c(i) - tm)
-        cp_moist_val = cpd + q_c(i)*cpv_cpml + qcl_c(i)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_c(i) - tm)
+        cp_moist_val = cpd + q_c(i)*cpv_cpm + qcl_c(i)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         alpha=repsilon*L_con_val*qsl_t_c/(r*t_c(i)**2)
         al=1.0/(1.0+lcrcp_moist*alpha)

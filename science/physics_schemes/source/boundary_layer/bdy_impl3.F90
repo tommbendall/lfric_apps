@@ -47,7 +47,7 @@ use atm_fields_bounds_mod, only:                                               &
 use bl_option_mod, only: one
 use planet_constants_mod, only: cp_bl
 use water_constants_mod, only: lc, tm, lf
-use bl_cpml_mod, only: cpv_cpml_bl, cl_cpml_bl, ci_cpml_bl
+use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
 use vectlib_mod, only: oneover_v => oneover_v_interface
 use model_domain_mod, only: model_type, mt_single_column
 use yomhook, only: lhook, dr_hook
@@ -363,7 +363,7 @@ tdims_seg_block = min(tdims_omp_block, tdims%i_len)
 !$OMP  dqw1_1,dtl1_1,ctctq1_1,                                                 &
 !$OMP  ct_prod, cu_prod, cv_prod,k_blend_tq,k_blend_u,k_blend_v,               &
 !$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,                          &
-!$OMP  cp_bl,cpv_cpml_bl,cl_cpml_bl,ci_cpml_bl,lc_bl,lf_bl,tm_bl)              &
+!$OMP  cp_bl,cpv_cpm_bl,cl_cpm_bl,ci_cpm_bl,lc_bl,lf_bl,tm_bl)              &
 !$OMP  private(k,j,i,r_sq,rbt,temp,temp_u,temp_v,l,temp_out,temp_u_out,        &
 !$OMP  temp_v_out,at,am,rbm,rr_sq,ii,gamma1_uv,gamma2_uv,                      &
 !$OMP  L_con_val,L_sub_val,cp_moist_val,lcrcp_moist,lsrcp_moist)
@@ -380,11 +380,11 @@ if ( l_correct ) then
                       - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)
 
         ! CPML coefficients at latest time level
-        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpml_bl                     &
-                     + qcl_latest(i,j,k)*cl_cpml_bl                            &
-                     + qcf_latest(i,j,k)*ci_cpml_bl
+        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                     &
+                     + qcl_latest(i,j,k)*cl_cpm_bl                            &
+                     + qcf_latest(i,j,k)*ci_cpm_bl
         lcrcp_moist  = L_con_val / cp_moist_val
         lsrcp_moist  = L_sub_val / cp_moist_val
 
@@ -394,10 +394,10 @@ if ( l_correct ) then
              - lsrcp_moist * qcf_latest(i,j,k)
 
         ! CPML coefficients at old time level
-        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                            &
-                     + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                            &
+                     + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
         lcrcp_moist  = L_con_val / cp_moist_val
         lsrcp_moist  = L_sub_val / cp_moist_val
 
@@ -434,10 +434,10 @@ else
         qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)
 
         ! Calculate temperature-dependent CPML coefficients
-        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                            &
-                     + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                            &
+                     + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
         lcrcp_moist  = L_con_val / cp_moist_val
         lsrcp_moist  = L_sub_val / cp_moist_val
 
@@ -446,11 +446,11 @@ else
                         + qcf_latest(i,j,k) - qw(i,j,k)
 
         ! Calculate CPML coefficients at latest time level
-        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpml_bl                     &
-                     + qcl_latest(i,j,k)*cl_cpml_bl                            &
-                     + qcf_latest(i,j,k)*ci_cpml_bl
+        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                     &
+                     + qcl_latest(i,j,k)*cl_cpm_bl                            &
+                     + qcf_latest(i,j,k)*ci_cpm_bl
         lcrcp_moist  = L_con_val / cp_moist_val
         lsrcp_moist  = L_sub_val / cp_moist_val
 

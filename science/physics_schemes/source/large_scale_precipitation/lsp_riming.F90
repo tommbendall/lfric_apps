@@ -63,7 +63,7 @@ use um_types,            only: real_lsprec
 
 ! Constants for heat capacity calculations
 use planet_constants_mod, only: cpd => cp
-use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
@@ -367,8 +367,8 @@ do i = 1, points
     qcf(i) = qcf(i) + dqi
 
     ! Calculate temperature-dependent CPML coefficients
-    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
-    cp_moist_val = cpd + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + qcl(i) * cl_cpm + qcf(i) * ci_cpm
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)   = t(i) + lfrcp_moist * dqi
@@ -420,7 +420,7 @@ use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
 use planet_constants_mod, only: cpd => cp
-use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,             only: lhook, dr_hook
@@ -636,8 +636,8 @@ do i = 1, points
     qcf(i) = qcf(i) + dqi
 
     ! Calculate temperature-dependent CPML coefficients
-    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
-    cp_moist_val = cpd + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + qcl(i) * cl_cpm + qcf(i) * ci_cpm
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)   = t(i) + lfrcp_moist * dqi

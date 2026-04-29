@@ -102,7 +102,7 @@ lf_local  = real(lf, prec)
 !$OMP SHARED(bl_levels, p, t, q, qcf, qcl, cf_bulk, bt, bq, bt_cld, bq_cld,    &
 !$OMP        bt_gb, bq_gb, a_qs, a_dqsdt, dqsdt, tdims, l_mr_physics, r,       &
 !$OMP        repsilon, c_virtual, etar, lcrcp, ls, lsrcp, l_noice_in_turb,      &
-!$OMP        cpd_local, lf_local, cpv_cpml, cl_cpml, ci_cpml)
+!$OMP        cpd_local, lf_local, cpv_cpm, cl_cpm, ci_cpm)
 
 do k = 1, bl_levels
 
@@ -136,15 +136,15 @@ do k = 1, bl_levels
     do i = tdims%i_start, tdims%i_end
       if (t(i,j,k) > tm .or. l_noice_in_turb) then
         ! Condensation: temperature-dependent latent heat
-        tmp1(i) = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpml                           &
-                     + qcl(i,j,k)*cl_cpml + qcf(i,j,k)*ci_cpml
+        tmp1(i) = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpm                           &
+                     + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
         tmp2(i) = tmp1(i) / cp_moist_val
       else
         ! Sublimation: temperature-dependent latent heat
-        tmp1(i) = (lc + lf_local) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpml                           &
-                     + qcl(i,j,k)*cl_cpml + qcf(i,j,k)*ci_cpml
+        tmp1(i) = (lc + lf_local) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpm                           &
+                     + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
         tmp2(i) = tmp1(i) / cp_moist_val
       end if
     end do ! p_points,i

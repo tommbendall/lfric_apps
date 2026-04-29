@@ -30,7 +30,7 @@ use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims
 use cloud_inputs_mod,     only: i_eacf, all_clouds
-use lsc_cpml_mod,         only: cpv_cpml, cl_cpml
+use lsc_cpm_mod,         only: cpv_cpm, cl_cpm
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
 implicit none
@@ -198,8 +198,8 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  L_con_val    = lc - (cl_cpml - cpv_cpml) * (t_f(ii,ij) - tm)
-  cp_moist_val = cpd + q_f(ii,ij)*cpv_cpml
+  L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_f(ii,ij) - tm)
+  cp_moist_val = cpd + q_f(ii,ij)*cpv_cpm
   lcrcp_moist  = L_con_val / cp_moist_val
   alphal = repsilon * L_con_val * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
   al = 1.0 / (1.0 + (lcrcp_moist * alphal))
@@ -312,8 +312,8 @@ if (its  >=  2) then
         alphal = (qs - qsl_f(ii,ij)) / (t(i) - t_f(ii,ij))
         alphal = wtn * alphal + (1.0 - wtn) * alphal_nm1(i)
         alphal_nm1(i) = alphal
-        L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
-        cp_moist_val = cpd + q(i)*cpv_cpml + qcl_f(ii,ij)*cl_cpml
+        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+        cp_moist_val = cpd + q(i)*cpv_cpm + qcl_f(ii,ij)*cl_cpm
         lcrcp_moist  = L_con_val / cp_moist_val
         al = 1.0 / (1.0 + (lcrcp_moist * alphal))
         ! Rhcrit_if2:

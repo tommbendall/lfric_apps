@@ -36,7 +36,7 @@ reduce_fa_mix='inv_only',
 sbl_opt='sharp_sea_mes_land',
 sc_diag_opt='orig',
 sg_orog_mixing='none',
-bl_moist_heat_cap='moist',
+bl_cp='moist',
 /
 &boundaries
 limited_area=.false.,
@@ -81,7 +81,7 @@ i_pc2_erosion_numerics='implicit',
 ice_width=0.02,
 l_bm_sigma_s_grad=.false.,
 l_bm_tweaks=.false.,
-lsc_moist_heat_cap='moist'
+lsc_cp='moist'
 max_sigmas=3.0,
 min_sigx_ft=0.0,
 opt_depth_thresh=0.01,
@@ -477,7 +477,7 @@ graupel_scheme='none',
 heavy_rain_evap_fac=0.0,
 l_mcr_precfrac=.false.
 l_proc_fluxes=.false.
-lsp_moist_heat_cap='moist'
+lsp_cp='moist'
 microphysics_casim=.false.,
 mp_dz_scal=2.0,
 nscalesf=1.0,

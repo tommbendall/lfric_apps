@@ -87,7 +87,7 @@ use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
 use planet_constants_mod, only: cpd => cp
-use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook Modules
 use yomhook,           only: lhook, dr_hook
@@ -411,8 +411,8 @@ do i = 1, points
       q(i) = q(i) +qcf_cry(i)+qcf_agg(i)
 
       ! Calculate temperature-dependent CPML coefficients
-      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpml
+      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpm
       lsrcp_moist  = L_sub_val / cp_moist_val
 
       t(i) = t(i) - lsrcp_moist * (qcf_cry(i)+qcf_agg(i))

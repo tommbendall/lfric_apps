@@ -26,7 +26,7 @@ subroutine bl_lsp( bl_levels,qcf,q,t )
 use atm_fields_bounds_mod, only: tdims
 use planet_constants_mod, only: lsrcp, cpd => cp
 use water_constants_mod, only: lc, lf, tm
-use bl_cpml_mod, only: cpv_cpml, cl_cpml, ci_cpml
+use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 implicit none
@@ -69,7 +69,7 @@ character(len=*), parameter :: RoutineName='BL_LSP'
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
 !$OMP          private(i,j,k,newqcf,L_sub_val,cp_moist_val,lsrcp_moist)        &
-!$OMP          SHARED(bl_levels,tdims,q,qcf,t,lsrcp,cpd,cpv_cpml,ci_cpml)
+!$OMP          SHARED(bl_levels,tdims,q,qcf,t,lsrcp,cpd,cpv_cpm,ci_cpm)
 do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -84,8 +84,8 @@ do k = 1, bl_levels
         qcf(i,j,k)=newqcf
       end if
       ! Adjust T from T liquid ice to T liquid
-      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k) * cpv_cpml
+      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k) * cpv_cpm
       lsrcp_moist  = L_sub_val / cp_moist_val
       t(i,j,k)=t(i,j,k)+lsrcp_moist*qcf(i,j,k)
     end do

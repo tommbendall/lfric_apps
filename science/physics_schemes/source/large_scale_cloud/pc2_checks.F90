@@ -41,7 +41,7 @@ use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use cloud_inputs_mod,      only: i_pc2_checks_cld_frac_method,                 &
                                  l_ensure_min_in_cloud_qcf
-use lsc_cpml_mod,          only: cpv_cpml, cl_cpml, ci_cpml
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 use science_fixes_mod,     only: l_pc2_checks_sdfix
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
@@ -278,9 +278,9 @@ do k = 1,model_levels
       else
         qcf_tot = qcf(i,j,k)
       end if
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml             &
-                     + qcf_tot*ci_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm             &
+                     + qcf_tot*ci_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
       alpha=repsilon*L_con_val*qsl_t(i,j)/(r*t(i,j,k)**2)
       al=1.0/(1.0+lcrcp_moist*alpha)
@@ -481,9 +481,9 @@ do k = 1,model_levels
         if (qcf(i,j,k) < condensate_limit) then
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
           qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
-          L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml          &
-                         + qcf_tot*ci_cpml
+          L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm          &
+                         + qcf_tot*ci_cpm
           lsrcp_moist  = L_sub_val / cp_moist_val
           t(i,j,k)     = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
@@ -499,9 +499,9 @@ do k = 1,model_levels
         if (qcf2(i,j,k) < condensate_limit) then
           q(i,j,k)   = q(i,j,k) + qcf2(i,j,k)
           qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
-          L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml          &
-                         + qcf_tot*ci_cpml
+          L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm          &
+                         + qcf_tot*ci_cpm
           lsrcp_moist  = L_sub_val / cp_moist_val
           t(i,j,k)     = t(i,j,k) - qcf2(i,j,k) * lsrcp_moist
           qcf2(i,j,k) = 0.0
@@ -546,9 +546,9 @@ do k = 1,model_levels
 
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
           qcf_tot = qcf(i,j,k)
-          L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml          &
-                         + qcf_tot*ci_cpml
+          L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm          &
+                         + qcf_tot*ci_cpm
           lsrcp_moist  = L_sub_val / cp_moist_val
           t(i,j,k)     = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
@@ -618,9 +618,9 @@ do k = 1,model_levels
         else
           qcf_tot = qcf(i,j,k)
         end if
-        L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpml + qcl(i,j,k)*cl_cpml            &
-                       + qcf_tot*ci_cpml
+        L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i,j,k) - tm)
+        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm            &
+                       + qcf_tot*ci_cpm
         lfrcp_moist  = L_fus_val / cp_moist_val
         t(i,j,k)     = t(i,j,k) + qcl(i,j,k) * lfrcp_moist
         qcl(i,j,k) = 0.0

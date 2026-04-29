@@ -57,7 +57,7 @@ use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
 use planet_constants_mod, only: cpd => cp
-use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,         only: lhook, dr_hook
@@ -271,8 +271,8 @@ do i = 1, points
     qcf(i) = qcf(i) + qcl(i)
 
     ! Calculate temperature-dependent CPML coefficients for fusion
-    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)   = t(i)   + lfrcp_moist * qcl(i)
@@ -311,7 +311,7 @@ do i = 1, points
     qcf(i)   = qcf(i) + qrain(i)
 
     ! Calculate temperature-dependent CPML coefficients for fusion
-    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
+    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
     cp_moist_val = cpd
     lfrcp_moist  = L_fus_val / cp_moist_val
 
@@ -379,8 +379,8 @@ do i = 1, points
     qcl(i)  = qcl(i)-dqil
 
     ! Calculate temperature-dependent CPML coefficients for fusion
-    L_fus_val    = lf - (ci_cpml - cl_cpml) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)    = t(i)+lfrcp_moist*dqil
@@ -388,8 +388,8 @@ do i = 1, points
     dqi  = dqi-dqil
 
     ! Calculate temperature-dependent CPML coefficients for sublimation
-    L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpml + qcl(i) * cl_cpml + qcf(i) * ci_cpml
+    L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
     lsrcp_moist  = L_sub_val / cp_moist_val
 
     t(i) = t(i)+lsrcp_moist*dqi

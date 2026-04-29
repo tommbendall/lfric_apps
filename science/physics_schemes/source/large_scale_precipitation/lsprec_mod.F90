@@ -293,8 +293,8 @@ use mphys_inputs_mod,     only:                                                &
   nscalesf_orig       => nscalesf,                                             &
   aut_qc_orig         => aut_qc
 
-use lsp_cpml_mod,         only:                                                &
-  set_lsp_moist_heat_cap_coeffs
+use lsp_cpm_mod,         only:                                                &
+  set_lsp_cp_coeffs
 
 implicit none
 

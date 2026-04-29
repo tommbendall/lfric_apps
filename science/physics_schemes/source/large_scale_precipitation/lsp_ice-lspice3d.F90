@@ -45,7 +45,7 @@ use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
 use planet_constants_mod, only: cpd => cp
-use lsp_cpml_mod,         only: cpv_cpml, cl_cpml, ci_cpml
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
   ! General atmosphere modules- logicals and integers
 use gen_phys_inputs_mod,  only: l_mr_physics
@@ -1197,8 +1197,8 @@ if (l_orograin .and. l_orogrime) then
       !       Add LH for cond+freezing of rimed orog water
 
       ! Calculate temperature-dependent CPML coefficients for sublimation
-      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpml
+      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpm
       lsrcp_moist  = L_sub_val / cp_moist_val
 
       t(i) = t(i) + (dqsnow(i) * lsrcp_moist)
@@ -1697,8 +1697,8 @@ if (l_orograin) then
       q(i) = q(i) - dqrain(i)
 
       ! Calculate temperature-dependent CPML coefficients for condensation
-      L_con_val    = lc - (cl_cpml - cpv_cpml) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpml
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cp_moist_val = cpd + q(i) * cpv_cpm
       lcrcp_moist  = L_con_val / cp_moist_val
 
       t(i) = t(i) + (dqrain(i) * lcrcp_moist)

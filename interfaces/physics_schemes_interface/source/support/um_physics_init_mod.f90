@@ -83,11 +83,11 @@ module um_physics_init_mod
                                 l_use_sml_dsc_fixes_in => l_use_sml_dsc_fixes, &
                                 l_converge_ga_in       => l_converge_ga,       &
                                 num_sweeps_bflux_in    => num_sweeps_bflux,    &
-                                bl_moist_heat_cap_in                           &
-                                  => bl_moist_heat_cap,                        &
-                                bl_moist_heat_cap_none,                        &
-                                bl_moist_heat_cap_dry,                         &
-                                bl_moist_heat_cap_moist
+                                bl_cp_in                           &
+                                  => bl_cp,                        &
+                                bl_cp_none,                        &
+                                bl_cp_dry,                         &
+                                bl_cp_moist
 
   use cloud_config_mod,          only : scheme, scheme_smith, scheme_pc2,     &
                                         scheme_bimodal,                       &
@@ -123,11 +123,11 @@ module um_physics_init_mod
                                     i_pc2_erosion_numerics_analytic,           &
                                     i_bm_ez_opt_orig, i_bm_ez_opt_subcrit,     &
                                     i_bm_ez_opt_entpar,                        &
-                                    lsc_moist_heat_cap_in                      &
-                                      => lsc_moist_heat_cap,                   &
-                                    lsc_moist_heat_cap_none,                   &
-                                    lsc_moist_heat_cap_dry,                    &
-                                    lsc_moist_heat_cap_moist
+                                    lsc_cp_in                      &
+                                      => lsc_cp,                   &
+                                    lsc_cp_none,                   &
+                                    lsc_cp_dry,                    &
+                                    lsc_cp_moist
 
   use convection_config_mod,     only : cv_scheme,                    &
                                         cv_scheme_gregory_rowntree,   &
@@ -177,11 +177,11 @@ module um_physics_init_mod
                                    i_update_precfrac_correl,                 &
                                         heavy_rain_evap_fac_in =>            &
                                                 heavy_rain_evap_fac,         &
-                                        lsp_moist_heat_cap_in                &
-                                          => lsp_moist_heat_cap,             &
-                                        lsp_moist_heat_cap_none,             &
-                                        lsp_moist_heat_cap_dry,              &
-                                        lsp_moist_heat_cap_moist
+                                        lsp_cp_in                &
+                                          => lsp_cp,             &
+                                        lsp_cp_none,             &
+                                        lsp_cp_dry,              &
+                                        lsp_cp_moist
 
   use mixing_config_mod,         only : smagorinsky,                 &
                                         mixing_method => method,     &
@@ -359,8 +359,8 @@ contains
          dec_thres_cu, near_neut_z_on_l, blend_gridindep_fa,               &
          specified_fluxes_tstar, buoy_integ_low, num_sweeps_bflux,         &
          l_use_sml_dsc_fixes, l_converge_ga,                               &
-         bl_moist_heat_cap
-    use bl_cpml_mod, only: set_bl_moist_heat_cap_coeffs
+         bl_cp
+    use bl_cpm_mod, only: set_bl_cp_coeffs
     use cloud_inputs_mod, only: i_cld_vn, forced_cu, i_rhcpt, i_cld_area,  &
          rhcrit, ice_fraction_method,falliceshear_method, cff_spread_rate, &
          l_subgrid_qv, ice_width, min_liq_overlap, i_eacf, not_mixph,      &
@@ -374,7 +374,7 @@ contains
          l_bm_tweaks, max_sigmas, min_sigx_ft, turb_var_fac_bm,            &
          l_pc2_homog_conv_pressure,                                        &
          i_bm_ez_orig, i_bm_ez_subcrit, i_bm_ez_entpar,                    &
-         lsc_moist_heat_cap
+         lsc_cp
     use cloud_config_mod, only: cld_fsd_hill
     use comorph_um_namelist_mod, only: ass_min_radius, autoc_opt,            &
          cf_conv_fac, coef_auto, col_eff_coef, core_ent_fac, drag_coef_cond, &
@@ -455,7 +455,7 @@ contains
         fcrit, nsigmasf, nscalesf, l_progn_tnuc, mp_czero, mp_tau_lim,       &
         l_proc_fluxes, l_subgrid_graupel_frac, l_mcr_precfrac,               &
         i_update_precfrac, i_homog_areas, i_sg_correl, heavy_rain_evap_fac,  &
-        lsp_moist_heat_cap
+        lsp_cp
     use mphys_psd_mod, only: x1g, x2g, x4g, x1gl, x2gl, x4gl
     use mphys_switches, only: set_mphys_switches,            &
         max_step_length, max_sed_length,                     &
@@ -798,15 +798,15 @@ contains
       l_converge_ga       = l_converge_ga_in
       num_sweeps_bflux    = num_sweeps_bflux_in
 
-      select case (bl_moist_heat_cap_in)
-        case (bl_moist_heat_cap_none)
-          bl_moist_heat_cap = bl_moist_heat_cap_none
-        case (bl_moist_heat_cap_dry)
-          bl_moist_heat_cap = bl_moist_heat_cap_dry
-        case (bl_moist_heat_cap_moist)
-          bl_moist_heat_cap = bl_moist_heat_cap_moist
+      select case (bl_cp_in)
+        case (bl_cp_none)
+          bl_cp = bl_cp_none
+        case (bl_cp_dry)
+          bl_cp = bl_cp_dry
+        case (bl_cp_moist)
+          bl_cp = bl_cp_moist
       end select
-      call set_bl_moist_heat_cap_coeffs(bl_moist_heat_cap)
+      call set_bl_cp_coeffs(bl_cp)
 
     end if
 
@@ -1150,13 +1150,13 @@ contains
           case(i_pc2_erosion_numerics_analytic)
             i_pc2_erosion_numerics = i_pc2_erosion_analytic
         end select
-        select case (lsc_moist_heat_cap_in)
-          case (lsc_moist_heat_cap_none)
-            lsc_moist_heat_cap = lsc_moist_heat_cap_none
-          case (lsc_moist_heat_cap_dry)
-            lsc_moist_heat_cap = lsc_moist_heat_cap_dry
-          case (lsc_moist_heat_cap_moist)
-            lsc_moist_heat_cap = lsc_moist_heat_cap_moist
+        select case (lsc_cp_in)
+          case (lsc_cp_none)
+            lsc_cp = lsc_cp_none
+          case (lsc_cp_dry)
+            lsc_cp = lsc_cp_dry
+          case (lsc_cp_moist)
+            lsc_cp = lsc_cp_moist
         end select
 
       case(scheme_bimodal)
@@ -1325,13 +1325,13 @@ contains
         fcrit          = real(fcrit_in, r_um)
 
         ! Set microphysics heat capacity
-        select case (lsp_moist_heat_cap_in)
-          case (lsp_moist_heat_cap_none)
-            lsp_moist_heat_cap = lsp_moist_heat_cap_none
-          case (lsp_moist_heat_cap_dry)
-            lsp_moist_heat_cap = lsp_moist_heat_cap_dry
-          case (lsp_moist_heat_cap_moist)
-            lsp_moist_heat_cap = lsp_moist_heat_cap_moist
+        select case (lsp_cp_in)
+          case (lsp_cp_none)
+            lsp_cp = lsp_cp_none
+          case (lsp_cp_dry)
+            lsp_cp = lsp_cp_dry
+          case (lsp_cp_moist)
+            lsp_cp = lsp_cp_moist
         end select
       end if
 
