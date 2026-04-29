@@ -36,6 +36,7 @@ reduce_fa_mix='inv_only',
 sbl_opt='sharp_sea_mes_land',
 sc_diag_opt='orig',
 sg_orog_mixing='none',
+bl_moist_heat_cap='moist',
 /
 &boundaries
 limited_area=.false.,

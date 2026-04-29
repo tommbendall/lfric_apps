@@ -24,7 +24,9 @@ contains
 subroutine bl_lsp( bl_levels,qcf,q,t )
 
 use atm_fields_bounds_mod, only: tdims
-use planet_constants_mod, only: lsrcp
+use planet_constants_mod, only: lsrcp, cpd => cp
+use water_constants_mod, only: lc, lf, tm
+use bl_cpml_mod, only: cpv_cpml, cl_cpml, ci_cpml
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 implicit none
@@ -53,6 +55,9 @@ integer ::                                                                     &
                                ! Counter over points
         k                ! Counter over boundary layer levels
 real(kind=real_umphys) :: newqcf              ! Temporary variable for QCF
+real(kind=real_umphys) :: L_sub_val           ! Temp-dependent latent heat of sublimation
+real(kind=real_umphys) :: cp_moist_val        ! Temp-dependent moist specific heat
+real(kind=real_umphys) :: lsrcp_moist         ! Temp-dependent L_sub / cp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
@@ -63,8 +68,8 @@ character(len=*), parameter :: RoutineName='BL_LSP'
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
-!$OMP          private(i,j,k,newqcf)                                           &
-!$OMP          SHARED(bl_levels,tdims,q,qcf,t,lsrcp)
+!$OMP          private(i,j,k,newqcf,L_sub_val,cp_moist_val,lsrcp_moist)        &
+!$OMP          SHARED(bl_levels,tdims,q,qcf,t,lsrcp,cpd,cpv_cpml,ci_cpml)
 do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -79,7 +84,10 @@ do k = 1, bl_levels
         qcf(i,j,k)=newqcf
       end if
       ! Adjust T from T liquid ice to T liquid
-      t(i,j,k)=t(i,j,k)+lsrcp*qcf(i,j,k)
+      L_sub_val    = (lc + lf) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
+      cp_moist_val = cpd + q(i,j,k) * cpv_cpml
+      lsrcp_moist  = L_sub_val / cp_moist_val
+      t(i,j,k)=t(i,j,k)+lsrcp_moist*qcf(i,j,k)
     end do
   end do
 end do

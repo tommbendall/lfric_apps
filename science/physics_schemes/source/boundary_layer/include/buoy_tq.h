@@ -74,6 +74,10 @@ real(kind=prec) ::                                                             &
 
  tmp2(tdims%i_start:tdims%i_end) ! TEMP array to contain lcrcp or lsrcp
 
+! Local variables for temperature-dependent moist heat capacity
+real(kind=prec) :: cpd_local, lf_local
+real(kind=prec) :: cp_moist_val
+
 integer ::                                                                     &
   i,j,                                                                         &
   k
@@ -86,15 +90,19 @@ integer(kind=jpim), parameter :: zhook_out = 1
 real(kind=jprb)               :: zhook_handle
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+cpd_local = real(cpd, prec)
+lf_local  = real(lf, prec)
 !-----------------------------------------------------------------------
 ! 1.  Loop round levels.
 !-----------------------------------------------------------------------
 
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
-!$OMP private(i, j, k, bc, qs, tmp1, tmp2)                                     &
+!$OMP private(i, j, k, bc, qs, tmp1, tmp2, cp_moist_val)                        &
 !$OMP SHARED(bl_levels, p, t, q, qcf, qcl, cf_bulk, bt, bq, bt_cld, bq_cld,    &
 !$OMP        bt_gb, bq_gb, a_qs, a_dqsdt, dqsdt, tdims, l_mr_physics, r,       &
-!$OMP        repsilon, c_virtual, etar, lcrcp, ls, lsrcp, l_noice_in_turb)
+!$OMP        repsilon, c_virtual, etar, lcrcp, ls, lsrcp, l_noice_in_turb,      &
+!$OMP        cpd_local, lf_local, cpv_cpml, cl_cpml, ci_cpml)
 
 do k = 1, bl_levels
 
@@ -127,13 +135,17 @@ do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       if (t(i,j,k) > tm .or. l_noice_in_turb) then
-        tmp1(i) = lc
-        tmp2(i) = lcrcp
-        !            ...  (Clausius-Clapeyron) for T above freezing
+        ! Condensation: temperature-dependent latent heat
+        tmp1(i) = lc - (cl_cpml - cpv_cpml) * (t(i,j,k) - tm)
+        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpml                           &
+                     + qcl(i,j,k)*cl_cpml + qcf(i,j,k)*ci_cpml
+        tmp2(i) = tmp1(i) / cp_moist_val
       else
-        tmp1(i) = ls
-        tmp2(i) = lsrcp
-        !            ...  (Clausius-Clapeyron) for T below freezing
+        ! Sublimation: temperature-dependent latent heat
+        tmp1(i) = (lc + lf_local) - (ci_cpml - cpv_cpml) * (t(i,j,k) - tm)
+        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpml                           &
+                     + qcl(i,j,k)*cl_cpml + qcf(i,j,k)*ci_cpml
+        tmp2(i) = tmp1(i) / cp_moist_val
       end if
     end do ! p_points,i
 

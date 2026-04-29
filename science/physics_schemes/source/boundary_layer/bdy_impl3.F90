@@ -45,7 +45,10 @@ subroutine bdy_impl3 (                                                         &
 use atm_fields_bounds_mod, only:                                               &
  udims, vdims, udims_s, vdims_s, pdims, tdims, tdims_l
 use bl_option_mod, only: one
-use planet_constants_mod, only: lcrcp => lcrcp_bl, lsrcp => lsrcp_bl
+use planet_constants_mod, only: lcrcp => lcrcp_bl, lsrcp => lsrcp_bl,          &
+     cp_bl
+use water_constants_mod, only: lc, tm, lf
+use bl_cpml_mod, only: cpv_cpml_bl, cl_cpml_bl, ci_cpml_bl
 use vectlib_mod, only: oneover_v => oneover_v_interface
 use model_domain_mod, only: model_type, mt_single_column
 use yomhook, only: lhook, dr_hook
@@ -331,12 +334,20 @@ integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
 real(kind=jprb)               :: zhook_handle
 
+! Local variables for temperature-dependent moist heat capacity
+real(kind=r_bl) :: lc_bl, lf_bl, tm_bl
+real(kind=r_bl) :: L_con_val, L_sub_val, cp_moist_val
+real(kind=r_bl) :: lcrcp_moist, lsrcp_moist
+
 character(len=*), parameter :: RoutineName='BDY_IMPL3'
 
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 blm1 = bl_levels-1
+lf_bl = real(lf, r_bl)
+lc_bl = real(lc, r_bl)
+tm_bl = real(tm, r_bl)
 
 max_threads = 1
 !$ max_threads = omp_get_max_threads()
@@ -352,9 +363,11 @@ tdims_seg_block = min(tdims_omp_block, tdims%i_len)
 !$OMP  cq_cm_u_1,cq_cm_v_1,du_1,dv_1,                                          &
 !$OMP  dqw1_1,dtl1_1,ctctq1_1,                                                 &
 !$OMP  ct_prod, cu_prod, cv_prod,k_blend_tq,k_blend_u,k_blend_v,               &
-!$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,lcrcp,lsrcp)               &
+!$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,lcrcp,lsrcp,             &
+!$OMP  cp_bl,cpv_cpml_bl,cl_cpml_bl,ci_cpml_bl,lc_bl,lf_bl,tm_bl)              &
 !$OMP  private(k,j,i,r_sq,rbt,temp,temp_u,temp_v,l,temp_out,temp_u_out,        &
-!$OMP  temp_v_out,at,am,rbm,rr_sq,ii,gamma1_uv,gamma2_uv)
+!$OMP  temp_v_out,at,am,rbm,rr_sq,ii,gamma1_uv,gamma2_uv,                      &
+!$OMP  L_con_val,L_sub_val,cp_moist_val,lcrcp_moist,lsrcp_moist)
 
 if ( l_correct ) then
 
@@ -366,9 +379,19 @@ if ( l_correct ) then
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
                       + qcf_latest(i,j,k)                                      &
                       - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)
+
+        ! Calculate temperature-dependent CPML coefficients
+        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpml_bl                     &
+                     + qcl_latest(i,j,k)*cl_cpml_bl                            &
+                     + qcf_latest(i,j,k)*ci_cpml_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
+
         dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
-             - lcrcp * qcl_latest(i,j,k)                                       &
-             - lsrcp * qcf_latest(i,j,k)                                       &
+             - lcrcp_moist * qcl_latest(i,j,k)                                 &
+             - lsrcp_moist * qcf_latest(i,j,k)                                 &
              - ( t(i,j,k) - lcrcp*qcl(i,j,k) - lsrcp*qcf(i,j,k) )
       end do
     end do
@@ -398,12 +421,31 @@ else
     do j = tdims%j_start, tdims%j_end
       do i = tdims%i_start, tdims%i_end
         qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)
-        tl(i,j,k) = t(i,j,k) - lcrcp*qcl(i,j,k) - lsrcp*qcf(i,j,k)
+
+        ! Calculate temperature-dependent CPML coefficients
+        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                            &
+                     + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
+
+        tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k) - lsrcp_moist*qcf(i,j,k)
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
                         + qcf_latest(i,j,k) - qw(i,j,k)
+
+        ! Calculate CPML coefficients at latest time level
+        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t_latest(i,j,k) - tm_bl)
+        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpml_bl                     &
+                     + qcl_latest(i,j,k)*cl_cpml_bl                            &
+                     + qcf_latest(i,j,k)*ci_cpml_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
+
         dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
-                        - lcrcp * qcl_latest(i,j,k)                            &
-                        - lsrcp * qcf_latest(i,j,k)                            &
+                        - lcrcp_moist * qcl_latest(i,j,k)                      &
+                        - lsrcp_moist * qcf_latest(i,j,k)                      &
                         - tl(i,j,k)
       end do
     end do

@@ -82,7 +82,12 @@ module um_physics_init_mod
                                 dzrad_disc_opt_smooth_1p5,                     &
                                 l_use_sml_dsc_fixes_in => l_use_sml_dsc_fixes, &
                                 l_converge_ga_in       => l_converge_ga,       &
-                                num_sweeps_bflux_in    => num_sweeps_bflux
+                                num_sweeps_bflux_in    => num_sweeps_bflux,    &
+                                bl_moist_heat_cap_in                           &
+                                  => bl_moist_heat_cap,                        &
+                                bl_moist_heat_cap_none,                        &
+                                bl_moist_heat_cap_dry,                         &
+                                bl_moist_heat_cap_moist
 
   use cloud_config_mod,          only : scheme, scheme_smith, scheme_pc2,     &
                                         scheme_bimodal,                       &
@@ -353,7 +358,9 @@ contains
          i_interp_local_cf_dbdz, tke_diag_fac, a_ent_2, dec_thres_cloud,   &
          dec_thres_cu, near_neut_z_on_l, blend_gridindep_fa,               &
          specified_fluxes_tstar, buoy_integ_low, num_sweeps_bflux,         &
-         l_use_sml_dsc_fixes, l_converge_ga
+         l_use_sml_dsc_fixes, l_converge_ga,                               &
+         bl_moist_heat_cap
+    use bl_cpml_mod, only: set_bl_moist_heat_cap_coeffs
     use cloud_inputs_mod, only: i_cld_vn, forced_cu, i_rhcpt, i_cld_area,  &
          rhcrit, ice_fraction_method,falliceshear_method, cff_spread_rate, &
          l_subgrid_qv, ice_width, min_liq_overlap, i_eacf, not_mixph,      &
@@ -790,6 +797,16 @@ contains
       l_use_sml_dsc_fixes = l_use_sml_dsc_fixes_in
       l_converge_ga       = l_converge_ga_in
       num_sweeps_bflux    = num_sweeps_bflux_in
+
+      select case (bl_moist_heat_cap_in)
+        case (bl_moist_heat_cap_none)
+          bl_moist_heat_cap = bl_moist_heat_cap_none
+        case (bl_moist_heat_cap_dry)
+          bl_moist_heat_cap = bl_moist_heat_cap_dry
+        case (bl_moist_heat_cap_moist)
+          bl_moist_heat_cap = bl_moist_heat_cap_moist
+      end select
+      call set_bl_moist_heat_cap_coeffs(bl_moist_heat_cap)
 
     end if
 

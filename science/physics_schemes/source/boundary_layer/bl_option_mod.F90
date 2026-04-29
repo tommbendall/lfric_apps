@@ -379,6 +379,11 @@ integer, parameter :: fric_HeldSuarez_1 = 1
 integer, parameter :: fric_HeldSuarez_2 = 2
 
 !=======================================================================
+! Moist heat capacity treatment
+!=======================================================================
+integer :: bl_moist_heat_cap = imdi
+
+!=======================================================================
 ! Options not in namelist, Integers
 !=======================================================================
 
@@ -533,7 +538,8 @@ namelist/run_bl/ i_bl_vn, sbl_op, cbl_op, cbl_mix_fac_nml,                     &
     tke_cm_fa, tke_dlen, l_new_kcloudtop, fric_number, flux_bc_opt,            &
     i_impsolve_loc,                                                            &
     l_3dtke, l_noice_in_turb, shallow_cu_maxtop, dec_thres_cloud,              &
-    near_neut_z_on_l, blend_height_opt, h_blend_fix, ng_stress
+    near_neut_z_on_l, blend_height_opt, h_blend_fix, ng_stress,                 &
+    bl_moist_heat_cap
 
 !DrHook-related parameters
 integer(kind=jpim), parameter, private :: zhook_in  = 0
@@ -691,6 +697,8 @@ call umPrint(lineBuffer,src='bl_option_mod')
 write(lineBuffer,'(A,ES12.4)') 'h_blend_fix = ',h_blend_fix
 call umPrint(lineBuffer,src='bl_option_mod')
 write(lineBuffer,'(A,I0)') 'ng_stress = ',ng_stress
+call umPrint(lineBuffer,src='bl_option_mod')
+write(lineBuffer,'(A,I0)') 'bl_moist_heat_cap = ',bl_moist_heat_cap
 call umPrint(lineBuffer,src='bl_option_mod')
 
 call umPrint('- - - - - - end of namelist - - - - - -',                        &

@@ -67,11 +67,12 @@ use model_domain_mod, only: model_type, mt_single_column
 use missing_data_mod, only: rmdi
 use planet_constants_mod, only: vkman => vkman_bl, r => rd_bl,                 &
      c_virtual => c_virtual_bl, g => g_bl, etar => etar_bl, grcp => grcp_bl,   &
-     lcrcp => lcrcp_bl, lsrcp => lsrcp_bl
+     lcrcp => lcrcp_bl, lsrcp => lsrcp_bl, cp_bl
 use s_scmop_mod,  only: default_streams,                                       &
      t_avg, d_bl, d_sl, scmdiag_bl
 use timestep_mod, only: timestep
-use water_constants_mod, only: tm => tm_bl
+use water_constants_mod, only: tm => tm_bl, lc_bl, lf
+use bl_cpml_mod, only: cpv_cpml_bl, cl_cpml_bl, ci_cpml_bl
 
 use qsat_mod, only: qsat, qsat_mix, qsat_wat, qsat_wat_mix
 
@@ -964,11 +965,18 @@ real(kind=r_bl), allocatable :: z_uv_ntmlp1(:,:) ! Temporary copy of
 !Variables for cache-blocking
 integer            :: jj         ! Block index
 
+! Local variables for temperature-dependent moist heat capacity
+real(kind=r_bl) :: lf_bl
+real(kind=r_bl) :: L_con_val, L_sub_val, cp_moist_val
+real(kind=r_bl) :: lcrcp_moist, lsrcp_moist
+
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
 real(kind=jprb)               :: zhook_handle
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+lf_bl = real(lf, r_bl)
 
 ! Allocate water tracer working arrays
 if (l_wtrac) then
@@ -1508,8 +1516,13 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                 ! the parcel.
                 q_liq_parc = q_liq_parc + qcl(i,j,k) + qcf(i,j,k)              &
                                - q_liq_env
+                ! Temperature-dependent CPML for condensation
+                L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm)
+                cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                   &
+                             + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+                lcrcp_moist  = L_con_val / cp_moist_val
                 t_parc = sl_plume - grcp * z_tq(i,j,k) +                       &
-                                 lcrcp*q_liq_parc
+                                 lcrcp_moist*q_liq_parc
               else
                 q_liq_parc = max( zero, ( qw_plume - qs(i,j,k) -               &
                   dqsdt(i,j,k)*                                                &
@@ -1522,8 +1535,13 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                 ! RH_CRIT=1
                 q_liq_parc = q_liq_parc + qcl(i,j,k) + qcf(i,j,k)              &
                                - q_liq_env
+                ! Temperature-dependent CPML for sublimation
+                L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm)
+                cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                   &
+                             + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+                lsrcp_moist  = L_sub_val / cp_moist_val
                 t_parc = sl_plume - grcp * z_tq(i,j,k) +                       &
-                                 lsrcp*q_liq_parc
+                                 lsrcp_moist*q_liq_parc
               end if
               q_vap_parc=qw_plume - q_liq_parc
 
@@ -2688,12 +2706,20 @@ do k = 1, bl_levels
       virt_factor = one + c_virtual*q(i,j,k) - qcl(i,j,k) -                    &
                           qcf(i,j,k)
 
+      ! Temperature-dependent CPML coefficients
+      L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm)
+      L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,k) - tm)
+      cp_moist_val = cp_bl + q(i,j,k)*cpv_cpml_bl                             &
+                   + qcl(i,j,k)*cl_cpml_bl + qcf(i,j,k)*ci_cpml_bl
+      lcrcp_moist  = L_con_val / cp_moist_val
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
       dqcldz(i,j,k) = -( dsldz(i)*dqsdt(i,j,k)                                 &
                      + g*qs(i,j,k)/(r*t(i,j,k)*virt_factor) )                  &
-                      / ( one + lcrcp*dqsdt(i,j,k) )
+                      / ( one + lcrcp_moist*dqsdt(i,j,k) )
       dqcfdz(i,j,k) = -( dsldz(i)*dqsdt(i,j,k)                                 &
                      + g*qs(i,j,k)/(r*t(i,j,k)*virt_factor) ) * fgf            &
-                      / ( one + lsrcp*dqsdt(i,j,k) )
+                      / ( one + lsrcp_moist*dqsdt(i,j,k) )
     end do
 
         ! limit calculation to greater than a small cloud fraction
@@ -3230,9 +3256,17 @@ do j = pdims%j_start, pdims%j_end
       dqcl = - cfl_ml*qcl_ic_top(i,j)
       dqcf = - cff_ml*qcf_ic_top(i,j)
 
+      ! Temperature-dependent CPML coefficients at inversion level
+      L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+      L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+      cp_moist_val = cp_bl + q(i,j,km)*cpv_cpml_bl                            &
+                   + qcl(i,j,km)*cl_cpml_bl + qcf(i,j,km)*ci_cpml_bl
+      lcrcp_moist  = L_con_val / cp_moist_val
+      lsrcp_moist  = L_sub_val / cp_moist_val
+
       db_disc = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                      &
-               (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +                 &
-               (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
+               (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +           &
+               (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
 
       if ( db_disc > 0.03_r_bl  ) then
           ! Diagnosed inversion statically stable and at least ~1K
@@ -3254,9 +3288,16 @@ do j = pdims%j_start, pdims%j_end
       qcf_ic_top(i,j) = qcf(i,j,km)
       dqcl = qcl(i,j,kp) - qcl_ic_top(i,j)
       dqcf = qcf(i,j,kp) - qcf_ic_top(i,j)
+      ! Temperature-dependent CPML coefficients at inversion level
+      L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+      L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+      cp_moist_val = cp_bl + q(i,j,km)*cpv_cpml_bl                            &
+                   + qcl(i,j,km)*cl_cpml_bl + qcf(i,j,km)*ci_cpml_bl
+      lcrcp_moist  = L_con_val / cp_moist_val
+      lsrcp_moist  = L_sub_val / cp_moist_val
       db_top(i,j) = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                  &
-                (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +                &
-                (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
+                (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +          &
+                (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
     end if  ! no disc inversion diagnosed
 
     db_top_cld(i,j) = g * ( btm_cld(i,j,km)*dsl                                &
@@ -3323,9 +3364,17 @@ do j = pdims%j_start, pdims%j_end
         dqcl = - cfl_ml*qcl_ic_top(i,j)
         dqcf = - cff_ml*qcf_ic_top(i,j)
 
+        ! Temperature-dependent CPML coefficients at DSC inversion level
+        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+        cp_moist_val = cp_bl + q(i,j,km)*cpv_cpml_bl                           &
+                     + qcl(i,j,km)*cl_cpml_bl + qcf(i,j,km)*ci_cpml_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
+
         db_disc = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                    &
-                (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +                &
-                (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
+                (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +          &
+                (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
 
         if ( db_disc > 0.03_r_bl  ) then
             ! Diagnosed inversion statically stable
@@ -3347,9 +3396,16 @@ do j = pdims%j_start, pdims%j_end
         qcf_ic_top(i,j) = qcf(i,j,km)
         dqcl = qcl(i,j,kp) - qcl_ic_top(i,j)
         dqcf = qcf(i,j,kp) - qcf_ic_top(i,j)
+        ! Temperature-dependent CPML coefficients at DSC inversion level
+        L_con_val    = lc_bl - (cl_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+        L_sub_val    = (lc_bl + lf_bl) - (ci_cpml_bl - cpv_cpml_bl) * (t(i,j,km) - tm)
+        cp_moist_val = cp_bl + q(i,j,km)*cpv_cpml_bl                           &
+                     + qcl(i,j,km)*cl_cpml_bl + qcf(i,j,km)*ci_cpml_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
         db_dsct(i,j) = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +               &
-                  (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +              &
-                  (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
+                  (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +        &
+                  (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
       end if  ! no disc inversion diagnosed
 
       db_dsct_cld(i,j) = g * ( btm_cld(i,j,km)*dsl                             &
