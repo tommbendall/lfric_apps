@@ -572,6 +572,9 @@ do c = 1, npts
   qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
 
   ! Calculate temperature-dependent CPML coefficients for fusion
+  ! Use updated mixing ratios in cp_moist_val (post phase-change state)
+  ! so that latent heating remains consistent with constant-pressure
+  ! moist enthalpy conservation.
   L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
   cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
   lfrcp_moist  = L_fus_val / cp_moist_val
@@ -582,6 +585,8 @@ do c = 1, npts
   q(i) = q(i) - dqi
 
   ! Calculate temperature-dependent CPML coefficients for sublimation
+  ! Recompute cp_moist_val after vapour update for consistency with
+  ! the new moisture state before applying the temperature increment.
   L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
   cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
   lsrcp_moist  = L_sub_val / cp_moist_val

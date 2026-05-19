@@ -195,7 +195,9 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     !---------------------------------------
 
     use pc2_initiation_ctl_mod,     only: pc2_initiation_ctl
-    use planet_constants_mod,       only: p_zero, kappa, lcrcp, planet_radius
+    use planet_constants_mod,       only: p_zero, kappa, cp, planet_radius
+    use water_constants_mod,        only: lc, tm
+    use lsc_cpm_mod,                only: cpv_cpm, cl_cpm, ci_cpm
     use gen_phys_inputs_mod,        only: l_mr_physics
 
     use free_tracers_inputs_mod,    only: l_wtrac, n_wtrac
@@ -287,6 +289,7 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     real(r_um), dimension(seg_len,1,0:nlayers) :: r_theta_levels
 
     real(r_um) :: t_n
+    real(r_um) :: L_con_val, cp_moist_val, lcrcp_moist
 
     integer(i_um) :: k, i
 
@@ -364,7 +367,13 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
         qtts(i,1,k) = mv_n_wth(map_wth(1,i) + k) + ml_n_wth(map_wth(1,i) + k)
 
         ! Liquid temperature
-        tlts(i,1,k) = t_n - ( lcrcp * ml_n_wth(map_wth(1,i) + k) )
+        L_con_val = lc - (cl_cpm - cpv_cpm) * (t_n - tm)
+        cp_moist_val = cp + mv_n_wth(map_wth(1,i) + k) * cpv_cpm               &
+            + ml_n_wth(map_wth(1,i) + k) * cl_cpm                              &
+            + (ms_wth(map_wth(1,i) + k)                                        &
+            + mi_wth(map_wth(1,i) + k)) * ci_cpm
+        lcrcp_moist = L_con_val / cp_moist_val
+        tlts(i,1,k) = t_n - ( lcrcp_moist * ml_n_wth(map_wth(1,i) + k) )
 
       end do     ! k
     end do

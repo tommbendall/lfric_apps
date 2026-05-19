@@ -28,7 +28,7 @@ module bl_imp2_kernel_mod
                                         lowest_level_constant, &
                                         lowest_level_gradient, &
                                         lowest_level_flux
-  use water_constants_mod,       only : lc, lf
+  use water_constants_mod,       only : lc, lf, tm
 
   implicit none
 
@@ -277,7 +277,8 @@ contains
     use pc2_constants_mod, only: i_cld_smith, i_cld_pc2,            &
                                  pc2init_logic_smooth, acf_off, i_cld_bimodal
     use planet_constants_mod, only: p_zero, kappa, planet_radius, g => g_bl,   &
-                                    cp => cp_bl, lcrcp
+                                    cp => cp_bl
+    use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
     use timestep_mod, only: timestep
 
     ! subroutines used
@@ -435,6 +436,8 @@ contains
 
     real(r_bl) :: weight1, weight2, weight3, ftl_m, fqw_m,     &
          f_buoy_m, dissip_mol, fric_heating_inc, z_blyr
+
+    real(r_um) :: L_con_val, cp_moist_val, lcrcp_moist
 
     real(r_um), parameter :: qcl_max_factor = 0.1_r_um
 
@@ -671,10 +674,18 @@ contains
       ! Create Tl and qT outside boundary layer levels
       do i = 1, seg_len
         do k = bl_levels+1, nlayers
+          L_con_val = lc - (cl_cpm - cpv_cpm) * (                              &
+              theta_star(map_wth(1,i) + k) * exner_in_wth(map_wth(1,i) + k)    &
+              + dt_conv(map_wth(1,i) + k) - tm                                 &
+          )
+          cp_moist_val = cp + m_v(map_wth(1,i) + k) * cpv_cpm                  &
+              + m_cl(map_wth(1,i) + k) * cl_cpm                                &
+              + m_s(map_wth(1,i) + k) * ci_cpm
+          lcrcp_moist = L_con_val / cp_moist_val
           t_latest(i,1,k) = theta_star(map_wth(1,i) + k)   &
                             * exner_in_wth(map_wth(1,i) + k) &
                             + dt_conv(map_wth(1,i) + k)      &
-                            - (lc * m_cl(map_wth(1,i) + k)) / cp
+                            - lcrcp_moist * m_cl(map_wth(1,i) + k)
           q_latest(i,1,k) = m_v(map_wth(1,i) + k) + m_cl(map_wth(1,i) + k)
         end do
       end do
@@ -717,7 +728,8 @@ contains
 
         ! Remove qcf from T(liquid) and Q(vapour+liquid)
         if (.not. l_noice_in_turb)                                             &
-             call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest )
+             call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest,           &
+                          qcl_latest )
 
         ! Which cloud scheme are we using?
         ! 3 options are available:
@@ -766,10 +778,15 @@ contains
           ! content
           do k = 1, nlayers
             do i = 1, seg_len
+              L_con_val = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k) - tm)
+              cp_moist_val = cp + q_earliest(i,1,k) * cpv_cpm                  &
+                  + qcl_earliest(i,1,k) * cl_cpm                               &
+                  + qcf_earliest(i,1,k) * ci_cpm
+              lcrcp_moist = L_con_val / cp_moist_val
               qt_force(i,1,k) = ( q_latest(i,1,k)                              &
                    - (q_earliest(i,1,k) + qcl_earliest(i,1,k)) )
               tl_force(i,1,k) = ( t_latest(i,1,k)                              &
-                   - (t_earliest(i,1,k)- lc * qcl_earliest(i,1,k) / cp) )
+                  - (t_earliest(i,1,k)- lcrcp_moist * qcl_earliest(i,1,k)) )
             end do
           end do
 
@@ -836,7 +853,12 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  t_inc_pc2(i,1,k)   =  (-lcrcp) * qcl_earliest(i,1,k)
+                  L_con_val = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k)-tm)
+                  cp_moist_val = cp + q_earliest(i,1,k) * cpv_cpm              &
+                      + qcl_earliest(i,1,k) * cl_cpm                           &
+                      + qcf_earliest(i,1,k) * ci_cpm
+                  lcrcp_moist = L_con_val / cp_moist_val
+                  t_inc_pc2(i,1,k)   =  (-lcrcp_moist) * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
                   qcl_inc_pc2(i,1,k) =  (-qcl_earliest(i,1,k))
                   cfl_inc_pc2(i,1,k) =  (-cfl_earliest(i,1,k))

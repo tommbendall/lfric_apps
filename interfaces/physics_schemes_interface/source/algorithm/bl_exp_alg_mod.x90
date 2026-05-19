@@ -11,7 +11,7 @@ module bl_exp_alg_mod
   use field_mod,            only: field_type
   use integer_field_mod,    only: integer_field_type
   use field_collection_mod, only: field_collection_type
-  use mr_indices_mod,       only: nummr, imr_v, imr_cl, imr_ci, imr_s
+  use mr_indices_mod,       only: nummr, imr_v, imr_cl, imr_ci, imr_s, imr_r, imr_g
 
   use function_space_mod,            only: function_space_type
   use function_space_collection_mod, only: function_space_collection
@@ -80,7 +80,9 @@ contains
     use bl_exp_kernel_mod, only: bl_exp_kernel_type
     use interp_bl_kernel_mod, only: interp_bl_kernel_type
     use bl_exp_du_kernel_mod, only: bl_exp_du_kernel_type
-    use planet_constants_mod, only: lcrcp_def, lsrcp_def
+    use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
+    use planet_constants_mod, only: cpd => cp
+    use water_constants_mod,  only: lc, lf, tm
 
     implicit none
 
@@ -204,12 +206,23 @@ contains
     type( field_type ), pointer :: w2_rmultiplicity
     type( field_type ), pointer :: dz_wth
 
+    ! Fields for calculating heat capacities and latent heats
+    type( field_type ) :: temperature
+    type( field_type ) :: Lc_field, Ls_field
+    type( field_type ) :: cp_moist_field
+    type( field_type ) :: lcrcp, lsrcp, lrcp_dmr
+    type( field_type ) :: dmr_ice
+
+    real(kind=r_def)   :: cpv_cpm_rdef, cl_cpm_rdef, ci_cpm_rdef
+    real(kind=r_def)   :: cpv_minus_cl, cpv_minus_ci
+    real(kind=r_def)   :: Lc_rdef, Lf_rdef, Tm_rdef
+
     ! local variables
     type(mesh_type),           pointer :: mesh
     type( field_type ) :: dtl_mphys, dmt_mphys, ngstress_w2,                  &
                           fd_tau_w2, ngstress_bl, fd_taux, fd_tauy, fd_tauz,  &
                           zht, oblen
-    type( field_type) :: rdz_wth, taux_land, tauy_land, taux_ssi, tauy_ssi
+    type( field_type ) :: rdz_wth, taux_land, tauy_land, taux_ssi, tauy_ssi
     type( field_type ) :: mr_ice
 
     integer(i_def) :: ncells
@@ -352,17 +365,64 @@ contains
       call invoke(inc_X_plus_Y(mr_ice, mr_n(imr_ci)))
     end if
 
-                ! Calculate TL = T - (lc/cp)*mcl
-    call invoke(     X_times_Y(dtl_mphys, dtheta_mphys, exner_in_wth),         &
-                inc_X_minus_bY(dtl_mphys, lcrcp_def, dmr_mphys(imr_cl)),           &
-                ! And mt = mv + mcl
-                    X_plus_Y(dmt_mphys, dmr_mphys(imr_v), dmr_mphys(imr_cl)) )
+    ! Calculate heat capacities and latent heats
+    call temperature%initialise(theta%get_function_space())
+    call Lc_field%initialise(theta%get_function_space())
+    call Ls_field%initialise(theta%get_function_space())
+    call cp_moist_field%initialise(theta%get_function_space())
+    call lcrcp%initialise(theta%get_function_space())
+    call lsrcp%initialise(theta%get_function_space())
+    call lrcp_dmr%initialise(theta%get_function_space())
+    call dmr_ice%initialise(theta%get_function_space())
+
+    cpv_cpm_rdef = REAL(cpv_cpm_bl, r_def)
+    cl_cpm_rdef = REAL(cl_cpm_bl, r_def)
+    ci_cpm_rdef = REAL(ci_cpm_bl, r_def)
+    cpv_minus_cl = cpv_cpm_rdef - cl_cpm_rdef
+    cpv_minus_ci = cpv_cpm_rdef - cl_cpm_rdef
+    Lc_rdef = REAL(lc, r_def)
+    Lf_rdef = REAL(lf, r_def)
+    Tm_rdef = REAL(tm, r_def)
+
+    ! TL calculation, requiring latent heat and heat capacity
+    call invoke(                                                               &
+        ! cpm
+        aX_plus_bY(                                                            &
+            cp_moist_field, cpv_cpm_rdef, mr_n(imr_v),                         &
+            cl_cpm_rdef, mr_n(imr_cl)                                          &
+        ),                                                                     &
+        inc_X_plus_bY(cp_moist_field, cl_cpm_rdef, mr_n(imr_r)),               &
+        inc_X_plus_bY(cp_moist_field, ci_cpm_rdef, mr_n(imr_ci)),              &
+        inc_X_plus_bY(cp_moist_field, cl_cpm_rdef, mr_n(imr_s)),               &
+        inc_X_plus_bY(cp_moist_field, ci_cpm_rdef, mr_n(imr_g)),               &
+        inc_a_plus_X(cpd, cp_moist_field),                                     &
+        ! Lc and Ls
+        X_times_Y(temperature, theta, exner_in_wth),                           &
+        inc_X_minus_a(temperature, Tm_rdef),                                   &
+        a_times_X(Lc_field, cpv_minus_cl, temperature),                        &
+        a_times_X(Ls_field, cpv_minus_ci, temperature),                        &
+        inc_a_plus_X(Lc, Lc_field),                                            &
+        inc_a_plus_X(Lf, Ls_field),                                            &
+        ! lcrcp and lsrcp
+        X_divideby_Y(lcrcp, Lc_field, cp_moist_field),                         &
+        X_divideby_Y(lsrcp, Ls_field, cp_moist_field),                         &
+
+        ! Calculate TL = T - (lc/cp)*mcl
+        X_times_Y(dtl_mphys, dtheta_mphys, exner_in_wth),                      &
+        X_times_Y(lrcp_dmr, lcrcp, dmr_mphys(imr_cl)),                         &
+        inc_X_minus_Y(dtl_mphys, lrcp_dmr),                                    &
+        ! And mt = mv + mcl
+        X_plus_Y(dmt_mphys, dmr_mphys(imr_v), dmr_mphys(imr_cl))               &
+    )
     if (.not. l_noice_in_turb) then
       ! Add in ice increments
-      call invoke(inc_X_minus_bY(dtl_mphys, lsrcp_def, dmr_mphys(imr_s)),          &
-                  inc_X_minus_bY(dtl_mphys, lsrcp_def, dmr_mphys(imr_ci)),         &
-                  inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_s)),                   &
-                  inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_ci)) )
+      call invoke(                                                             &
+          X_plus_Y(dmr_ice, dmr_mphys(imr_ci), dmr_mphys(imr_s)),              &
+          X_times_Y(lrcp_dmr, lsrcp, dmr_mphys(imr_ci)),                       &
+          inc_X_minus_Y(dtl_mphys, lrcp_dmr),                                  &
+          inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_s)),                           &
+          inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_ci))                           &
+      )
     end if
 
     ! Switch UM to running i-first on whole domain

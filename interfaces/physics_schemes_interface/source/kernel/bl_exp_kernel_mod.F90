@@ -378,8 +378,9 @@ contains
     use cv_run_mod, only: i_convection_vn, i_convection_vn_6a,               &
                           cldbase_opt_dp, cldbase_opt_md
     use nlsizes_namelist_mod, only: bl_levels
-    use planet_constants_mod, only: p_zero, kappa, planet_radius, &
-                                    lcrcp => lcrcp_bl, lsrcp => lsrcp_bl
+    use planet_constants_mod, only: p_zero, kappa, planet_radius, cp_bl
+    use water_constants_mod,  only: lc, lf, tm
+    use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
     use timestep_mod, only: timestep
 
     use free_tracers_inputs_mod,    only: n_wtrac
@@ -552,6 +553,9 @@ contains
 
     real(r_bl), dimension(seg_len,1,3) :: t_frac, t_frac_dsc, we_lim, &
          we_lim_dsc, zrzi, zrzi_dsc
+
+    real(r_bl) :: L_con_val, L_sub_val, cp_moist_val
+    real(r_bl) :: lcrcp_moist, lsrcp_moist
 
     ! single level integer fields
     integer(i_um), dimension(seg_len,1) :: ntml, ntpar, kent, kent_dsc
@@ -781,7 +785,15 @@ contains
         rad_hr(i,1,2,k) = sw_heating_rate(map_wth(1,i)+k)
         ! temperature
         temperature(i,1,k) = theta(i,1,k) * exner_theta_levels(i,1,k)
-        tl(i,1,k) = temperature(i,1,k) - lcrcp*qcl(i,1,k) - lsrcp*qcf(i,1,k)
+        L_con_val    = lc - (cl_cpm_bl - cpv_cpm_bl) * (temperature(i,1,k) - tm)
+        L_sub_val    = (lc + lf) - (ci_cpm_bl - cpv_cpm_bl)                  &
+                     * (temperature(i,1,k) - tm)
+        cp_moist_val = cp_bl + q(i,1,k)*cpv_cpm_bl + qcl(i,1,k)*cl_cpm_bl    &
+                     + qcf(i,1,k)*ci_cpm_bl
+        lcrcp_moist  = L_con_val / cp_moist_val
+        lsrcp_moist  = L_sub_val / cp_moist_val
+        tl(i,1,k) = temperature(i,1,k) - lcrcp_moist*qcl(i,1,k)              &
+                  - lsrcp_moist*qcf(i,1,k)
         qw(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)
       end do
     end do

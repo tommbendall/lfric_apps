@@ -115,7 +115,8 @@ contains
     ! Other modules containing stuff passed to CLD
     use nlsizes_namelist_mod, only: bl_levels
     use planet_constants_mod, only: p_zero, kappa, cp
-    use water_constants_mod,  only: lc
+    use water_constants_mod,  only: lc, tm
+    use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
     use ls_arcld_mod,         only: ls_arcld
     use gen_phys_inputs_mod,  only: l_mr_physics
 
@@ -149,6 +150,7 @@ contains
     integer(i_um) :: k, i
 
     real(r_def) :: dmv1(seg_len)
+    real(r_um) :: L_con_val, cp_moist_val, lcrcp_moist
 
     ! profile fields from level 1 upwards
     real(r_um), dimension(seg_len,1,nlayers) ::                      &
@@ -182,9 +184,16 @@ contains
     do i = 1, seg_len
       do k = 1, nlayers
         ! liquid temperature on theta levels
+        L_con_val = lc - (cl_cpm - cpv_cpm) *                                  &
+                          (theta_in_wth(map_wth(1,i) + k)                      &
+                           * exner_in_wth(map_wth(1,i)+ k) - tm)
+        cp_moist_val = cp + m_v(map_wth(1,i) + k) * cpv_cpm                    &
+                     + m_cl(map_wth(1,i) + k) * cl_cpm                         &
+                     + m_cf(map_wth(1,i) + k) * ci_cpm
+        lcrcp_moist = L_con_val / cp_moist_val
         tl(i,1,k) = ( theta_in_wth(map_wth(1,i) + k)   &
                     * exner_in_wth(map_wth(1,i)+ k)) - &
-                    (lc * m_cl(map_wth(1,i) + k)) / cp
+                    lcrcp_moist * m_cl(map_wth(1,i) + k)
         ! total water and ice water on theta levels
         qt(i,1,k) =  m_v(map_wth(1,i) + k) + m_cl(map_wth(1,i) + k)
         qcf_in(i,1,k) = m_cf(map_wth(1,i) + k)

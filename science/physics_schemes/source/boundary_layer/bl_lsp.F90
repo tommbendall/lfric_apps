@@ -21,7 +21,7 @@ implicit none
 character(len=*), parameter, private :: ModuleName = 'BL_LSP_MOD'
 contains
 
-subroutine bl_lsp( bl_levels,qcf,q,t )
+subroutine bl_lsp( bl_levels,qcf,q,t,qcl )
 
 use atm_fields_bounds_mod, only: tdims
 use planet_constants_mod, only: lsrcp, cpd => cp
@@ -47,6 +47,10 @@ real(kind=real_umphys), intent(in out) ::                                      &
       bl_levels)                   ! INOUT
 !                                  in    Liquid ice temperature
 !                                  out   Liquid temperature
+real(kind=real_umphys), intent(in) ::                                          &
+  qcl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                     &
+      bl_levels)
+                                 ! IN Cloud liquid water content
 ! Temporary Space
 integer ::                                                                     &
         i,                                                                     &
@@ -69,7 +73,8 @@ character(len=*), parameter :: RoutineName='BL_LSP'
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
 !$OMP          private(i,j,k,newqcf,L_sub_val,cp_moist_val,lsrcp_moist)        &
-!$OMP          SHARED(bl_levels,tdims,q,qcf,t,lsrcp,cpd,cpv_cpm,ci_cpm)
+!$OMP          SHARED(bl_levels,tdims,q,qcf,t,qcl,lsrcp,cpd,cpv_cpm,cl_cpm,    &
+!$OMP                 ci_cpm)
 do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -85,7 +90,8 @@ do k = 1, bl_levels
       end if
       ! Adjust T from T liquid ice to T liquid
       L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k) * cpv_cpm
+      cp_moist_val = cpd + (q(i,j,k)-qcl(i,j,k)) * cpv_cpm                    &
+           + qcl(i,j,k) * cl_cpm + qcf(i,j,k) * ci_cpm
       lsrcp_moist  = L_sub_val / cp_moist_val
       t(i,j,k)=t(i,j,k)+lsrcp_moist*qcf(i,j,k)
     end do
