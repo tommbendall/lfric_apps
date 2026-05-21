@@ -16,7 +16,7 @@ contains
 subroutine lsp_melting(                                                        &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, q_ice, qgraup, qcf, qcft, qrain, qsl,                                     &
+  q, qcl, q_ice, qgraup, qcf, qcft, qrain, qsl,                                &
                                           ! Water contents
   t, p,                                                                        &
                                           ! Temperature and pressure
@@ -34,7 +34,7 @@ subroutine lsp_melting(                                                        &
   rho, rhor, m0, tcg, tcgi,                                                    &
                                           ! Parametrization information
   corr2, rocor, ice_nofall,                                                    &
-  lfrcp, ice_type,                                                             &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -118,6 +118,8 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Timestep / s
   q(points),                                                                   &
                         ! Gridbox mean vapour content / kg kg-1
+  qcl(points),                                                                 &
+                        ! Gridbox mean cloud liquid content / kg kg-1
   q_ice(points),                                                               &
                         ! Vapour content in ice partition / kg kg-1
   qgraup(points),                                                              &
@@ -156,9 +158,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! 1/tcg (no units)
   ice_nofall(points),                                                          &
                         ! Fraction of qcf that is not falling out
-  lfrcp,                                                                       &
-                        ! Latent heat of fusion
-                        ! / heat capacity of air / K
   one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
@@ -440,7 +439,9 @@ do c = 1, npts
 
   ! Calculate temperature-dependent CPML coefficients
   L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cp_moist_val = cpd
+  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
+                 + cl_cpm * (qcl(i) + qrain(i))                                &
+                 + ci_cpm * (qcft(i) + qgraup(i))
   lfrcp_moist  = L_fus_val / cp_moist_val
 
   dpr(i) = temp7(i) * (one-one/(one+dpr(i)*lfrcp_moist))/lfrcp_moist

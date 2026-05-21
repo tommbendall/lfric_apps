@@ -16,7 +16,7 @@ contains
 subroutine lsp_capture(                                                        &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  qcf, qrain, qgraup, t,                                                       &
+  q, qcl, qcf, qcf2, qrain, qgraup, t,                                         &
                                           ! Water contents and temp
   cficei,                                                                      &
                                           ! Cloud fraction information
@@ -28,7 +28,7 @@ subroutine lsp_capture(                                                        &
   rho, rhor, m0, tcg, tcgi,                                                    &
                                           ! Parametrization information
   corr, dhir, ice_nofall, rain_nofall,                                         &
-  lfrcp , ice_type,                                                            &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -108,6 +108,10 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
+  q(points),                                                                   &
+                        ! Vapour mixing ratio / kg kg-1
+  qcl(points),                                                                 &
+                        ! Cloud liquid mixing ratio / kg kg-1
   cficei(points),                                                              &
                         ! 1/Fraction of gridbox with ice cloud
     rho(points),                                                               &
@@ -128,14 +132,13 @@ real (kind=real_lsprec), intent(in) ::                                         &
                           ! Fraction of the ice-mass that is not falling out
     rain_nofall(points),                                                       &
                           ! Fraction of the rain-mass that is not falling out
-    lfrcp,                                                                     &
-                          ! Latent heat of fusion
-                          ! / heat capacity of air / K
     one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
   qcf(points),                                                                 &
                         ! Ice water content    / kg kg-1
+  qcf2(points),                                                                &
+                        ! Second ice category mixing ratio / kg kg-1
   qrain(points),                                                               &
                         ! Rain mixing ratio / kg kg-1
   qgraup(points),                                                              &
@@ -587,7 +590,9 @@ do c = 1, npts
 
   ! Calculate temperature-dependent CPML coefficients
   L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cp_moist_val = cpd
+  cp_moist_val = cpd + cpv_cpm * q(i)                                         &
+                 + cl_cpm * (qcl(i) + qrain(i))                               &
+                 + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
   lfrcp_moist  = L_fus_val / cp_moist_val
 
   t(i)     = t(i)     + dpr(i) * lfrcp_moist

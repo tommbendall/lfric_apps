@@ -32,7 +32,7 @@ contains
 subroutine lsp_subgrid(                                                        &
   points,                                                                      &
                                           ! Number of points
-  q, qcf_cry, qcf_agg, qcftot, t,                                              &
+  q, qcl, qrain, qgraup, qcf_cry, qcf_agg, qcftot, t,                          &
                                           ! Water contents and temp
   qsl, qs,                                                                     &
                                           ! Saturated water contents
@@ -58,8 +58,6 @@ subroutine lsp_subgrid(                                                        &
                                           ! for updating
   dqprec_liq, dqprec_mix, dqprec_ice, dqprec_clear, dqprec_new,                &
                                           ! Partition qrain/graup increments
-  lsrcp,                                                                       &
-                                          ! Latent heat of sublim./cp
   rhcpt,                                                                       &
                                           ! RH crit values
   wtrac_mp_cpr, wtrac_mp_cpr_old)
@@ -127,9 +125,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Saturated mixing ratio wrt liquid
   cfliq(points),                                                               &
                         ! Fraction of gridbox with liquid cloud
-  lsrcp,                                                                       &
-                        ! Latent heat of sublimation
-                        ! / heat capacity of air / K
   rhcpt(points)     ! RH crit values
 
 real (kind=real_lsprec), intent(in out) :: rainfrac(points)
@@ -156,6 +151,12 @@ real (kind=real_lsprec), intent(out) :: dqprec_new(points)
 real (kind=real_lsprec), intent(in out) ::                                     &
   q(points),                                                                   &
                         ! Vapour content / kg kg-1
+  qcl(points),                                                                 &
+                        ! Cloud liquid content / kg kg-1
+  qrain(points),                                                               &
+                        ! Rain content / kg kg-1
+  qgraup(points),                                                              &
+                        ! Graupel content / kg kg-1
   qcf_cry(points),                                                             &
                         ! Ice crystal content / kg kg-1
   qcf_agg(points),                                                             &
@@ -412,7 +413,9 @@ do i = 1, points
 
       ! Calculate temperature-dependent CPML coefficients
       L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpm
+      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf_cry(i) + qcf_agg(i) + qgraup(i))
       lsrcp_moist  = L_sub_val / cp_moist_val
 
       t(i) = t(i) - lsrcp_moist * (qcf_cry(i)+qcf_agg(i))

@@ -16,13 +16,13 @@ contains
 subroutine lsp_settle(                                                         &
   points, one_over_tsi,                                                        &
                                           ! Number of points and tstep
-  q, qcl, t, droplet_flux,                                                     &
+  q, qcl, qcf, qcf2, qrain, qgraup, t, droplet_flux,                          &
                                           ! Water contents and temp.
   bland,                                                                       &
                                           ! Control logicals
   cfliq,                                                                       &
                                           ! Liquid cloud fraction
-  rho, rhor, corr2, lcrcp,                                                     &
+  rho, rhor, corr2,                                                            &
                                           ! Parametrization information
   dhi, dhir,                                                                   &
                                           ! Layer thickness information
@@ -34,7 +34,11 @@ subroutine lsp_settle(                                                         &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: mprog_min, mprog_abs, ntot_land, ntot_sea,               &
-                      zero, one
+                      zero, one, lc, tm
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 !Microphysics modules- logicals and integers
 use mphys_inputs_mod,    only: l_droplet_tpr
@@ -95,8 +99,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Timestep / layer thickness / s m-1
   dhir(points),                                                                &
                         ! 1 / dhi  / m s-1
-  lcrcp,                                                                       &
-                        ! Latent heat condensation / cp / K
   n_drop_tpr(points)
                         ! Droplet concentration determined from
                         ! lsp_taper_ndrop using aerosols or a
@@ -107,6 +109,14 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Vapour content / kg kg-1
   qcl(points),                                                                 &
                         ! Liquid water content / kg kg-1
+  qcf(points),                                                                 &
+                        ! Ice aggregate content / kg kg-1
+  qcf2(points),                                                                &
+                        ! Ice crystal content / kg kg-1
+  qrain(points),                                                               &
+                        ! Rain content / kg kg-1
+  qgraup(points),                                                              &
+                        ! Graupel content / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
   droplet_flux(points),                                                        &
@@ -142,7 +152,13 @@ real (kind=real_lsprec) ::                                                     &
                         ! falling into clear sky / kg m-2 s-1
   dqcl,                                                                        &
                         ! Change in qcl this timestep / kg kg-1
-  dq                ! Change in q this timestep / kg kg-1
+  dq,                                                                          &
+                        ! Change in q this timestep / kg kg-1
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist      ! Temperature-dependent ratio of L_con to cp_moist
 
 real (kind=real_lsprec), parameter ::                                          &
   two_thirds = 2.0_real_lsprec / 3.0_real_lsprec
@@ -238,8 +254,14 @@ if ( i_fix_mphys_drop_settle == second_fix ) then
       !------------------------------------------------
       ! Adjust vapour content and temperature
       !------------------------------------------------
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lcrcp_moist  = L_con_val / cp_moist_val
+
       q(i)   = q(i) + dq
-      t(i)   = t(i) - lcrcp * dq
+      t(i)   = t(i) - lcrcp_moist * dq
       ! There is no change in the cloud fractions as we
       ! assume drops falling into clear sky are evaporated.
 
@@ -327,8 +349,14 @@ else if ( i_fix_mphys_drop_settle == first_fix ) then
       !------------------------------------------------
       ! Adjust vapour content and temperature
       !------------------------------------------------
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lcrcp_moist  = L_con_val / cp_moist_val
+
       q(i)   = q(i) + dq
-      t(i)   = t(i) - lcrcp * dq
+      t(i)   = t(i) - lcrcp_moist * dq
       ! There is no change in the cloud fractions as we
       ! assume drops falling into clear sky are evaporated.
 
@@ -416,8 +444,14 @@ else ! No drop settle fix.
     !------------------------------------------------
 
     qcl(i) = qcl(i) + dqcl
+    L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+    lcrcp_moist  = L_con_val / cp_moist_val
+
     q(i)   = q(i) + dq
-    t(i)   = t(i) - lcrcp * dq
+    t(i)   = t(i) - lcrcp_moist * dq
     ! There is no change in the cloud fractions as we
     ! assume drops falling into clear sky are evaporated.
 

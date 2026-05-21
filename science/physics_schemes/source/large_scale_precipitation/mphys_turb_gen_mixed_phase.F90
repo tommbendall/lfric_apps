@@ -42,8 +42,9 @@ use stochastic_physics_run_mod, only:  l_rp2, rp_idx, mp_czero_rp
 ! General and constants modules
 use gen_phys_inputs_mod,   only: l_mr_physics
 use conversions_mod,       only: pi, zerodegc
-use water_constants_mod,   only: lc, lf
-use planet_constants_mod,  only: cp, r, repsilon, pref, rv, g
+use water_constants_mod,   only: lc, lf, tm
+use planet_constants_mod,  only: cpd => cp, r, repsilon, pref, rv, g
+use lsp_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Grid bounds module
 use atm_fields_bounds_mod, only: tdims, tdims_l
@@ -284,6 +285,14 @@ real(kind=real_umphys) :: p_corr           ! pressure correction for diffusivity
 real(kind=real_umphys) :: tau_d_work
                          ! local working value of the turbulent decorrelation
                          ! timescale
+real(kind=real_umphys) :: L_sub_val
+                         ! Temperature-dependent latent heat of sublimation
+real(kind=real_umphys) :: L_con_val
+                         ! Temperature-dependent latent heat of condensation
+real(kind=real_umphys) :: cp_moist_val
+                         ! Temperature-dependent moist specific heat capacity
+real(kind=real_umphys) :: lcrcp_moist
+                         ! Temperature-dependent ratio of L_con to cp_moist
 
 ! Number of bins in the mixed phase calculation (balance cost vs accuracy)
 integer, parameter :: nbins_mp = 100 ! hard-wired to 100
@@ -416,16 +425,18 @@ end if
 !$OMP private(k,j,i,q_local2d,t_local2d,rho_dry,rho_air,qsi_2d,qsw_2d,mom1,    &
 !$OMP         rhice,siw,ei,t_corr,p_corr,dv,ka,bi,Ai,b0,aa,dz_scal,            &
 !$OMP         tau_d_work,fac,four_root_sigmas,fac2,deltas,ibin,sice,           &
-!$OMP         qv_excess,fdist,lami,lams)                                       &
+!$OMP         qv_excess,fdist,lami,lams,L_sub_val,L_con_val,cp_moist_val,      &
+!$OMP         lcrcp_moist)                                                     &
 !$OMP SHARED(tdims,dqcl_mp,qcl_mpt,tau_d,inv_prt,disprate,inv_mt,si_avg,       &
 !$OMP        dcfl_mp,sigma2_s,bl_levels,q_work,t_work,rhodz_dry,deltaz,        &
 !$OMP        l_mr_physics,rhodz_moist,cff_inv,cff_work,                        &
 !$OMP        p_layer_centres,grd_pts,qcf_work,cx,repsilon,t_limit,bl_w_var,    &
-!$OMP        pref,cp,constp,g,r,mp_dz_scal,siw_lim,cfl_work,q_n,cfl_n,cf_n,    &
+!$OMP        pref,constp,g,r,mp_dz_scal,siw_lim,cfl_work,q_n,cfl_n,cf_n,       &
 !$OMP        qcl_inc,q_inc,t_inc,cfl_inc,cf_inc,qcl_work,cf_work, l_casim,     &
 !$OMP        icenumber_cas, snownumber_cas, qcf2_work, ipcx, ipdx, spcx,spdx,  &
 !$OMP        l_wtrac, wtrac_pc2, mp_czero, mp_tau_lim, Gam_1_imu_id, Gam_1_imu,&
-!$OMP        Gam_1_smu_sd, Gam_1_smu, ni_small, ns_small)
+!$OMP        Gam_1_smu_sd, Gam_1_smu, ni_small, ns_small,                      &
+!$OMP        cpd, cpv_cpm, cl_cpm, ci_cpm)
 !$OMP do SCHEDULE(STATIC)
 do k=1, tdims%k_end
   do j=tdims%j_start, tdims%j_end
@@ -547,10 +558,15 @@ do k = 1, bl_levels-1
 
         ka = air_conductivity0 * t_corr
 
-        bi = 1.0 / q_local2d(i,j) + (Lc+Lf)**2 /                               &
-             (cp * rv * t_local2d(i,j) ** 2)
+        L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
+        cp_moist_val = cpd + cpv_cpm * q_work(i,j,k)                           &
+              + cl_cpm * qcl_work(i,j,k)                                       &
+              + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
 
-        Ai = 1.0 / (rhoi *(Lc+Lf)**2 / (ka*rv*t_local2d(i,j)**2) +             &
+        bi = 1.0 / q_local2d(i,j) + L_sub_val**2 /                             &
+              (cp_moist_val * rv * t_local2d(i,j) ** 2)
+
+        Ai = 1.0 / (rhoi * L_sub_val**2 / (ka*rv*t_local2d(i,j)**2) +          &
                   rhoi * rv * t_local2d(i,j) / (Ei*Dv))
 
         if (.not. l_casim) then
@@ -563,7 +579,7 @@ do k = 1, bl_levels-1
         end if
 
         aa = ( g / (r*t_local2d(i,j) ) *                                       &
-             ( (Lc+Lf)*r / (cp*rv*t_local2d(i,j))-1.0))
+             ( L_sub_val*r / (cp_moist_val*rv*t_local2d(i,j))-1.0))
 
         dz_scal = mp_dz_scal * deltaz(i,j,k)
 
@@ -627,7 +643,12 @@ do k = 1, bl_levels-1
 
             qcl_inc(i,j,k) = qcl_inc(i,j,k) + qcl_mpt(i,j,k)
             q_inc(i,j,k)   = q_inc(i,j,k)   - qcl_mpt(i,j,k)
-            t_inc(i,j,k)   = t_inc(i,j,k)   + Lc * qcl_mpt(i,j,k) / cp
+            L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
+            cp_moist_val = cpd + cpv_cpm * q_work(i,j,k)                       &
+                           + cl_cpm * qcl_work(i,j,k)                          &
+                           + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+            lcrcp_moist  = L_con_val / cp_moist_val
+            t_inc(i,j,k) = t_inc(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_inc(i,j,k) = min( cfl_inc(i,j,k) + dcfl_mp(i,j,k),             &
                                        1.0 - cfl_n(i,j,k)       )
@@ -637,7 +658,12 @@ do k = 1, bl_levels-1
 
             qcl_work(i,j,k) = qcl_work(i,j,k) + qcl_mpt(i,j,k)
             q_work(i,j,k)   = q_work(i,j,k)   - qcl_mpt(i,j,k)
-            t_work(i,j,k)   = t_work(i,j,k)   + Lc * qcl_mpt(i,j,k) / cp
+            L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
+            cp_moist_val = cpd + cpv_cpm * q_work(i,j,k)                       &
+                           + cl_cpm * qcl_work(i,j,k)                          &
+                           + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+            lcrcp_moist  = L_con_val / cp_moist_val
+            t_work(i,j,k) = t_work(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_work(i,j,k) = min( cfl_work(i,j,k) + dcfl_mp(i,j,k), 1.0)
 

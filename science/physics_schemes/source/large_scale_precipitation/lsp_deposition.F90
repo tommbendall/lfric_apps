@@ -16,7 +16,7 @@ contains
 subroutine lsp_deposition(                                                     &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, qcf, qcft, t, p,                                                     &
+  q, qcl, qrain, qgraup, qcf, qcft, t, p,                                      &
                                           ! Water contents, temp, pres
   q_ice_1, q_ice_2,                                                            &
                                           ! Subgrid-scale water contents
@@ -33,7 +33,7 @@ subroutine lsp_deposition(                                                     &
   rho, tcg, tcgi,                                                              &
                                           ! Parametrization information
   corr2, rocor, lheat_correc_ice, ice_nofall,                                  &
-  lfrcp, lsrcp, ice_type,                                                      &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -113,6 +113,10 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
+  qrain(points),                                                               &
+                        ! Rain content / kg kg-1
+  qgraup(points),                                                              &
+                        ! Graupel content / kg kg-1
   p(points),                                                                   &
                         ! Air pressure / N m-2
   esi(points),                                                                 &
@@ -153,11 +157,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Ice latent heat correction factor
   ice_nofall(points),                                                          &
                         ! Fraction of qcf that is not falling out
-  lfrcp,                                                                       &
-                        ! Latent heat of fusion
-                        ! /heat capacity of air (cP) / K
-  lsrcp,                                                                       &
-                        ! Latent heat of sublimation/cP / K
   one_over_tsi          ! 1/(timestep*iterations)
 logical, intent(in) ::                                                         &
    l_use_agg_vt(points)
@@ -576,7 +575,9 @@ do c = 1, npts
   ! so that latent heating remains consistent with constant-pressure
   ! moist enthalpy conservation.
   L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
+  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
+                 + cl_cpm * (qcl(i) + qrain(i))                                &
+                 + ci_cpm * (qcft(i) + qgraup(i))
   lfrcp_moist  = L_fus_val / cp_moist_val
 
   t(i) = t(i) + lfrcp_moist * dqil
@@ -588,7 +589,9 @@ do c = 1, npts
   ! Recompute cp_moist_val after vapour update for consistency with
   ! the new moisture state before applying the temperature increment.
   L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-  cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
+  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
+                 + cl_cpm * (qcl(i) + qrain(i))                                &
+                 + ci_cpm * (qcft(i) + qgraup(i))
   lsrcp_moist  = L_sub_val / cp_moist_val
 
   t(i) = t(i) + lsrcp_moist * dqi

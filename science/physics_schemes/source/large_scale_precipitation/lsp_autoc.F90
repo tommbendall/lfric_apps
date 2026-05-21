@@ -16,7 +16,7 @@ contains
 subroutine lsp_autoc(                                                          &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  qgraup, qcl, qrain, t, p,                                                    &
+  q, qcf, qgraup, qcl, qrain, t, p,                                            &
                                           ! Water contents, temp and p
   cfliq, rhcpt,                                                                &
                                           ! Cloud fraction information
@@ -28,8 +28,6 @@ subroutine lsp_autoc(                                                          &
   rain_ice, rain_clear, rain_new,                                              &
   rho, rhor, corr2,                                                            &
                                           ! Parametrization information
-  lcrcp,                                                                       &
-                                          ! Microphysical information
   one_over_tsi,                                                                &
                                           ! Number of iterations and
                                           ! 1/(timestep*iterations)
@@ -54,7 +52,7 @@ use lsprec_mod,           only: r_auto, n_auto, power_droplet_auto,            &
                                 ec_auto, qcfmin, r, repsilon, lc, pi,          &
                                 f_cons, fsd_eff_lam, fsd_eff_phi,              &
                                 rad_mcica_sigma, two_d_fsd_factor,             &
-                                zero, half, one, two, small_number
+                                zero, half, one, two, small_number, tm
 
   ! Microphysics modules- logicals and integers
 use mphys_inputs_mod,     only: l_warm_new, l_fsd_generator, l_auto_debias,    &
@@ -68,6 +66,10 @@ use gen_phys_inputs_mod,  only: l_mr_physics
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
@@ -128,6 +130,10 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
+  q(points),                                                                   &
+                        ! Vapour content / kg kg-1
+  qcf(points),                                                                 &
+                        ! Cloud ice content / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel content / kg kg-1
   p(points),                                                                   &
@@ -150,8 +156,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                           ! 1 / air density / m3 kg-1
     corr2(points),                                                             &
                           ! Temperature correction factor (no units)
-    lcrcp,                                                                     &
-                          ! Latent heat of condensation/cP / K
     n_drop_tpr(points),                                                        &
                           ! Droplet number determined by
                           ! droplet taper curves
@@ -211,6 +215,8 @@ integer ::                                                                     &
 real (kind=real_lsprec) ::                                                     &
   n_drop(points),                                                              &
                         ! Number of droplets / m-3
+  lcrcp_moist(points),                                                         &
+                        ! Temperature-dependent L_con/cp_moist / K
   dpr(points),                                                                 &
                         ! Amount of mass autoconverted / kg kg-1
   qsl_tl(points),                                                              &
@@ -244,6 +250,10 @@ real (kind=real_lsprec) ::                                                     &
                         ! For debiasing code
   alpha_l,                                                                     &
                         ! dqsat/dT at T_L / kg kg-1 K-1
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist heat capacity
   a_l,                                                                         &
                         ! 1 / (1 + L/cp alpha)
   sigma_s,                                                                     &
@@ -554,7 +564,12 @@ else ! original autoconversion etc
       ! debiasing of the autoconversion rate.
       !-----------------------------------------------
     do i = 1, points
-      t_l(i) = t(i) - (lcrcp * qcl(i) )
+      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
+                     + cl_cpm * (qcl(i) + qrain(i))                            &
+                     + ci_cpm * (qcf(i) + qgraup(i))
+      lcrcp_moist(i) = L_con_val / cp_moist_val
+      t_l(i) = t(i) - (lcrcp_moist(i) * qcl(i))
     end do
 
     if (l_mr_physics) then
@@ -580,7 +595,7 @@ else ! original autoconversion etc
 
         else  ! qcl lt 1e-15
           alpha_l = repsilon * lc * qsl_tl(i) / ( r * t_l(i)**2 )
-          a_l = one / (one+(lcrcp*alpha_l))
+          a_l = one / (one + (lcrcp_moist(i) * alpha_l))
           sigma_s = (one - rhcpt(i)) * a_l * qsl_tl(i) / sqrt(6.0_real_lsprec)
           g_l = 1.15_real_lsprec * (power_qcl_auto-one) * sigma_s
           gacb = exp(-one * qcl(i) / g_l)

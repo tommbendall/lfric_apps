@@ -16,7 +16,7 @@ contains
 subroutine lsp_evap_snow(                                                      &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, q_ice, qcf, qcft, t, p,                                                   &
+  q, qcl, qrain, qgraup, q_ice, qcf, qcft, t, p,                               &
                                           ! Water contents, temp, pres
   esw, qsl,                                                                    &
                                           ! Saturated quantities
@@ -29,7 +29,7 @@ subroutine lsp_evap_snow(                                                      &
   rho, tcg, tcgi,                                                              &
                                           ! Parametrization information
   corr2, rocor, ice_nofall, lheat_correc_liq,                                  &
-  lsrcp, ice_type,                                                             &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -105,6 +105,12 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Timestep / s
   p(points),                                                                   &
                         ! Air pressure / N m-2
+  qcl(points),                                                                 &
+                        ! Cloud liquid content / kg kg-1
+  qrain(points),                                                               &
+                        ! Rain content / kg kg-1
+  qgraup(points),                                                              &
+                        ! Graupel content / kg kg-1
   q_ice(points),                                                               &
                         ! Vapour content in ice partition / kg kg-1
   esw(points),                                                                 &
@@ -129,9 +135,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Fraction of qcf that is not falling out
   lheat_correc_liq(points),                                                    &
                                ! Liquid latent heat correction factor
-  lsrcp,                                                                       &
-                        ! Latent heat of sublimation
-                        ! /heat capacity of air (cP) / K
   one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
@@ -328,7 +331,9 @@ do i = 1, points
 
     ! Calculate temperature-dependent CPML coefficients
     L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpm + qcf(i) * ci_cpm
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcft(i) + qgraup(i))
     lsrcp_moist  = L_sub_val / cp_moist_val
 
     t(i)   = t(i)   - dpr*lsrcp_moist

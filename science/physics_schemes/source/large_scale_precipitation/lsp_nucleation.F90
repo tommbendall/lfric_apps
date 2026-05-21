@@ -15,7 +15,7 @@ contains
 subroutine lsp_nucleation(                                                     &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, tnuc_new, qrain, qcf, qgraup, t,                                     &
+  q, qcl, tnuc_new, qrain, qcf, qcf2, qgraup, t,                               &
                                           ! Water contents, temperature
   qs, qsl,                                                                     &
                                           ! Saturated quantities
@@ -31,8 +31,6 @@ subroutine lsp_nucleation(                                                     &
                                           ! Parametrization information
   corr,  dhir, rain_nofall,                                                    &
                                           ! Parametrization information
-  lfrcp, lsrcp,                                                                &
-                                          ! Microphysical information
   hettransfer, hettransfer2, homtransfer, homtransfer2,                        &
                                           ! Mass transfer diagnostics
   one_over_tsi,                                                                &
@@ -117,11 +115,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Thickness of model layer / timestep / m s-1
   rain_nofall(points),                                                         &
                         ! Fraction of the rain-mass that is not falling out
-  lfrcp,                                                                       &
-                          ! Latent heat of fusion
-                          ! /heat capacity of air (cP) / K
-  lsrcp,                                                                       &
-                          ! Latent heat of sublimation/cP / K
   one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
@@ -134,6 +127,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
   qcf(points),                                                                 &
                         ! Ice water content in ice category to be
 !                           updated    / kg kg-1
+  qcf2(points),                                                                &
+                        ! Ice water content in second category / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel mixing ration / kg kg-1
   t(points),                                                                   &
@@ -272,7 +267,9 @@ do i = 1, points
 
     ! Calculate temperature-dependent CPML coefficients for fusion
     L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)   = t(i)   + lfrcp_moist * qcl(i)
@@ -312,7 +309,9 @@ do i = 1, points
 
     ! Calculate temperature-dependent CPML coefficients for fusion
     L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cp_moist_val = cpd
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)     = t(i)   + lfrcp_moist * qrain(i)
@@ -380,7 +379,9 @@ do i = 1, points
 
     ! Calculate temperature-dependent CPML coefficients for fusion
     L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     lfrcp_moist  = L_fus_val / cp_moist_val
 
     t(i)    = t(i)+lfrcp_moist*dqil
@@ -389,7 +390,9 @@ do i = 1, points
 
     ! Calculate temperature-dependent CPML coefficients for sublimation
     L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpm + qcl(i) * cl_cpm + qcf(i) * ci_cpm
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     lsrcp_moist  = L_sub_val / cp_moist_val
 
     t(i) = t(i)+lsrcp_moist*dqi
@@ -418,11 +421,11 @@ end do  ! Points
 if (l_het_freezing_rain) then
       ! Call heterogeneous freezing rain
   call lsp_het_freezing_rain(points, timestep,                                 &
-                qrain, qcf, qgraup, t,                                         &
+                q, qcl, qrain, qcf, qcf2, qgraup, t,                           &
                 cf, cff, rainfrac,                                             &
                 rain_liq, rain_mix, rain_ice,                                  &
                 rho, rhor, corr, dhir, rain_nofall,                            &
-                lfrcp, hettransfer2, one_over_tsi,                             &
+                hettransfer2, one_over_tsi,                                    &
                 cftransfer, cfftransfer, rf_transfer_diag                      &
                )
 end if  ! l_het_freezing_rain

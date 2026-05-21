@@ -307,7 +307,7 @@ do i = 1, points
 
     ! Calculate temperature-dependent CPML coefficients for condensation
     L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + q(i) * cpv_cpm
+    cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     lcrcp_moist  = L_con_val / cp_moist_val
 
     t(i)   = t(i) - dpr * lcrcp_moist
@@ -369,7 +369,7 @@ do i = 1, points
 
       ! Calculate temperature-dependent CPML coefficients for sublimation
       L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpm
+      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
       lsrcp_moist  = L_sub_val / cp_moist_val
 
       t(i)   = t(i) - lsrcp_moist * dpr
@@ -404,7 +404,7 @@ do i = 1, points
 
       ! Calculate temperature-dependent CPML coefficients for sublimation
       L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpm
+      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
       lsrcp_moist  = L_sub_val / cp_moist_val
 
       t(i)   = t(i) - lsrcp_moist * dpr
@@ -459,7 +459,7 @@ do i = 1, points
 
       ! Calculate temperature-dependent CPML coefficients for sublimation
       L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + q(i) * cpv_cpm
+      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
       lsrcp_moist  = L_sub_val / cp_moist_val
 
       t(i)   = t(i) - lsrcp_moist * dpr
@@ -551,7 +551,7 @@ if ( .not. l_proc_fluxes ) then
 
       ! Calculate temperature-dependent CPML coefficients for fusion
       L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-      cp_moist_val = cpd
+      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
       lfrcp_moist  = L_fus_val / cp_moist_val
 
       dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
@@ -633,7 +633,7 @@ if ( .not. l_proc_fluxes ) then
 
       ! Calculate temperature-dependent CPML coefficients for fusion
       L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-      cp_moist_val = cpd
+      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
       lfrcp_moist  = L_fus_val / cp_moist_val
 
       dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess

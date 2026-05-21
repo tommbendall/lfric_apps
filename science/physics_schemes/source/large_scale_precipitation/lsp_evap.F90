@@ -16,14 +16,14 @@ contains
 subroutine lsp_evap(                                                           &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  p, q, qrain, t, qgraup, q_ice, q_clear,                                      &
+  p, q, qcl, qrain, t, qcft, qgraup, q_ice, q_clear,                           &
                                           ! Water contents and temp
   rainfrac, rain_liq, rain_mix,                                                &
                                           ! Rain fractions for updating
   rain_ice, rain_clear,                                                        &
   rho, corr, corr2,rocor,dhir,                                                 &
                                           ! Parametrization information
-  lcrcp, lheat_correc_liq, qsl, esw, rain_nofall,                              &
+  lheat_correc_liq, qsl, esw, rain_nofall,                                     &
   ptransfer, rftransfer,                                                       &
                                           ! Mass transfer diagnostic
   one_over_tsi,                                                                &
@@ -39,7 +39,11 @@ subroutine lsp_evap(                                                           &
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod,         only: apb4, apb5, apb6, qcfmin, m0, cx, constp,        &
                               rho_q_veloc, lam_evap_enh, max_as_enh,           &
-                              zero, one
+                              zero, one, lc, tm
+
+! Constants for heat capacity calculations
+use planet_constants_mod, only: cpd => cp
+use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 
   ! Microphysics modules
 use mphys_inputs_mod,    only: l_warm_new, l_mcr_qrain, l_mcr_precfrac,        &
@@ -86,14 +90,16 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Timestep / s
   p(points),                                                                   &
                         ! Air pressure / N m-2
+  qcl(points),                                                                 &
+                        ! Liquid cloud content / kg kg-1
+  qcft(points),                                                                &
+                        ! Total cloud-ice content / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel content / kg kg-1
   q_ice(points),                                                               &
                         ! Local vapour in ice partition / kg kg-1
   q_clear(points),                                                             &
                         ! Local vapour in clear partition / kg kg-1
-  lcrcp,                                                                       &
-                        ! Latent heat of condensation/cP / K
   dhir(points),                                                                &
                         ! layer thickness/timestep / m
 
@@ -170,6 +176,12 @@ real (kind=real_lsprec) ::                                                     &
   lamr3,                                                                       &
   temp7,                                                                       &
                         ! Subsaturation in gridbox / kg kg-1
+  L_con_val,                                                                   &
+                        ! Temperature-dependent latent heat of condensation
+  cp_moist_val,                                                                &
+                        ! Temperature-dependent moist specific heat capacity
+  lcrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_con to cp_moist
 
 ! Local variables for Abel & Shipway-style diagnostic rain evaporation
 ! Enhancement
@@ -231,7 +243,13 @@ do i = 1, points
         ! Evaporate all this rain
     dpr(i) = qrain(i)
 
-    t(i)   = t(i) - lcrcp * dpr(i)
+    L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
+             + cl_cpm * (qcl(i) + qrain(i))                                    &
+             + ci_cpm * (qcft(i) + qgraup(i))
+    lcrcp_moist  = L_con_val / cp_moist_val
+
+    t(i)   = t(i) - lcrcp_moist * dpr(i)
     q(i)   = q(i) + dpr(i)
     qrain(i) = zero
 
@@ -429,9 +447,15 @@ do c = 1, npts
       !-----------------------------------------------
       ! Update values of rain, vapour and temperature
       !-----------------------------------------------
+  L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
+                 + cl_cpm * (qcl(i) + qrain(i))                                &
+                 + ci_cpm * (qcft(i) + qgraup(i))
+  lcrcp_moist  = L_con_val / cp_moist_val
+
   qrain(i) = qrain(i) - dpr(i)
   q(i)     = q(i)     + dpr(i)
-  t(i)     = t(i)     - dpr(i) * lcrcp
+  t(i)     = t(i)     - dpr(i) * lcrcp_moist
 
 end do
 
