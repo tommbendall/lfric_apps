@@ -150,7 +150,7 @@ contains
     integer(i_um) :: k, i
 
     real(r_def) :: dmv1(seg_len)
-    real(r_um) :: L_con_val, cp_moist_val, lcrcp_moist
+    real(r_um) :: Lc_full, cpm, lcrcp_moist
 
     ! profile fields from level 1 upwards
     real(r_um), dimension(seg_len,1,nlayers) ::                      &
@@ -184,13 +184,13 @@ contains
     do i = 1, seg_len
       do k = 1, nlayers
         ! liquid temperature on theta levels
-        L_con_val = lc - (cl_cpm - cpv_cpm) *                                  &
-                          (theta_in_wth(map_wth(1,i) + k)                      &
-                           * exner_in_wth(map_wth(1,i)+ k) - tm)
-        cp_moist_val = cp + m_v(map_wth(1,i) + k) * cpv_cpm                    &
-                     + m_cl(map_wth(1,i) + k) * cl_cpm                         &
-                     + m_cf(map_wth(1,i) + k) * ci_cpm
-        lcrcp_moist = L_con_val / cp_moist_val
+        Lc_full = lc - (cl_cpm - cpv_cpm) *                                    &
+                       (theta_in_wth(map_wth(1,i) + k)                         &
+                        * exner_in_wth(map_wth(1,i)+ k) - tm)
+        cpm = cp + m_v(map_wth(1,i) + k) * cpv_cpm                             &
+                 + m_cl(map_wth(1,i) + k) * cl_cpm                             &
+                 + m_cf(map_wth(1,i) + k) * ci_cpm
+        lcrcp_moist = Lc_full / cpm
         tl(i,1,k) = ( theta_in_wth(map_wth(1,i) + k)   &
                     * exner_in_wth(map_wth(1,i)+ k)) - &
                     lcrcp_moist * m_cl(map_wth(1,i) + k)

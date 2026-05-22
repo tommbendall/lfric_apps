@@ -967,7 +967,7 @@ integer            :: jj         ! Block index
 
 ! Local variables for temperature-dependent moist heat capacity
 real(kind=r_bl) :: lf_bl
-real(kind=r_bl) :: L_con_val, L_sub_val, cp_moist_val
+real(kind=r_bl) :: Lc_full, Ls_full, cpm
 real(kind=r_bl) :: lcrcp_moist, lsrcp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
@@ -1516,11 +1516,11 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                 ! the parcel.
                 q_liq_parc = q_liq_parc + qcl(i,j,k) + qcf(i,j,k)              &
                                - q_liq_env
-                ! Temperature-dependent CPML for condensation
-                L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
-                cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                   &
-                             + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-                lcrcp_moist  = L_con_val / cp_moist_val
+                ! Latent heat and heat capacity for condensation
+                Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
+                cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                              &
+                            + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
+                lcrcp_moist = Lc_full / cpm
                 t_parc = sl_plume - grcp * z_tq(i,j,k) +                       &
                                  lcrcp_moist*q_liq_parc
               else
@@ -1535,11 +1535,10 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                 ! RH_CRIT=1
                 q_liq_parc = q_liq_parc + qcl(i,j,k) + qcf(i,j,k)              &
                                - q_liq_env
-                ! Temperature-dependent CPML for sublimation
-                L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
-                cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                   &
-                             + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-                lsrcp_moist  = L_sub_val / cp_moist_val
+                ! Latent heat and heat capacity for sublimation
+                Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
+                cpm = cp_bl + q(i,j,k)*cpv_cpm_bl + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
+                lsrcp_moist = Ls_full / cpm
                 t_parc = sl_plume - grcp * z_tq(i,j,k) +                       &
                                  lsrcp_moist*q_liq_parc
               end if
@@ -2706,13 +2705,13 @@ do k = 1, bl_levels
       virt_factor = one + c_virtual*q(i,j,k) - qcl(i,j,k) -                    &
                           qcf(i,j,k)
 
-      ! Temperature-dependent CPML coefficients
-      L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
-      L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
-      cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                             &
-                   + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-      lcrcp_moist  = L_con_val / cp_moist_val
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! variable latent heats and heat capacties
+      Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
+      Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
+      cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                                        &
+                  + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
+      lcrcp_moist = Lc_full / cpm
+      lsrcp_moist = Ls_full / cpm
 
       dqcldz(i,j,k) = -( dsldz(i)*dqsdt(i,j,k)                                 &
                      + g*qs(i,j,k)/(r*t(i,j,k)*virt_factor) )                  &
@@ -3256,13 +3255,13 @@ do j = pdims%j_start, pdims%j_end
       dqcl = - cfl_ml*qcl_ic_top(i,j)
       dqcf = - cff_ml*qcf_ic_top(i,j)
 
-      ! Temperature-dependent CPML coefficients at inversion level
-      L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-      L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-      cp_moist_val = cp_bl + q(i,j,km)*cpv_cpm_bl                            &
-                   + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
-      lcrcp_moist  = L_con_val / cp_moist_val
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! variable latent heats and heat capacties at inversion level
+      Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      cpm = cp_bl + q(i,j,km)*cpv_cpm_bl                                       &
+                  + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
+      lcrcp_moist = Lc_full / cpm
+      lsrcp_moist = Ls_full / cpm
 
       db_disc = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                      &
                (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +           &
@@ -3288,13 +3287,13 @@ do j = pdims%j_start, pdims%j_end
       qcf_ic_top(i,j) = qcf(i,j,km)
       dqcl = qcl(i,j,kp) - qcl_ic_top(i,j)
       dqcf = qcf(i,j,kp) - qcf_ic_top(i,j)
-      ! Temperature-dependent CPML coefficients at inversion level
-      L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-      L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-      cp_moist_val = cp_bl + q(i,j,km)*cpv_cpm_bl                            &
-                   + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
-      lcrcp_moist  = L_con_val / cp_moist_val
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! variable latent heats and heat capacties at inversion level
+      Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      cpm = cp_bl + q(i,j,km)*cpv_cpm_bl                                       &
+                  + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
+      lcrcp_moist = Lc_full / cpm
+      lsrcp_moist = Ls_full / cpm
       db_top(i,j) = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                  &
                 (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +          &
                 (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
@@ -3364,13 +3363,13 @@ do j = pdims%j_start, pdims%j_end
         dqcl = - cfl_ml*qcl_ic_top(i,j)
         dqcf = - cff_ml*qcf_ic_top(i,j)
 
-        ! Temperature-dependent CPML coefficients at DSC inversion level
-        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-        cp_moist_val = cp_bl + q(i,j,km)*cpv_cpm_bl                           &
-                     + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        ! variable latent heats and heat capacties at DSC inversion level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        cpm = cp_bl + q(i,j,km)*cpv_cpm_bl                                     &
+                    + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
 
         db_disc = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                    &
                 (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +          &
@@ -3396,13 +3395,13 @@ do j = pdims%j_start, pdims%j_end
         qcf_ic_top(i,j) = qcf(i,j,km)
         dqcl = qcl(i,j,kp) - qcl_ic_top(i,j)
         dqcf = qcf(i,j,kp) - qcf_ic_top(i,j)
-        ! Temperature-dependent CPML coefficients at DSC inversion level
-        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
-        cp_moist_val = cp_bl + q(i,j,km)*cpv_cpm_bl                           &
-                     + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        ! variable latent heats and heat capacties at DSC inversion level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        cpm = cp_bl + q(i,j,km)*cpv_cpm_bl                                     &
+                    + qcl(i,j,km)*cl_cpm_bl + qcf(i,j,km)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
         db_dsct(i,j) = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +               &
                   (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +        &
                   (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )

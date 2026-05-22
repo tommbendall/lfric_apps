@@ -233,9 +233,9 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_sub_val,                                                                   &
+  Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lsrcp_moist
                         ! Temperature-dependent ratio of L_sub to cp_moist
@@ -411,12 +411,12 @@ do i = 1, points
        .or. (qcf_cry(i)+qcf_agg(i)) <  zero) then
       q(i) = q(i) +qcf_cry(i)+qcf_agg(i)
 
-      ! Calculate temperature-dependent CPML coefficients
-      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-             + cl_cpm * (qcl(i) + qrain(i))                                    &
-             + ci_cpm * (qcf_cry(i) + qcf_agg(i) + qgraup(i))
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! Calculate variable latent heats and heat capacties
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf_cry(i) + qcf_agg(i) + qgraup(i))
+      lsrcp_moist = Ls_full / cpm
 
       t(i) = t(i) - lsrcp_moist * (qcf_cry(i)+qcf_agg(i))
       qcf_cry(i)=zero

@@ -148,9 +148,9 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_fus_val,                                                                   &
+  Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lfrcp_moist
                         ! Temperature-dependent ratio of L_fus to cp_moist
@@ -226,12 +226,12 @@ do i = 1, points
 
     qrain(i) = qrain(i) - dqir(i)
 
-    ! Calculate temperature-dependent CPML coefficients
-    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
-             + cl_cpm * (qcl(i) + qrain(i))                                    &
-             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lfrcp_moist  = L_fus_val / cp_moist_val
+    ! Calculate variable latent heats and heat capacties
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cpm = cpd + cpv_cpm * q(i)                                                 &
+              + cl_cpm * (qcl(i) + qrain(i))                                   &
+              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+    lfrcp_moist = Lf_full / cpm
 
     t(i)     = t(i)     + dqir(i) * lfrcp_moist
 

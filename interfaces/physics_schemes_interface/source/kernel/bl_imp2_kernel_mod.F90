@@ -437,7 +437,7 @@ contains
     real(r_bl) :: weight1, weight2, weight3, ftl_m, fqw_m,     &
          f_buoy_m, dissip_mol, fric_heating_inc, z_blyr
 
-    real(r_um) :: L_con_val, cp_moist_val, lcrcp_moist
+    real(r_um) :: Lc_full, cpm, lcrcp_moist
 
     real(r_um), parameter :: qcl_max_factor = 0.1_r_um
 
@@ -674,14 +674,14 @@ contains
       ! Create Tl and qT outside boundary layer levels
       do i = 1, seg_len
         do k = bl_levels+1, nlayers
-          L_con_val = lc - (cl_cpm - cpv_cpm) * (                              &
+          Lc_full = lc - (cl_cpm - cpv_cpm) * (                                &
               theta_star(map_wth(1,i) + k) * exner_in_wth(map_wth(1,i) + k)    &
               + dt_conv(map_wth(1,i) + k) - tm                                 &
           )
-          cp_moist_val = cp + m_v(map_wth(1,i) + k) * cpv_cpm                  &
-              + m_cl(map_wth(1,i) + k) * cl_cpm                                &
-              + m_s(map_wth(1,i) + k) * ci_cpm
-          lcrcp_moist = L_con_val / cp_moist_val
+          cpm = cp + m_v(map_wth(1,i) + k) * cpv_cpm                           &
+                   + m_cl(map_wth(1,i) + k) * cl_cpm                           &
+                   + m_s(map_wth(1,i) + k) * ci_cpm
+          lcrcp_moist = Lc_full / cpm
           t_latest(i,1,k) = theta_star(map_wth(1,i) + k)   &
                             * exner_in_wth(map_wth(1,i) + k) &
                             + dt_conv(map_wth(1,i) + k)      &
@@ -778,11 +778,11 @@ contains
           ! content
           do k = 1, nlayers
             do i = 1, seg_len
-              L_con_val = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k) - tm)
-              cp_moist_val = cp + q_earliest(i,1,k) * cpv_cpm                  &
-                  + qcl_earliest(i,1,k) * cl_cpm                               &
-                  + qcf_earliest(i,1,k) * ci_cpm
-              lcrcp_moist = L_con_val / cp_moist_val
+              Lc_full = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k) - tm)
+              cpm = cp + q_earliest(i,1,k) * cpv_cpm                           &
+                       + qcl_earliest(i,1,k) * cl_cpm                          &
+                       + qcf_earliest(i,1,k) * ci_cpm
+              lcrcp_moist = Lc_full / cpm
               qt_force(i,1,k) = ( q_latest(i,1,k)                              &
                    - (q_earliest(i,1,k) + qcl_earliest(i,1,k)) )
               tl_force(i,1,k) = ( t_latest(i,1,k)                              &
@@ -853,11 +853,11 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  L_con_val = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k)-tm)
-                  cp_moist_val = cp + q_earliest(i,1,k) * cpv_cpm              &
-                      + qcl_earliest(i,1,k) * cl_cpm                           &
-                      + qcf_earliest(i,1,k) * ci_cpm
-                  lcrcp_moist = L_con_val / cp_moist_val
+                  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k)-tm)
+                  cpm = cp + q_earliest(i,1,k) * cpv_cpm                       &
+                           + qcl_earliest(i,1,k) * cl_cpm                      &
+                           + qcf_earliest(i,1,k) * ci_cpm
+                  lcrcp_moist = Lc_full / cpm
                   t_inc_pc2(i,1,k)   =  (-lcrcp_moist) * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
                   qcl_inc_pc2(i,1,k) =  (-qcl_earliest(i,1,k))

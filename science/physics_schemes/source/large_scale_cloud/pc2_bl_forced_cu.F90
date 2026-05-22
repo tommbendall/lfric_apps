@@ -114,8 +114,8 @@ real ::                                                                        &
  cf_base,                                                                      &
             ! forced cloud fraction at cloud base
  zc_depth,                                                                     &
- L_con_val,                                                                    &
- cp_moist_val,                                                                 &
+ Lc_full,                                                                      &
+ cpm,                                                                          &
  lcrcp_moist
             ! forced cloud depth
 
@@ -145,7 +145,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP         cct0, ccb0, lcbase0, l_wtrac_bl, wtrac_pc2,                      &
 !$OMP         cpd, cpv_cpm, cl_cpm )                                         &
 !$OMP private ( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced,             &
-!$OMP           dqcl, qcl_tol, dcfl, L_con_val, cp_moist_val, lcrcp_moist )
+!$OMP           dqcl, qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
     zc_depth = zhnl(i,j)+dzh(i,j)-zlcl(i,j)
@@ -217,10 +217,9 @@ do j = tdims%j_start, tdims%j_end
                 dqcl = 0.0
               end if
               qcl_latest(i,j,k) = qcl_forced
-              L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
-              cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpm                    &
-                                  + qcl_latest(i,j,k)*cl_cpm
-              lcrcp_moist  = L_con_val / cp_moist_val
+              Lc_full = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
+              cpm = cpd + q_latest(i,j,k)*cpv_cpm + qcl_latest(i,j,k)*cl_cpm
+              lcrcp_moist = Lc_full / cpm
               t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
               q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
               if (l_wtrac_bl) then
@@ -254,7 +253,7 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 !$OMP         t_latest, cf_latest, forced_cu, cca0, ccw0, cct0, ccb0,          &
 !$OMP         lcbase0, l_wtrac_bl, wtrac_pc2, cpd, cpv_cpm, cl_cpm )         &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &
-!$OMP          qcl_tol, dcfl, L_con_val, cp_moist_val, lcrcp_moist )
+!$OMP          qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       zc_depth = zhnl(i,j)-zlcl(i,j)
@@ -331,11 +330,9 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
                   dqcl = 0.0
                 end if
                 qcl_latest(i,j,k) = qcl_forced
-                L_con_val    = lc - (cl_cpm - cpv_cpm)                       &
-                                    * (t_latest(i,j,k) - tm)
-                cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpm                  &
-                                    + qcl_latest(i,j,k)*cl_cpm
-                lcrcp_moist  = L_con_val / cp_moist_val
+                Lc_full = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
+                cpm = cpd + q_latest(i,j,k)*cpv_cpm + qcl_latest(i,j,k)*cl_cpm
+                lcrcp_moist = Lc_full / cpm
                 t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
                 q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
                 if (l_wtrac_bl) then

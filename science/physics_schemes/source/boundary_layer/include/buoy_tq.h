@@ -76,7 +76,7 @@ real(kind=prec) ::                                                             &
 
 ! Local variables for temperature-dependent moist heat capacity
 real(kind=prec) :: cpd_local, lf_local
-real(kind=prec) :: cp_moist_val
+real(kind=prec) :: cpm
 
 integer ::                                                                     &
   i,j,                                                                         &
@@ -98,10 +98,10 @@ lf_local  = real(lf, prec)
 !-----------------------------------------------------------------------
 
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
-!$OMP private(i, j, k, bc, qs, tmp1, tmp2, cp_moist_val)                        &
+!$OMP private(i, j, k, bc, qs, tmp1, tmp2, cpm)                                &
 !$OMP SHARED(bl_levels, p, t, q, qcf, qcl, cf_bulk, bt, bq, bt_cld, bq_cld,    &
 !$OMP        bt_gb, bq_gb, a_qs, a_dqsdt, dqsdt, tdims, l_mr_physics, r,       &
-!$OMP        repsilon, c_virtual, etar, lcrcp, ls, lsrcp, l_noice_in_turb,      &
+!$OMP        repsilon, c_virtual, etar, lcrcp, ls, lsrcp, l_noice_in_turb,     &
 !$OMP        cpd_local, lf_local, cpv_cpm, cl_cpm, ci_cpm)
 
 do k = 1, bl_levels
@@ -137,15 +137,15 @@ do k = 1, bl_levels
       if (t(i,j,k) > tm .or. l_noice_in_turb) then
         ! Condensation: temperature-dependent latent heat
         tmp1(i) = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpm                           &
-                     + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
-        tmp2(i) = tmp1(i) / cp_moist_val
+        cpm = cpd_local + q(i,j,k)*cpv_cpm                                     &
+                        + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
+        tmp2(i) = tmp1(i) / cpm
       else
         ! Sublimation: temperature-dependent latent heat
         tmp1(i) = (lc + lf_local) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cp_moist_val = cpd_local + q(i,j,k)*cpv_cpm                           &
-                     + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
-        tmp2(i) = tmp1(i) / cp_moist_val
+        cpm = cpd_local + q(i,j,k)*cpv_cpm                                     &
+                        + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
+        tmp2(i) = tmp1(i) / cpm
       end if
     end do ! p_points,i
 

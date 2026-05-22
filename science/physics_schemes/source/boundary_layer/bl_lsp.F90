@@ -59,8 +59,8 @@ integer ::                                                                     &
                                ! Counter over points
         k                ! Counter over boundary layer levels
 real(kind=real_umphys) :: newqcf              ! Temporary variable for QCF
-real(kind=real_umphys) :: L_sub_val           ! Temp-dependent latent heat of sublimation
-real(kind=real_umphys) :: cp_moist_val        ! Temp-dependent moist specific heat
+real(kind=real_umphys) :: Ls_full             ! Temp-dependent latent heat of sublimation
+real(kind=real_umphys) :: cpm                 ! Temp-dependent moist specific heat
 real(kind=real_umphys) :: lsrcp_moist         ! Temp-dependent L_sub / cp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
@@ -72,7 +72,7 @@ character(len=*), parameter :: RoutineName='BL_LSP'
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
-!$OMP          private(i,j,k,newqcf,L_sub_val,cp_moist_val,lsrcp_moist)        &
+!$OMP          private(i,j,k,newqcf,Ls_full,cpm,lsrcp_moist)                 &
 !$OMP          SHARED(bl_levels,tdims,q,qcf,t,qcl,lsrcp,cpd,cpv_cpm,cl_cpm,    &
 !$OMP                 ci_cpm)
 do k = 1, bl_levels
@@ -89,10 +89,10 @@ do k = 1, bl_levels
         qcf(i,j,k)=newqcf
       end if
       ! Adjust T from T liquid ice to T liquid
-      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + (q(i,j,k)-qcl(i,j,k)) * cpv_cpm                    &
-           + qcl(i,j,k) * cl_cpm + qcf(i,j,k) * ci_cpm
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cpm = cpd + (q(i,j,k)-qcl(i,j,k)) * cpv_cpm                              &
+                + qcl(i,j,k) * cl_cpm + qcf(i,j,k) * ci_cpm
+      lsrcp_moist = Ls_full / cpm
       t(i,j,k)=t(i,j,k)+lsrcp_moist*qcf(i,j,k)
     end do
   end do

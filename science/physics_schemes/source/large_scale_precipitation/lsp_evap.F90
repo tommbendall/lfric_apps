@@ -176,9 +176,9 @@ real (kind=real_lsprec) ::                                                     &
   lamr3,                                                                       &
   temp7,                                                                       &
                         ! Subsaturation in gridbox / kg kg-1
-  L_con_val,                                                                   &
+  Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lcrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_con to cp_moist
@@ -243,11 +243,11 @@ do i = 1, points
         ! Evaporate all this rain
     dpr(i) = qrain(i)
 
-    L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
-             + cl_cpm * (qcl(i) + qrain(i))                                    &
-             + ci_cpm * (qcft(i) + qgraup(i))
-    lcrcp_moist  = L_con_val / cp_moist_val
+    Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+    cpm = cpd + cpv_cpm * q(i)                                                 &
+              + cl_cpm * (qcl(i) + qrain(i))                                   &
+              + ci_cpm * (qcft(i) + qgraup(i))
+    lcrcp_moist = Lc_full / cpm
 
     t(i)   = t(i) - lcrcp_moist * dpr(i)
     q(i)   = q(i) + dpr(i)
@@ -447,11 +447,11 @@ do c = 1, npts
       !-----------------------------------------------
       ! Update values of rain, vapour and temperature
       !-----------------------------------------------
-  L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
-                 + cl_cpm * (qcl(i) + qrain(i))                                &
-                 + ci_cpm * (qcft(i) + qgraup(i))
-  lcrcp_moist  = L_con_val / cp_moist_val
+  Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+  cpm = cpd + cpv_cpm * q(i)                                                   &
+            + cl_cpm * (qcl(i) + qrain(i))                                     &
+            + ci_cpm * (qcft(i) + qgraup(i))
+  lcrcp_moist = Lc_full / cpm
 
   qrain(i) = qrain(i) - dpr(i)
   q(i)     = q(i)     + dpr(i)

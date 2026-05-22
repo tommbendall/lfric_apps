@@ -189,11 +189,11 @@ real(kind=real_umphys) ::                                                      &
 !       the saturation boundary (kg kg-1)-1
    qc,                                                                         &
 !       aL (q + l - qsat(TL) )  (kg kg-1)
-  L_con_val,                                                                  &
+   Lc_full,                                                                    &
 !       Temperature-dependent latent heat of condensation (J/kg)
-  cp_moist_val,                                                               &
+   cpm,                                                                        &
 !       Moist-air specific heat at constant pressure (J/kg/K)
-  lcrcp_moist,                                                                &
+   lcrcp_moist,                                                                &
 !       L_con / cp_moist (K)
    sd,                                                                         &
 !       Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
@@ -273,10 +273,10 @@ do j = tdims%j_start, tdims%j_end
       ! Need to estimate the rate of change of saturated specific humidity
       ! with respect to temperature (alpha) first, then use this to calculate
       ! factor aL. Also estimate the rate of change of qsat with pressure.
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
-      cp_moist_val = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
-      alpha   = repsilon*L_con_val*qsl_t / (r*t(i,j)**2)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
+      cpm = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
+      lcrcp_moist = Lc_full / cpm
+      alpha   = repsilon*Lc_full*qsl_t / (r*t(i,j)**2)
       al      = 1.0 / ( 1.0 + lcrcp_moist * alpha )
       alpha_p = -qsl_t / p_theta_levels(i,j)
 
@@ -467,10 +467,10 @@ do j = tdims%j_start, tdims%j_end
         call qsat_wat(qsl_t, t(i,j), p_theta_levels(i,j))
       end if
 
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
-      cp_moist_val = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
-      alpha   = repsilon * L_con_val * qsl_t / (r * t(i,j)**2)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
+      cpm = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
+      lcrcp_moist = Lc_full / cpm
+      alpha   = repsilon * Lc_full * qsl_t / (r * t(i,j)**2)
       al      = 1.0 / (1.0 + lcrcp_moist*alpha)
       alpha_p = -qsl_t / p_theta_levels(i,j)
       deltal  = al * (dqin(i,j) - alpha*dtin(i,j)                              &

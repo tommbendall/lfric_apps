@@ -154,9 +154,9 @@ real (kind=real_lsprec) ::                                                     &
                         ! Change in qcl this timestep / kg kg-1
   dq,                                                                          &
                         ! Change in q this timestep / kg kg-1
-  L_con_val,                                                                   &
+  Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lcrcp_moist      ! Temperature-dependent ratio of L_con to cp_moist
 
@@ -254,11 +254,11 @@ if ( i_fix_mphys_drop_settle == second_fix ) then
       !------------------------------------------------
       ! Adjust vapour content and temperature
       !------------------------------------------------
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-             + cl_cpm * (qcl(i) + qrain(i))                                    &
-             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lcrcp_moist  = L_con_val / cp_moist_val
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lcrcp_moist = Lc_full / cpm
 
       q(i)   = q(i) + dq
       t(i)   = t(i) - lcrcp_moist * dq
@@ -349,11 +349,11 @@ else if ( i_fix_mphys_drop_settle == first_fix ) then
       !------------------------------------------------
       ! Adjust vapour content and temperature
       !------------------------------------------------
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-             + cl_cpm * (qcl(i) + qrain(i))                                    &
-             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lcrcp_moist  = L_con_val / cp_moist_val
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lcrcp_moist = Lc_full / cpm
 
       q(i)   = q(i) + dq
       t(i)   = t(i) - lcrcp_moist * dq
@@ -444,11 +444,11 @@ else ! No drop settle fix.
     !------------------------------------------------
 
     qcl(i) = qcl(i) + dqcl
-    L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + cpv_cpm * q(i)                                        &
-             + cl_cpm * (qcl(i) + qrain(i))                                    &
-             + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lcrcp_moist  = L_con_val / cp_moist_val
+    Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+    cpm = cpd + cpv_cpm * q(i)                                                 &
+              + cl_cpm * (qcl(i) + qrain(i))                                   &
+              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+    lcrcp_moist = Lc_full / cpm
 
     q(i)   = q(i) + dq
     t(i)   = t(i) - lcrcp_moist * dq

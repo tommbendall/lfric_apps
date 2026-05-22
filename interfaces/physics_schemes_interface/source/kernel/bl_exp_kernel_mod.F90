@@ -554,7 +554,7 @@ contains
     real(r_bl), dimension(seg_len,1,3) :: t_frac, t_frac_dsc, we_lim, &
          we_lim_dsc, zrzi, zrzi_dsc
 
-    real(r_bl) :: L_con_val, L_sub_val, cp_moist_val
+    real(r_bl) :: Lc_full, Ls_full, cpm
     real(r_bl) :: lcrcp_moist, lsrcp_moist
 
     ! single level integer fields
@@ -785,13 +785,13 @@ contains
         rad_hr(i,1,2,k) = sw_heating_rate(map_wth(1,i)+k)
         ! temperature
         temperature(i,1,k) = theta(i,1,k) * exner_theta_levels(i,1,k)
-        L_con_val    = lc - (cl_cpm_bl - cpv_cpm_bl) * (temperature(i,1,k) - tm)
-        L_sub_val    = (lc + lf) - (ci_cpm_bl - cpv_cpm_bl)                  &
-                     * (temperature(i,1,k) - tm)
-        cp_moist_val = cp_bl + q(i,1,k)*cpv_cpm_bl + qcl(i,1,k)*cl_cpm_bl    &
-                     + qcf(i,1,k)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        Lc_full = lc - (cl_cpm_bl - cpv_cpm_bl) * (temperature(i,1,k) - tm)
+        Ls_full = (lc + lf) - (ci_cpm_bl - cpv_cpm_bl) * (temperature(i,1,k) - tm)
+        cpm = cp_bl + q(i,1,k)*cpv_cpm_bl                                      &
+                    + qcl(i,1,k)*cl_cpm_bl                                     &
+                    + qcf(i,1,k)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
         tl(i,1,k) = temperature(i,1,k) - lcrcp_moist*qcl(i,1,k)              &
                   - lsrcp_moist*qcf(i,1,k)
         qw(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)

@@ -184,8 +184,8 @@ real(kind=real_umphys) ::                                                      &
   inverse_level,                                                               &
                      ! Set to (1. / levels_per_level)
   delta_p,                                                                     &
-  L_con_val,                                                                   &
-  cp_moist_val,                                                                &
+  Lc_full,                                                                     &
+  cpm,                                                                         &
   lcrcp_moist    ! Layer pressure thickness * inverse_level
 
 !  (b) Others.
@@ -521,7 +521,7 @@ else if (i_cld_area == acf_cusack) then
 !$OMP        cloud_fraction_frozen, cloud_fraction_frozen_large,               &
 !$OMP        q_latest, t_latest, tdims, t_large, q_large, large_levels,        &
 !$OMP        cpd, cpv_cpm, cl_cpm )                                          &
-!$OMP private(i, j, k, k_index, L_con_val, cp_moist_val, lcrcp_moist)
+!$OMP private(i, j, k, k_index, Lc_full, cpm, lcrcp_moist)
 !$OMP do SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -602,9 +602,9 @@ else if (i_cld_area == acf_cusack) then
         ! Transform q_latest from qT(vapour + liquid) to specific humidity.
         ! Transform T_latest from TL(vapour + liquid) to temperature.
         q_latest(i,j,k) = q_latest(i,j,k) - qcl_latest(i,j,k)
-        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
-        cp_moist_val = cpd + q_latest(i,j,k)*cpv_cpm + qcl_latest(i,j,k)*cl_cpm
-        lcrcp_moist  = L_con_val / cp_moist_val
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
+        cpm = cpd + q_latest(i,j,k)*cpv_cpm + qcl_latest(i,j,k)*cl_cpm
+        lcrcp_moist = Lc_full / cpm
         t_latest(i,j,k) = t_latest(i,j,k) +                                    &
                             (qcl_latest(i,j,k) * lcrcp_moist)
       end do

@@ -163,8 +163,8 @@ real(kind=real_umphys) ::                                                      &
                    ! Temporary space for qT_norm
   stretcher,                                                                   &
   delta_p,                                                                     &
-  L_con_val,                                                                   &
-  cp_moist_val,                                                                &
+  Lc_full,                                                                     &
+  cpm,                                                                         &
   lcrcp_moist      ! Layer pressure thickness * inverse_level
 
 real(kind=real_umphys) ::                                                      &
@@ -261,10 +261,10 @@ inverse_level = 1.0 / levels_per_level
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
-      tl(i,j,k)         = t(i,j,k) - lcrcp_moist*qcl(i,j,k)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+      lcrcp_moist = Lc_full / cpm
+      tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k)
       qcl_latest(i,j,k) = qcl(i,j,k)
     end do !i
   end do !j
@@ -619,11 +619,11 @@ do k = 2, (tdims%k_end - 1)
       ! Update Q
       ! Update T
       ! Move qcl_latest into qcl.
-      q(i,j,k)   = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
-      t(i,j,k)   = t(i,j,k) - (qcl(i,j,k)*lcrcp_moist) +                       &
+      q(i,j,k) = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+      lcrcp_moist = Lc_full / cpm
+      t(i,j,k) = t(i,j,k) - (qcl(i,j,k)*lcrcp_moist) +                         &
               (qcl_latest(i,j,k) * lcrcp_moist)
       qcl(i,j,k) = qcl_latest(i,j,k)
 

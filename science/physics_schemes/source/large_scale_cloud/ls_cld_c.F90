@@ -126,9 +126,9 @@ real(kind=real_umphys) ::                                                      &
                        ! LOCAL AL (see equation P292.6).
  alphal,                                                                       &
                        ! LOCAL ALPHAL (see equation P292.5).
- L_con_val,                                                                    &
+ Lc_full,                                                                      &
                        ! Temperature-dependent latent heat of condensation
- cp_moist_val,                                                                 &
+ cpm,                                                                          &
                        ! Moist air heat capacity at constant pressure
  lcrcp_moist,                                                                  &
                        ! L_con / cp_moist
@@ -198,10 +198,10 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_f(ii,ij) - tm)
-  cp_moist_val = cpd + q_f(ii,ij)*cpv_cpm
-  lcrcp_moist  = L_con_val / cp_moist_val
-  alphal = repsilon * L_con_val * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
+  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_f(ii,ij) - tm)
+  cpm = cpd + q_f(ii,ij)*cpv_cpm
+  lcrcp_moist = Lc_full / cpm
+  alphal = repsilon * Lc_full * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
   al = 1.0 / (1.0 + (lcrcp_moist * alphal))
   alphal_nm1(i) = alphal
 
@@ -312,9 +312,9 @@ if (its  >=  2) then
         alphal = (qs - qsl_f(ii,ij)) / (t(i) - t_f(ii,ij))
         alphal = wtn * alphal + (1.0 - wtn) * alphal_nm1(i)
         alphal_nm1(i) = alphal
-        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-        cp_moist_val = cpd + q(i)*cpv_cpm + qcl_f(ii,ij)*cl_cpm
-        lcrcp_moist  = L_con_val / cp_moist_val
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+        cpm = cpd + q(i)*cpv_cpm + qcl_f(ii,ij)*cl_cpm
+        lcrcp_moist = Lc_full / cpm
         al = 1.0 / (1.0 + (lcrcp_moist * alphal))
         ! Rhcrit_if2:
         if (rhcritx  <   1.0) then

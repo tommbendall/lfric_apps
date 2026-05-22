@@ -395,11 +395,11 @@ real (kind=real_lsprec) :: lsrcp
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_con_val,                                                                   &
+  Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  L_sub_val,                                                                   &
+  Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lcrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_con to cp_moist
@@ -1197,14 +1197,14 @@ if (l_orograin .and. l_orogrime) then
 
       !       Add LH for cond+freezing of rimed orog water
 
-    ! Calculate temperature-dependent CPML coefficients for sublimation
-      L_sub_val = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = (                                                         &
+    ! Calculate variable latent heats and heat capacties for sublimation
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = (                                                                  &
           cpd + cpv_cpm * q(i)                                                 &
           + cl_cpm * (qcl(i) + qrain(i))                                       &
           + ci_cpm * (qcf_agg(i) + qcf_cry(i) + qgraup(i))                     &
       )
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      lsrcp_moist = Ls_full / cpm
       t(i) = t(i) + (dqsnow(i) * lsrcp_moist)
 
       !       Add mass transfer
@@ -1708,14 +1708,14 @@ if (l_orograin) then
       qrain(i) = qrain(i) + dqrain(i)
       q(i) = q(i) - dqrain(i)
 
-      ! Calculate temperature-dependent CPML coefficients for condensation
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = (                                                         &
+      ! Calculate variable latent heats and heat capacties for condensation
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = (                                                                  &
           cpd + cpv_cpm * q(i)                                                 &
           + cl_cpm * (qcl(i) + qrain(i))                                       &
           + ci_cpm * (qcf_agg(i) + qcf_cry(i) + qgraup(i))                     &
       )
-      lcrcp_moist  = L_con_val / cp_moist_val
+      lcrcp_moist = Lc_full / cpm
 
       t(i) = t(i) + (dqrain(i) * lcrcp_moist)
       if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = dqrain(i)

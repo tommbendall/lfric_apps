@@ -249,11 +249,11 @@ real (kind=real_lsprec) :: qcf_nofall(points)
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_fus_val,                                                                   &
+  Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  L_sub_val,                                                                   &
+  Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lfrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_fus to cp_moist
@@ -570,29 +570,29 @@ do c = 1, npts
 
   qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
 
-  ! Calculate temperature-dependent CPML coefficients for fusion
-  ! Use updated mixing ratios in cp_moist_val (post phase-change state)
+  ! Calculate variable latent heats and heat capacties for fusion
+  ! Use updated mixing ratios in cpm (post phase-change state)
   ! so that latent heating remains consistent with constant-pressure
   ! moist enthalpy conservation.
-  L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
-                 + cl_cpm * (qcl(i) + qrain(i))                                &
-                 + ci_cpm * (qcft(i) + qgraup(i))
-  lfrcp_moist  = L_fus_val / cp_moist_val
+  Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+  cpm = cpd + cpv_cpm * q(i)                                                   &
+            + cl_cpm * (qcl(i) + qrain(i))                                     &
+            + ci_cpm * (qcft(i) + qgraup(i))
+  lfrcp_moist = Lf_full / cpm
 
   t(i) = t(i) + lfrcp_moist * dqil
   dqi = dqi_dep(i) + dqi_sub(i)- dqil
 
   q(i) = q(i) - dqi
 
-  ! Calculate temperature-dependent CPML coefficients for sublimation
-  ! Recompute cp_moist_val after vapour update for consistency with
+  ! Calculate variable latent heats and heat capacties for sublimation
+  ! Recompute cpm after vapour update for consistency with
   ! the new moisture state before applying the temperature increment.
-  L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-  cp_moist_val = cpd + cpv_cpm * q(i)                                          &
-                 + cl_cpm * (qcl(i) + qrain(i))                                &
-                 + ci_cpm * (qcft(i) + qgraup(i))
-  lsrcp_moist  = L_sub_val / cp_moist_val
+  Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+  cpm = cpd + cpv_cpm * q(i)                                                   &
+            + cl_cpm * (qcl(i) + qrain(i))                                     &
+            + ci_cpm * (qcft(i) + qgraup(i))
+  lsrcp_moist = Ls_full / cpm
 
   t(i) = t(i) + lsrcp_moist * dqi
 

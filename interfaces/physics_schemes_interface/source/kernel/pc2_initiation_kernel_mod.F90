@@ -289,7 +289,7 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     real(r_um), dimension(seg_len,1,0:nlayers) :: r_theta_levels
 
     real(r_um) :: t_n
-    real(r_um) :: L_con_val, cp_moist_val, lcrcp_moist
+    real(r_um) :: Lc_full, cpm, lcrcp_moist
 
     integer(i_um) :: k, i
 
@@ -367,12 +367,11 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
         qtts(i,1,k) = mv_n_wth(map_wth(1,i) + k) + ml_n_wth(map_wth(1,i) + k)
 
         ! Liquid temperature
-        L_con_val = lc - (cl_cpm - cpv_cpm) * (t_n - tm)
-        cp_moist_val = cp + mv_n_wth(map_wth(1,i) + k) * cpv_cpm               &
-            + ml_n_wth(map_wth(1,i) + k) * cl_cpm                              &
-            + (ms_wth(map_wth(1,i) + k)                                        &
-            + mi_wth(map_wth(1,i) + k)) * ci_cpm
-        lcrcp_moist = L_con_val / cp_moist_val
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t_n - tm)
+        cpm = cp + mv_n_wth(map_wth(1,i) + k) * cpv_cpm                        &
+                 + ml_n_wth(map_wth(1,i) + k) * cl_cpm                         &
+                 + (ms_wth(map_wth(1,i) + k) + mi_wth(map_wth(1,i) + k)) * ci_cpm
+        lcrcp_moist = Lc_full / cpm
         tlts(i,1,k) = t_n - ( lcrcp_moist * ml_n_wth(map_wth(1,i) + k) )
 
       end do     ! k

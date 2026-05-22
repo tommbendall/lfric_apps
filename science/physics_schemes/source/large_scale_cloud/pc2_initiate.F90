@@ -165,9 +165,9 @@ real(kind=real_umphys) ::                                                      &
 !       Fraction of final liquid water initiated this timestep
 
 real(kind=real_umphys) ::                                                      &
-  L_con_val,                                                                  &
+   Lc_full,                                                                    &
 !       Temperature-dependent latent heat of condensation (J/kg)
-   cp_moist_val,                                                               &
+   cpm,                                                                        &
 !       Moist air heat capacity at constant pressure (J/kg/K)
    lcrcp_moist
 !       L_con / cp_moist (K)
@@ -259,7 +259,7 @@ end if
 !$OMP  qcl_c, q_c, deltacl_c, deltacf_c, qsl_t_c, l_out, l_bs, al,             &
 !$OMP  deltal, descent_factor, q_out, bs, i, j, k, l, qsl_tl, tl_c,            &
 !$OMP  alpha, qc, frac_init,                                                   &
-!$OMP  L_con_val, cp_moist_val, lcrcp_moist)
+!$OMP  Lc_full, cpm, lcrcp_moist)
 do k = 1, nlevels
 
   if ( i_pc2_init_logic == pc2init_logic_simplified ) then
@@ -336,11 +336,10 @@ do k = 1, nlevels
       ! 2. Calculate Saturated Specific Humidity with respect to liquid water
       !    for liquid temperatures.
       ! ----------------------------------------------------------------------
-      L_con_val    = lc - (cl_cpm - cpv_cpm)                                 &
-                         * (t(ind_i(i),ind_j(i),k) - tm)
-      cp_moist_val = cpd + q(ind_i(i),ind_j(i),k)*cpv_cpm                    &
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(ind_i(i),ind_j(i),k) - tm)
+      cpm = cpd + q(ind_i(i),ind_j(i),k)*cpv_cpm                    &
                         + qcl(ind_i(i),ind_j(i),k)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
+      lcrcp_moist = Lc_full / cpm
       tl_c = t(ind_i(i),ind_j(i),k) - lcrcp_moist                              &
                                      * qcl(ind_i(i),ind_j(i),k)
 
@@ -527,12 +526,12 @@ do k = 1, nlevels
         call qsat_wat(qsl_t_c,t_c(i),p_theta_levels(ni(i),nj(i),k))
       end if
 
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_c(i) - tm)
-      cp_moist_val = cpd + q_c(i)*cpv_cpm + qcl_c(i)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
-      alpha=repsilon*L_con_val*qsl_t_c/(r*t_c(i)**2)
-      al=1.0/(1.0+lcrcp_moist*alpha)
-      bs=al*(1.0-rh0_c(i))*qsl_tl_c(i)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t_c(i) - tm)
+      cpm = cpd + q_c(i)*cpv_cpm + qcl_c(i)*cl_cpm
+      lcrcp_moist = Lc_full / cpm
+      alpha = repsilon*Lc_full*qsl_t_c/(r*t_c(i)**2)
+      al = 1.0/(1.0+lcrcp_moist*alpha)
+      bs = al*(1.0-rh0_c(i))*qsl_tl_c(i)
 
       if (qn_c(i) <= -1.0) then
         l_bs = 0.0
@@ -601,11 +600,11 @@ do k = 1, nlevels
         !         = qcl
         ! => sd = qcl - qc
 
-        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_c(i) - tm)
-        cp_moist_val = cpd + q_c(i)*cpv_cpm + qcl_c(i)*cl_cpm
-        lcrcp_moist  = L_con_val / cp_moist_val
-        alpha=repsilon*L_con_val*qsl_t_c/(r*t_c(i)**2)
-        al=1.0/(1.0+lcrcp_moist*alpha)
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t_c(i) - tm)
+        cpm = cpd + q_c(i)*cpv_cpm + qcl_c(i)*cl_cpm
+        lcrcp_moist = Lc_full / cpm
+        alpha = repsilon*Lc_full*qsl_t_c/(r*t_c(i)**2)
+        al = 1.0/(1.0+lcrcp_moist*alpha)
         qc = al * ( q_c(i) + qcl_c(i) - qsl_tl_c(i) )
 
         if ( qc < 0.0 ) then

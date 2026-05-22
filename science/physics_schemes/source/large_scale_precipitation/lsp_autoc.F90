@@ -250,9 +250,9 @@ real (kind=real_lsprec) ::                                                     &
                         ! For debiasing code
   alpha_l,                                                                     &
                         ! dqsat/dT at T_L / kg kg-1 K-1
-  L_con_val,                                                                   &
+  Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist heat capacity
   a_l,                                                                         &
                         ! 1 / (1 + L/cp alpha)
@@ -564,11 +564,11 @@ else ! original autoconversion etc
       ! debiasing of the autoconversion rate.
       !-----------------------------------------------
     do i = 1, points
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-                     + cl_cpm * (qcl(i) + qrain(i))                            &
-                     + ci_cpm * (qcf(i) + qgraup(i))
-      lcrcp_moist(i) = L_con_val / cp_moist_val
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qgraup(i))
+      lcrcp_moist(i) = Lc_full / cpm
       t_l(i) = t(i) - (lcrcp_moist(i) * qcl(i))
     end do
 

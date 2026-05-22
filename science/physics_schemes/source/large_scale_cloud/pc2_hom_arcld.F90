@@ -122,12 +122,12 @@ integer :: k_index    ! Extra loop counter for large arrays.
 real(kind=real_umphys) ::                                                      &
   inverse_level,                                                               &
 !       Set to (1. / levels_per_level)
-    qt_norm_next,                                                              &
+  qt_norm_next,                                                                &
 !       Temporary space for qT_norm
-    stretcher,                                                                 &
-  delta_p,                                                                   &
-  L_con_val,                                                                 &
-  cp_moist_val,                                                              &
+  stretcher,                                                                   &
+  delta_p,                                                                     &
+  Lc_full,                                                                     &
+  cpm,                                                                         &
   lcrcp_moist
 !       Layer pressure thickness * inverse_level
 
@@ -215,9 +215,9 @@ inverse_level = 1.0 / levels_per_level
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+      lcrcp_moist = Lc_full / cpm
       tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k)
     end do
   end do

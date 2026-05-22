@@ -335,7 +335,7 @@ real(kind=jprb)               :: zhook_handle
 
 ! Local variables for temperature-dependent moist heat capacity
 real(kind=r_bl) :: lc_bl, lf_bl, tm_bl
-real(kind=r_bl) :: L_con_val, L_sub_val, cp_moist_val
+real(kind=r_bl) :: Lc_full, Ls_full, cpm
 real(kind=r_bl) :: lcrcp_moist, lsrcp_moist
 
 character(len=*), parameter :: RoutineName='BDY_IMPL3'
@@ -366,7 +366,7 @@ tdims_seg_block = min(tdims_omp_block, tdims%i_len)
 !$OMP  cp_bl,cpv_cpm_bl,cl_cpm_bl,ci_cpm_bl,lc_bl,lf_bl,tm_bl)              &
 !$OMP  private(k,j,i,r_sq,rbt,temp,temp_u,temp_v,l,temp_out,temp_u_out,        &
 !$OMP  temp_v_out,at,am,rbm,rr_sq,ii,gamma1_uv,gamma2_uv,                      &
-!$OMP  L_con_val,L_sub_val,cp_moist_val,lcrcp_moist,lsrcp_moist)
+!$OMP  Lc_full,Ls_full,cpm,lcrcp_moist,lsrcp_moist)
 
 if ( l_correct ) then
 
@@ -379,27 +379,27 @@ if ( l_correct ) then
                       + qcf_latest(i,j,k)                                      &
                       - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)
 
-        ! CPML coefficients at latest time level
-        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                     &
-                     + qcl_latest(i,j,k)*cl_cpm_bl                            &
-                     + qcf_latest(i,j,k)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        ! Latent heat and heat capacity at latest time level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        cpm = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                               &
+                    + qcl_latest(i,j,k)*cl_cpm_bl                              &
+                    + qcf_latest(i,j,k)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
 
         ! For now store TL_latest in dtl_nt
         dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
              - lcrcp_moist * qcl_latest(i,j,k)                                 &
              - lsrcp_moist * qcf_latest(i,j,k)
 
-        ! CPML coefficients at old time level
-        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                            &
-                     + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        ! Latent heat and heat capacity at old time level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                            &
+                    + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
 
         ! Now subtract original TL so that dtl_nt is the difference in TL
         dtl_nt(i,j,k) = dtl_nt(i,j,k)                                          &
@@ -433,26 +433,26 @@ else
       do i = tdims%i_start, tdims%i_end
         qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)
 
-        ! Calculate temperature-dependent CPML coefficients
-        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q(i,j,k)*cpv_cpm_bl                            &
-                     + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        ! Calculate variable latent heats and heat capacties
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                                      &
+                    + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
 
         tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k) - lsrcp_moist*qcf(i,j,k)
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
                         + qcf_latest(i,j,k) - qw(i,j,k)
 
-        ! Calculate CPML coefficients at latest time level
-        L_con_val    = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
-        L_sub_val    = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
-        cp_moist_val = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                     &
-                     + qcl_latest(i,j,k)*cl_cpm_bl                            &
-                     + qcf_latest(i,j,k)*ci_cpm_bl
-        lcrcp_moist  = L_con_val / cp_moist_val
-        lsrcp_moist  = L_sub_val / cp_moist_val
+        ! Calculate latent heats and heat capacties at latest time level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        cpm = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                               &
+                    + qcl_latest(i,j,k)*cl_cpm_bl                              &
+                    + qcf_latest(i,j,k)*ci_cpm_bl
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
 
         dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
                         - lcrcp_moist * qcl_latest(i,j,k)                      &

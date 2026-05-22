@@ -155,21 +155,21 @@ real(kind=real_umphys) ::                                                      &
 !      (kg kg-1 K-1)
    al,                                                                         &
 !      1 / (1 + alpha L/cp)  (no units)
-  L_con_val,                                                                  &
+   Lc_full,                                                                    &
 !      Temperature-dependent latent heat of condensation (J/kg)
-  L_sub_val,                                                                  &
+   Ls_full,                                                                    &
 !      Temperature-dependent latent heat of sublimation (J/kg)
-  L_fus_val,                                                                  &
+   Lf_full,                                                                    &
 !      Temperature-dependent latent heat of fusion (J/kg)
-  cp_moist_val,                                                               &
+   cpm,                                                                        &
 !      Moist-air heat capacity at constant pressure (J/kg/K)
-  lcrcp_moist,                                                                &
+   lcrcp_moist,                                                                &
 !      L_con / cp_moist
-  lsrcp_moist,                                                                &
+   lsrcp_moist,                                                                &
 !      L_sub / cp_moist
-  lfrcp_moist,                                                                &
+   lfrcp_moist,                                                                &
 !      L_fus / cp_moist
-  qcf_tot,                                                                    &
+   qcf_tot,                                                                    &
 !      Total ice mixing ratio used in cp_moist when moist switch is on
    sd,                                                                         &
 !      Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
@@ -242,8 +242,8 @@ end if
 ! Levels_do1:
 
 !$OMP  PARALLEL do DEFAULT(SHARED) SCHEDULE(STATIC) private(i, j, k, al,       &
-!$OMP  alpha, sd, cfl_old, qsl_t, i_wt, L_con_val, L_sub_val, L_fus_val,       &
-!$OMP  cp_moist_val, lcrcp_moist, lsrcp_moist, lfrcp_moist, qcf_tot)
+!$OMP  alpha, sd, cfl_old, qsl_t, i_wt, Lc_full, Ls_full, Lf_full,             &
+!$OMP  cpm, lcrcp_moist, lsrcp_moist, lfrcp_moist, qcf_tot)
 do k = 1,model_levels
 
   ! ----------------------------------------------------------------------
@@ -278,12 +278,11 @@ do k = 1,model_levels
       else
         qcf_tot = qcf(i,j,k)
       end if
-      L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm             &
-                     + qcf_tot*ci_cpm
-      lcrcp_moist  = L_con_val / cp_moist_val
-      alpha=repsilon*L_con_val*qsl_t(i,j)/(r*t(i,j,k)**2)
-      al=1.0/(1.0+lcrcp_moist*alpha)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+      lcrcp_moist = Lc_full / cpm
+      alpha = repsilon*Lc_full*qsl_t(i,j)/(r*t(i,j,k)**2)
+      al = 1.0/(1.0+lcrcp_moist*alpha)
 
       ! Calculate the saturation deficit SD
 
@@ -481,11 +480,10 @@ do k = 1,model_levels
         if (qcf(i,j,k) < condensate_limit) then
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
           qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
-          L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm          &
-                         + qcf_tot*ci_cpm
-          lsrcp_moist  = L_sub_val / cp_moist_val
-          t(i,j,k)     = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
+          Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+          lsrcp_moist = Ls_full / cpm
+          t(i,j,k) = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
           if (l_wtrac) then    ! Update water tracers
             do i_wt = 1, n_wtrac
@@ -499,11 +497,10 @@ do k = 1,model_levels
         if (qcf2(i,j,k) < condensate_limit) then
           q(i,j,k)   = q(i,j,k) + qcf2(i,j,k)
           qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
-          L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm          &
-                         + qcf_tot*ci_cpm
-          lsrcp_moist  = L_sub_val / cp_moist_val
-          t(i,j,k)     = t(i,j,k) - qcf2(i,j,k) * lsrcp_moist
+          Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+          lsrcp_moist = Ls_full / cpm
+          t(i,j,k) = t(i,j,k) - qcf2(i,j,k) * lsrcp_moist
           qcf2(i,j,k) = 0.0
           if (l_wtrac) then     ! Update water tracers
             do i_wt = 1, n_wtrac
@@ -546,11 +543,10 @@ do k = 1,model_levels
 
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
           qcf_tot = qcf(i,j,k)
-          L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm          &
-                         + qcf_tot*ci_cpm
-          lsrcp_moist  = L_sub_val / cp_moist_val
-          t(i,j,k)     = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
+          Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+          lsrcp_moist = Ls_full / cpm
+          t(i,j,k) = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
 
           if (l_wtrac) then     ! Update water tracers
@@ -618,11 +614,10 @@ do k = 1,model_levels
         else
           qcf_tot = qcf(i,j,k)
         end if
-        L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm            &
-                       + qcf_tot*ci_cpm
-        lfrcp_moist  = L_fus_val / cp_moist_val
-        t(i,j,k)     = t(i,j,k) + qcl(i,j,k) * lfrcp_moist
+        Lf_full = lf - (ci_cpm - cl_cpm) * (t(i,j,k) - tm)
+        cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+        lfrcp_moist = Lf_full / cpm
+        t(i,j,k) = t(i,j,k) + qcl(i,j,k) * lfrcp_moist
         qcl(i,j,k) = 0.0
 
         if (l_wtrac) then   ! Update water tracers

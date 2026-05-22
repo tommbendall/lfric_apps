@@ -285,11 +285,11 @@ real(kind=real_umphys) :: p_corr           ! pressure correction for diffusivity
 real(kind=real_umphys) :: tau_d_work
                          ! local working value of the turbulent decorrelation
                          ! timescale
-real(kind=real_umphys) :: L_sub_val
+real(kind=real_umphys) :: Ls_full
                          ! Temperature-dependent latent heat of sublimation
-real(kind=real_umphys) :: L_con_val
+real(kind=real_umphys) :: Lc_full
                          ! Temperature-dependent latent heat of condensation
-real(kind=real_umphys) :: cp_moist_val
+real(kind=real_umphys) :: cpm
                          ! Temperature-dependent moist specific heat capacity
 real(kind=real_umphys) :: lcrcp_moist
                          ! Temperature-dependent ratio of L_con to cp_moist
@@ -425,7 +425,7 @@ end if
 !$OMP private(k,j,i,q_local2d,t_local2d,rho_dry,rho_air,qsi_2d,qsw_2d,mom1,    &
 !$OMP         rhice,siw,ei,t_corr,p_corr,dv,ka,bi,Ai,b0,aa,dz_scal,            &
 !$OMP         tau_d_work,fac,four_root_sigmas,fac2,deltas,ibin,sice,           &
-!$OMP         qv_excess,fdist,lami,lams,L_sub_val,L_con_val,cp_moist_val,      &
+!$OMP         qv_excess,fdist,lami,lams,Ls_full,Lc_full,cpm,                 &
 !$OMP         lcrcp_moist)                                                     &
 !$OMP SHARED(tdims,dqcl_mp,qcl_mpt,tau_d,inv_prt,disprate,inv_mt,si_avg,       &
 !$OMP        dcfl_mp,sigma2_s,bl_levels,q_work,t_work,rhodz_dry,deltaz,        &
@@ -558,15 +558,15 @@ do k = 1, bl_levels-1
 
         ka = air_conductivity0 * t_corr
 
-        L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
-        cp_moist_val = cpd + cpv_cpm * q_work(i,j,k)                           &
+        Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
+        cpm = cpd + cpv_cpm * q_work(i,j,k)                                    &
               + cl_cpm * qcl_work(i,j,k)                                       &
               + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
 
-        bi = 1.0 / q_local2d(i,j) + L_sub_val**2 /                             &
-              (cp_moist_val * rv * t_local2d(i,j) ** 2)
+        bi = 1.0 / q_local2d(i,j) + Ls_full**2 /                               &
+              (cpm * rv * t_local2d(i,j) ** 2)
 
-        Ai = 1.0 / (rhoi * L_sub_val**2 / (ka*rv*t_local2d(i,j)**2) +          &
+        Ai = 1.0 / (rhoi * Ls_full**2 / (ka*rv*t_local2d(i,j)**2) +            &
                   rhoi * rv * t_local2d(i,j) / (Ei*Dv))
 
         if (.not. l_casim) then
@@ -579,7 +579,7 @@ do k = 1, bl_levels-1
         end if
 
         aa = ( g / (r*t_local2d(i,j) ) *                                       &
-             ( L_sub_val*r / (cp_moist_val*rv*t_local2d(i,j))-1.0))
+             ( Ls_full*r / (cpm*rv*t_local2d(i,j))-1.0))
 
         dz_scal = mp_dz_scal * deltaz(i,j,k)
 
@@ -643,11 +643,11 @@ do k = 1, bl_levels-1
 
             qcl_inc(i,j,k) = qcl_inc(i,j,k) + qcl_mpt(i,j,k)
             q_inc(i,j,k)   = q_inc(i,j,k)   - qcl_mpt(i,j,k)
-            L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
-            cp_moist_val = cpd + cpv_cpm * q_work(i,j,k)                       &
-                           + cl_cpm * qcl_work(i,j,k)                          &
-                           + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
-            lcrcp_moist  = L_con_val / cp_moist_val
+            Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
+            cpm = cpd + cpv_cpm * q_work(i,j,k)                                &
+                      + cl_cpm * qcl_work(i,j,k)                               &
+                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+            lcrcp_moist = Lc_full / cpm
             t_inc(i,j,k) = t_inc(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_inc(i,j,k) = min( cfl_inc(i,j,k) + dcfl_mp(i,j,k),             &
@@ -658,11 +658,11 @@ do k = 1, bl_levels-1
 
             qcl_work(i,j,k) = qcl_work(i,j,k) + qcl_mpt(i,j,k)
             q_work(i,j,k)   = q_work(i,j,k)   - qcl_mpt(i,j,k)
-            L_con_val    = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
-            cp_moist_val = cpd + cpv_cpm * q_work(i,j,k)                       &
-                           + cl_cpm * qcl_work(i,j,k)                          &
-                           + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
-            lcrcp_moist  = L_con_val / cp_moist_val
+            Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
+            cpm = cpd + cpv_cpm * q_work(i,j,k)                                &
+                      + cl_cpm * qcl_work(i,j,k)                               &
+                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+            lcrcp_moist  = Lc_full / cpm
             t_work(i,j,k) = t_work(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_work(i,j,k) = min( cfl_work(i,j,k) + dcfl_mp(i,j,k), 1.0)

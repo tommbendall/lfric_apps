@@ -209,9 +209,9 @@ real (kind=real_lsprec) :: qcf_nofall(points)
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_fus_val,                                                                   &
+  Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lfrcp_moist
                         ! Temperature-dependent ratio of L_fus to cp_moist
@@ -371,18 +371,18 @@ do i = 1, points
         !-----------------------------------------------
     qcf(i) = qcf(i) + dqi
 
-    ! Calculate temperature-dependent CPML coefficients
-    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    ! Calculate variable latent heats and heat capacties
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
     if (ice_type == 3) then
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-                     + cl_cpm * (qcl(i) + qrain(i))                            &
-                     + ci_cpm * (qcf(i) + qcf2(i))
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i))
     else
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-                     + cl_cpm * (qcl(i) + qrain(i))                            &
-                     + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     end if
-    lfrcp_moist  = L_fus_val / cp_moist_val
+    lfrcp_moist = Lf_full / cpm
 
     t(i)   = t(i) + lfrcp_moist * dqi
     qcl(i) = qclnew
@@ -548,9 +548,9 @@ real (kind=real_lsprec) :: qcf_nofall(points)
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_fus_val,                                                                   &
+  Lf_full,                                                                   &
                         ! Temperature-dependent latent heat of fusion
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lfrcp_moist
                         ! Temperature-dependent ratio of L_fus to cp_moist
@@ -653,18 +653,18 @@ do i = 1, points
         !-----------------------------------------------
     qcf(i) = qcf(i) + dqi
 
-    ! Calculate temperature-dependent CPML coefficients
-    L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    ! Calculate variable latent heats and heat capacties
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
     if (ice_type == 3) then
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-                     + cl_cpm * (qcl(i) + qrain(i))                            &
-                     + ci_cpm * (qcf(i) + qcf2(i))
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i))
     else
-      cp_moist_val = cpd + cpv_cpm * q(i)                                      &
-                     + cl_cpm * (qcl(i) + qrain(i))                            &
-                     + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
     end if
-    lfrcp_moist  = L_fus_val / cp_moist_val
+    lfrcp_moist = Lf_full / cpm
 
     t(i)   = t(i) + lfrcp_moist * dqi
     qcl(i) = qclnew

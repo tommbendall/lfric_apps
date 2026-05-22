@@ -126,11 +126,11 @@ real(kind=real_umphys) ::                                                      &
 !       temperature calculated at dry-bulb temperature (kg kg-1 K-1)
    al,                                                                         &
 !       1 / (1 + alpha L/cp)  (no units)
-  L_con_val,                                                                  &
+   Lc_full,                                                                    &
 !       Temperature-dependent latent heat of condensation (J/kg)
-  cp_moist_val,                                                               &
+   cpm,                                                                        &
 !       Moist air heat capacity at constant pressure (J/kg/K)
-  lcrcp_moist,                                                                &
+   lcrcp_moist,                                                                &
 !       L_con / cp_moist (K)
    rht,                                                                        &
 !       Relative total humidity
@@ -187,7 +187,7 @@ c_thresh_high_2 = 1.0 - cloud_pc2_tol_2
 ! Levels_do1:
 
 !$OMP  PARALLEL do DEFAULT(SHARED) SCHEDULE(STATIC) private(i, j, k,           &
-!$OMP  irhi, irhj, rht, alpha, al, L_con_val, cp_moist_val, lcrcp_moist, sd,   &
+!$OMP  irhi, irhj, rht, alpha, al, Lc_full, cpm, lcrcp_moist, sd,              &
 !$OMP  qsl_t, qsl_tl,                                                          &
 !$OMP  tl)
 do k = 1, tdims%k_end
@@ -205,9 +205,9 @@ do k = 1, tdims%k_end
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! for liquid temperature.
-        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-        lcrcp_moist  = L_con_val / cp_moist_val
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+        lcrcp_moist  = Lc_full / cpm
         tl = t(i,j,k)-lcrcp_moist*qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
@@ -242,10 +242,10 @@ do k = 1, tdims%k_end
           end if
 
           ! Calculate the saturation deficit
-              L_con_val = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-              cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-              lcrcp_moist = L_con_val / cp_moist_val
-              alpha = repsilon * L_con_val * qsl_t /                               &
+              Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+              cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+              lcrcp_moist = Lc_full / cpm
+              alpha = repsilon * Lc_full * qsl_t /                               &
                 (r * t(i,j,k) ** 2)
               al    = 1.0 / (1.0 + lcrcp_moist * alpha)
           sd    = al * (qsl_t - q(i,j,k))
@@ -275,9 +275,9 @@ do k = 1, tdims%k_end
             wtrac_pc2%q_cond(i,j,k) = wtrac_pc2%q_cond(i,j,k) - qcl(i,j,k)
           end if
 
-          L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-          lcrcp_moist  = L_con_val / cp_moist_val
+          Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+          lcrcp_moist = Lc_full / cpm
           t(i,j,k)   = t(i,j,k) - qcl(i,j,k) * lcrcp_moist
           qcl(i,j,k) = 0.0
         end if
@@ -293,9 +293,9 @@ do k = 1, tdims%k_end
           wtrac_pc2%q_cond(i,j,k) = wtrac_pc2%q_cond(i,j,k) - qcl(i,j,k)
         end if
 
-        L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cp_moist_val = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-        lcrcp_moist  = L_con_val / cp_moist_val
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+        lcrcp_moist = Lc_full / cpm
         t(i,j,k)   = t(i,j,k) - qcl(i,j,k) * lcrcp_moist
         qcl(i,j,k) = 0.0
       end if

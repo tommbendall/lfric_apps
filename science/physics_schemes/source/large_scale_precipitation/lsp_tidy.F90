@@ -259,13 +259,13 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Local variables for temperature-dependent moist heat capacity
 real (kind=real_lsprec) ::                                                     &
-  L_con_val,                                                                   &
+  Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  L_sub_val,                                                                   &
+  Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  L_fus_val,                                                                   &
+  Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  cp_moist_val,                                                                &
+  cpm,                                                                         &
                         ! Temperature-dependent moist specific heat capacity
   lcrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_con to cp_moist
@@ -305,10 +305,12 @@ do i = 1, points
         ! Update prognostics
     q(i)   = q(i) + dpr
 
-    ! Calculate temperature-dependent CPML coefficients for condensation
-    L_con_val    = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lcrcp_moist  = L_con_val / cp_moist_val
+    ! Calculate variable latent heats and heat capacties for condensation
+    Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+    cpm = cpd + cpv_cpm * q(i)                                                 &
+              + cl_cpm * (qcl(i) + qrain(i))                                   &
+              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+    lcrcp_moist = Lc_full / cpm
 
     t(i)   = t(i) - dpr * lcrcp_moist
     qrain(i) = zero
@@ -367,10 +369,12 @@ do i = 1, points
 
       q(i)   = q(i) + dpr
 
-      ! Calculate temperature-dependent CPML coefficients for sublimation
-      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! Calculate variable latent heats and heat capacties for sublimation
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lsrcp_moist = Ls_full / cpm
 
       t(i)   = t(i) - lsrcp_moist * dpr
       qcf(i) = zero
@@ -402,10 +406,12 @@ do i = 1, points
           ! Update prognostics
       q(i)   = q(i) + dpr
 
-      ! Calculate temperature-dependent CPML coefficients for sublimation
-      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! Calculate variable latent heats and heat capacties for sublimation
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lsrcp_moist = Ls_full / cpm
 
       t(i)   = t(i) - lsrcp_moist * dpr
       qcf2(i)= zero
@@ -457,10 +463,12 @@ do i = 1, points
 
       q(i)   = q(i) + dpr
 
-      ! Calculate temperature-dependent CPML coefficients for sublimation
-      L_sub_val    = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lsrcp_moist  = L_sub_val / cp_moist_val
+      ! Calculate variable latent heats and heat capacties for sublimation
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lsrcp_moist = Ls_full / cpm
 
       t(i)   = t(i) - lsrcp_moist * dpr
       qcf(i) = zero
@@ -549,10 +557,12 @@ if ( .not. l_proc_fluxes ) then
 
           ! Calculate transfer rate
 
-      ! Calculate temperature-dependent CPML coefficients for fusion
-      L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lfrcp_moist  = L_fus_val / cp_moist_val
+      ! Calculate variable latent heats and heat capacties for fusion
+      Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i)                                               &
+                + cl_cpm * (qcl(i) + qrain(i))                                 &
+                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lfrcp_moist = Lf_full / cpm
 
       dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
       dpr2 = dpr*rho(i)*dhir(i)
@@ -631,10 +641,10 @@ if ( .not. l_proc_fluxes ) then
 
           ! Calculate transfer rate
 
-      ! Calculate temperature-dependent CPML coefficients for fusion
-      L_fus_val    = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-      cp_moist_val = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lfrcp_moist  = L_fus_val / cp_moist_val
+      ! Calculate variable latent heats and heat capacties for fusion
+      Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+      cpm = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
+      lfrcp_moist = Lf_full / cpm
 
       dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
       dpr2 = dpr*rho(i)*dhir(i)
