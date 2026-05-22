@@ -29,11 +29,13 @@ private
 
 type, public, extends(kernel_type) :: pc2_initiation_kernel_type
   private
-  type(arg_type) :: meta_args(40) = (/                                   &
+  type(arg_type) :: meta_args(42) = (/                                   &
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mv_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! ml_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mi_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! ms_wth
+       arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mr_wth
+       arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mg_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! cfl_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! cff_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! bcf_wth
@@ -143,6 +145,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
                                 ml_wth,                            &
                                 mi_wth,                            &
                                 ms_wth,                            &
+                                mr_wth,                            &
+                                mg_wth,                            &
                                 cfl_wth,                           &
                                 cff_wth,                           &
                                 bcf_wth,                           &
@@ -220,6 +224,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     real(kind=r_def), intent(in), dimension(undf_wth) :: ml_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: mi_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: ms_wth
+    real(kind=r_def), intent(in), dimension(undf_wth) :: mr_wth
+    real(kind=r_def), intent(in), dimension(undf_wth) :: mg_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: bcf_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: cfl_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: cff_wth
@@ -274,6 +280,7 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     logical, dimension(seg_len,1) :: l_cumulus
 
     real(r_um), dimension(seg_len,1,nlayers) :: qv_work, qcl_work, qcf_work,   &
+         qrain_work, qgraupel_work,                                            &
          cfl_work, cff_work, bcf_work, t_work, theta_work, rhts, t_incr,       &
          qv_incr, qcl_incr, qcf_incr, cfl_incr, cff_incr, bcf_incr, rhcpt,     &
          zeros, tgrad_in, mix_len_in, tau_dec_in, tau_hom_in, tau_mph_in,      &
@@ -349,6 +356,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
         qv_work(i,1,k)   = mv_wth(map_wth(1,i) + k)
         qcl_work(i,1,k)  = ml_wth(map_wth(1,i) + k)
         qcf_work(i,1,k)  = ms_wth(map_wth(1,i) + k)
+        qrain_work(i,1,k)= mr_wth(map_wth(1,i) + k)
+        qgraupel_work(i,1,k)= mg_wth(map_wth(1,i) + k)
         qcf2_work(i,1,k)  = mi_wth(map_wth(1,i) + k)
 
         ! Critical relative humidity
@@ -451,6 +460,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
                             qcl_work,                      &
                             qcf_work,                      &
                             qcf2_work,                     &
+                            qrain_work,                    &
+                            qgraupel_work,                 &
                             bcf_work,                      &
                             cfl_work,                      &
                             cff_work,                      &

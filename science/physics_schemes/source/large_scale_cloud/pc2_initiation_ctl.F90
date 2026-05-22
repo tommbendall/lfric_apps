@@ -25,7 +25,7 @@ subroutine pc2_initiation_ctl (                                                &
   nSCMDpkgs,L_SCMDiags,                                                        &
 
 ! Primary fields passed in/out
-  t,q,qcl,qcf,qcf2,cf,cfl,cff,rhts,tlts,qtts,ptts,cf_area,                     &
+  t,q,qcl,qcf,qcf2,qrain,qgraupel,cf,cfl,cff,rhts,tlts,qtts,ptts,cf_area,      &
 
 ! Primary fields passed in
   p,pstar,p_theta_levels,cumulus,rhcrit,                                       &
@@ -123,6 +123,12 @@ real(kind=real_umphys) ::                                                      &
                      tdims%j_start:tdims%j_end,                                &
                                  1:tdims%k_end),                               &
   qcf2(              tdims%i_start:tdims%i_end,                                &
+                     tdims%j_start:tdims%j_end,                                &
+                                 1:tdims%k_end),                               &
+  qrain(             tdims%i_start:tdims%i_end,                                &
+                     tdims%j_start:tdims%j_end,                                &
+                                 1:tdims%k_end),                               &
+  qgraupel(          tdims%i_start:tdims%i_end,                                &
                      tdims%j_start:tdims%j_end,                                &
                                  1:tdims%k_end),                               &
   cf(                tdims%i_start:tdims%i_end,                                &
@@ -452,7 +458,8 @@ if (i_pc2_init_method == pc2init_bimodal) then
       tau_dec_bm,tau_hom_bm,tau_mph_bm,ri_bm, mix_len_bm,                      &
       zh,zhsc,dzh,bl_type_7,                                                   &
       tdims%k_end,zlcl_mixed,r_theta_levels,z_theta,t,cf,cfl,cff,              &
-      q,qcl,qcf_total,sskew,svar_turb,svar_bm,entzone,                         &
+      q,qcl,qcf_total,qrain,qgraupel,                                          &
+      sskew,svar_turb,svar_bm,entzone,                                         &
       sl_modes, qw_modes, rh_modes, sd_modes,                                  &
       calculate_increments, l_mixing_ratio)
 

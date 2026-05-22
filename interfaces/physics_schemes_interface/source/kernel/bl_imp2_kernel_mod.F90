@@ -41,7 +41,7 @@ module bl_imp2_kernel_mod
   !>
   type, public, extends(kernel_type) :: bl_imp2_kernel_type
     private
-    type(arg_type) :: meta_args(57) = (/                                         &
+    type(arg_type) :: meta_args(59) = (/                                         &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! outer
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! wetrho_in_wth
@@ -60,6 +60,8 @@ module bl_imp2_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! m_cl
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! m_ci
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_s
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! cf_area
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! cf_ice
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! cf_liq
@@ -217,6 +219,8 @@ contains
                           m_cl,                               &
                           m_ci,                               &
                           m_s,                                &
+                          m_r,                                &
+                          m_g,                                &
                           cf_area,                            &
                           cf_ice,                             &
                           cf_liq,                             &
@@ -336,8 +340,9 @@ contains
                                                          dtrdz_tq_bl,          &
                                                          dsldzm,               &
                                                          mix_len_bm,           &
-                                                         wvar, m_ci,            &
+                                                         wvar, m_ci,           &
                                                          gradrinr,             &
+                                                         m_r, m_g,             &
                                                          tau_dec_bm,           &
                                                          tau_hom_bm,           &
                                                          tau_mph_bm,           &
@@ -375,6 +380,7 @@ contains
          qcl_earliest, qcf_earliest, cf_earliest, cfl_earliest,              &
          cff_earliest, qt_force, tl_force, t_inc_pc2, q_inc_pc2, qcl_inc_pc2,&
          bcf_inc_pc2, cfl_inc_pc2, sskew, svar_turb, svar_bm, qcf_total,     &
+         qrain, qgraupel,                                                    &
          ri_bm, tgrad_in, mix_len_in, tau_dec_in, tau_hom_in, tau_mph_in,    &
          wvar_in
     real(r_bl), dimension(seg_len,1,nlayers) ::                              &
@@ -1054,6 +1060,13 @@ contains
             end do
           end do
 
+          do k = 1, nlayers
+            do i = 1, seg_len
+              qrain(i,1,k) = m_r(map_wth(1,i) + k)
+              qgraupel(i,1,k) = m_g(map_wth(1,i) + k)
+            end do
+          end do
+
           if ( l_casim .and. l_mcr_qcf2 ) then
             ! Two ice prognostics in use. Sum them together
             do k = 1, nlayers
@@ -1074,7 +1087,7 @@ contains
                        tau_dec_in, tau_hom_in, tau_mph_in, z_theta,            &
                        ri_bm, mix_len_in, zh, zhsc, dzh, bl_type_7,            &
                        nlayers, l_mr_physics, t_latest, cf_latest,             &
-                       q_latest, qcf_total, qcl_latest,                        &
+                       q_latest, qcf_total, qcl_latest, qrain, qgraupel,       &
                        cfl_latest,cff_latest,                                  &
                        sskew, svar_turb, svar_bm, entzone,                     &
                        sl_modes, qw_modes, rh_modes, sd_modes,                 &

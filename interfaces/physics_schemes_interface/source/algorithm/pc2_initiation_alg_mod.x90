@@ -59,7 +59,8 @@ contains
                                  dtheta_pc2_inc, name_ext )
 
     use pc2_initiation_kernel_mod, only: pc2_initiation_kernel_type
-    use mr_indices_mod,            only: imr_v, imr_cl, imr_ci, imr_s, nummr
+    use mr_indices_mod,            only: imr_v, imr_cl, imr_ci, imr_s, imr_r,  &
+                                         imr_g, nummr
     use timing_mod,                only: start_timing, stop_timing, tik, LPROF
 
     implicit none
@@ -163,6 +164,8 @@ contains
                                               mr(imr_cl),        &
                                               mr(imr_ci),        &
                                               mr(imr_s),         &
+                                              mr(imr_r),         &
+                                              mr(imr_g),         &
                                               liquid_fraction,   &
                                               frozen_fraction,   &
                                               bulk_fraction,     &

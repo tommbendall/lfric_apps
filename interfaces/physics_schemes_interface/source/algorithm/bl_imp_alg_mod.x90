@@ -17,7 +17,7 @@ module bl_imp_alg_mod
   use physics_constants_mod,         only: get_rdz_fd1, get_dtrdz_fd2, &
                                            get_rdz_w3
   use mr_indices_mod,                only: nummr, imr_v, imr_cl, imr_ci, &
-                                           imr_r, imr_s
+                                           imr_r, imr_s, imr_g
   use timestepping_config_mod,       only: outer_iterations
   use um_sizes_init_mod,             only: um_sizes_init
 
@@ -438,6 +438,7 @@ contains
                                        height_wth, ntml, cumulus, dtheta_bl,   &
                                        diss_u, diss_v, dt_conv, mr(imr_v),     &
                                        mr(imr_cl), mr(imr_ci), mr(imr_s),      &
+                                       mr(imr_r), mr(imr_g),                   &
                                        cf_area, cf_fro, cf_liq, cf_bulk,       &
                                        cca, ccw, rh_crit,                      &
                                        dsldzm, mix_len_bm, wvar,               &
