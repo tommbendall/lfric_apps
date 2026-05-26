@@ -680,18 +680,10 @@ contains
       ! Create Tl and qT outside boundary layer levels
       do i = 1, seg_len
         do k = bl_levels+1, nlayers
-          Lc_full = lc - (cl_cpm - cpv_cpm) * (                                &
-              theta_star(map_wth(1,i) + k) * exner_in_wth(map_wth(1,i) + k)    &
-              + dt_conv(map_wth(1,i) + k) - tm                                 &
-          )
-          cpm = cp + m_v(map_wth(1,i) + k) * cpv_cpm                           &
-                   + m_cl(map_wth(1,i) + k) * cl_cpm                           &
-                   + m_s(map_wth(1,i) + k) * ci_cpm
-          lcrcp_moist = Lc_full / cpm
           t_latest(i,1,k) = theta_star(map_wth(1,i) + k)   &
                             * exner_in_wth(map_wth(1,i) + k) &
                             + dt_conv(map_wth(1,i) + k)      &
-                            - lcrcp_moist * m_cl(map_wth(1,i) + k)
+                            - lc/cp * m_cl(map_wth(1,i) + k)
           q_latest(i,1,k) = m_v(map_wth(1,i) + k) + m_cl(map_wth(1,i) + k)
         end do
       end do
@@ -712,7 +704,11 @@ contains
             qcl_latest(i,1,k) = m_cl(map_wth(1,i) + k)
             qcf_latest(i,1,k) = m_s(map_wth(1,i) + k)
             qcf2_latest(i,1,k) = m_ci(map_wth(1,i) + k)
+            qrain(i,1,k) = m_r(map_wth(1,i) + k)
+            qgraupel(i,1,k) = m_g(map_wth(1,i) + k)
+            qcf_total(i,1,k) = qcf_latest(i,1,k) + qcf2_latest(i,1,k)
           end do
+
         end do
         if (scheme == scheme_pc2) then
           do k = 1, nlayers
@@ -784,15 +780,10 @@ contains
           ! content
           do k = 1, nlayers
             do i = 1, seg_len
-              Lc_full = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k) - tm)
-              cpm = cp + q_earliest(i,1,k) * cpv_cpm                           &
-                       + qcl_earliest(i,1,k) * cl_cpm                          &
-                       + qcf_earliest(i,1,k) * ci_cpm
-              lcrcp_moist = Lc_full / cpm
               qt_force(i,1,k) = ( q_latest(i,1,k)                              &
                    - (q_earliest(i,1,k) + qcl_earliest(i,1,k)) )
               tl_force(i,1,k) = ( t_latest(i,1,k)                              &
-                  - (t_earliest(i,1,k)- lcrcp_moist * qcl_earliest(i,1,k)) )
+                  - (t_earliest(i,1,k)- lc/cp * qcl_earliest(i,1,k)) )
             end do
           end do
 
@@ -818,8 +809,9 @@ contains
                ! INput variables
                p_theta_levels(1,1,1),                                          &
                ! INput variables
-               t_earliest, q_earliest, qcl_earliest, cf_latest,                &
-               cfl_latest, cff_latest, tl_force, qt_force,                     &
+               t_earliest, q_earliest, qcl_earliest,                           &
+               qrain, qcf_total, qgraupel,                                     &
+               cf_latest, cfl_latest, cff_latest, tl_force, qt_force,          &
                ! OUTput variables
                t_inc_pc2, q_inc_pc2, qcl_inc_pc2, bcf_inc_pc2, cfl_inc_pc2,    &
                ! INput variables (other quantities)
@@ -859,10 +851,10 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k)-tm)
+                  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k) - tm)
                   cpm = cp + q_earliest(i,1,k) * cpv_cpm                       &
-                           + qcl_earliest(i,1,k) * cl_cpm                      &
-                           + qcf_earliest(i,1,k) * ci_cpm
+                           + (qcl_earliest(i,1,k) + qrain(i,1,k)) * cl_cpm     &
+                           + (qcf_total(i,1,k) + qgraupel(i,1,k)) * ci_cpm
                   lcrcp_moist = Lc_full / cpm
                   t_inc_pc2(i,1,k)   =  (-lcrcp_moist) * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
@@ -925,7 +917,8 @@ contains
                                    z_theta, qcl_inv_top,                       &
                                    cca0, ccw0, ccb0, cct0, lcbase0,            &
                                    cfl_latest, cf_latest,                      &
-                                   qcl_latest, q_latest, t_latest, l_wtrac)
+                                   qcl_latest, qrain, qcf_total, qgraupel,     &
+                                   q_latest, t_latest, l_wtrac)
             do k = 1, nlayers
               do i = 1, seg_len
                 cca(map_wth(1,i) + k) = cca0(i,1,k)
@@ -1006,7 +999,8 @@ contains
                          rhc_row_length, rhc_rows, bl_levels,                  &
                          levels_per_level, large_levels,                       &
                          xx_cos_theta_latitude,                                &
-                         ntml, cumulus, l_mr_physics, qcf_total,               &
+                         ntml, cumulus, l_mr_physics, qcf_total, qrain,        &
+                         qgraupel,                                             &
                          t_latest, q_latest, qcl_latest,                       &
                          area_cloud_fraction, cf_latest,                       &
                          cfl_latest, cff_latest,                               &
@@ -1057,13 +1051,6 @@ contains
             do k = bl_levels, nlayers
               ! Set Ri-number to greater than 1 above bl_levels
               ri_bm(i,1,k) = 10.0_r_um
-            end do
-          end do
-
-          do k = 1, nlayers
-            do i = 1, seg_len
-              qrain(i,1,k) = m_r(map_wth(1,i) + k)
-              qgraupel(i,1,k) = m_g(map_wth(1,i) + k)
             end do
           end do
 

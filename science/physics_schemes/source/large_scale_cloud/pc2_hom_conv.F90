@@ -22,7 +22,7 @@ subroutine pc2_hom_conv(                                                       &
 !      Timestep
  timestep,                                                                     &
 !      Prognostic Fields
- t, q, qcl, cf, cfl, cff,                                                      &
+ t, q, qcl, qrain, qcf, qgraupel, cf, cfl, cff,                               &
 !      Forcing quantities for driving the homogeneous forcing
  dtin, dqin, dqclin, dpdt, dcflin,                                             &
 !      Output increments to the prognostic fields
@@ -37,7 +37,7 @@ use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use cloud_inputs_mod,      only: i_pc2_erosion_method, i_pc2_erosion_numerics, &
   l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph, i_pc2_homog_g_method
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 use pc2_constants_mod,     only: pc2eros_exp_rh,                               &
      pc2eros_hybrid_sidesonly,                                                 &
      i_pc2_erosion_explicit, i_pc2_erosion_implicit, i_pc2_erosion_analytic,   &
@@ -131,6 +131,19 @@ real(kind=real_umphys), intent(in) ::                                          &
    dcflin(        tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end)
 !       Increment in liquid cloud fraction (no units)
+
+real(kind=real_umphys), intent(in) ::                                          &
+   qrain(         tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end),                                  &
+!       Rain water content (kg water per kg air)
+
+   qcf(           tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end),                                  &
+!       Frozen condensate content (kg water per kg air)
+
+   qgraupel(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end)
+!       Graupel content (kg water per kg air)
 
 ! Arguments with intent out. ie: output variables.
 
@@ -274,7 +287,9 @@ do j = tdims%j_start, tdims%j_end
       ! with respect to temperature (alpha) first, then use this to calculate
       ! factor aL. Also estimate the rate of change of qsat with pressure.
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
-      cpm = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
+      cpm = cpd + q(i,j)*cpv_cpm                                               &
+          + (qcl(i,j) + qrain(i,j))*cl_cpm                                     &
+          + (qcf(i,j) + qgraupel(i,j))*ci_cpm
       lcrcp_moist = Lc_full / cpm
       alpha   = repsilon*Lc_full*qsl_t / (r*t(i,j)**2)
       al      = 1.0 / ( 1.0 + lcrcp_moist * alpha )
@@ -342,7 +357,8 @@ do j = tdims%j_start, tdims%j_end
       dqcdt = dqcdt - al * dcs * (qsl_t-q(i,j))
 
       ! Calculate Qc
-      tl = t(i,j)-lcrcp_moist*qcl(i,j)
+      ! Keep TL-definition conversion on fixed lc/cpd.
+      tl = t(i,j) - (lc / cpd) * qcl(i,j)
       if ( l_mr_physics ) then
         call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j))
       else
@@ -468,7 +484,9 @@ do j = tdims%j_start, tdims%j_end
       end if
 
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
-      cpm = cpd + q(i,j)*cpv_cpm + qcl(i,j)*cl_cpm
+      cpm = cpd + q(i,j)*cpv_cpm                                               &
+          + (qcl(i,j) + qrain(i,j))*cl_cpm                                     &
+          + (qcf(i,j) + qgraupel(i,j))*ci_cpm
       lcrcp_moist = Lc_full / cpm
       alpha   = repsilon * Lc_full * qsl_t / (r * t(i,j)**2)
       al      = 1.0 / (1.0 + lcrcp_moist*alpha)

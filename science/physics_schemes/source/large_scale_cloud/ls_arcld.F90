@@ -27,7 +27,7 @@ subroutine ls_arcld(                                                           &
 !      Convection diagnosis information (only used for A05_4A)
   ntml, cumulus, l_mixing_ratio,                                               &
 !      Prognostic Fields
-  qcf_latest,                                                                  &
+  qcf_latest, qrain_latest, qgraupel_latest,                                   &
   t_latest, q_latest, qcl_latest,                                              &
 !      Various cloud fractions
   area_cloud_fraction, bulk_cloud_fraction,                                    &
@@ -41,7 +41,6 @@ use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims, pdims, tdims_s
 use cloud_inputs_mod,     only: i_cld_area
 use pc2_constants_mod,    only: acf_off, acf_cusack, acf_brooks
-use lsc_cpm_mod,         only: cpv_cpm, cl_cpm
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
@@ -107,6 +106,14 @@ real(kind=real_umphys), intent(in) ::                                          &
                       tdims%j_start:tdims%j_end,                               &
                                   1:tdims%k_end),                              &
 !       Cloud ice content at processed levels (kg water per kg air).
+ qrain_latest(        tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                  1:tdims%k_end),                              &
+!       Rain water content at processed levels (kg water per kg air).
+ qgraupel_latest(     tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                  1:tdims%k_end),                              &
+!       Graupel content at processed levels (kg water per kg air).
    p_layer_centres(      pdims%i_start:pdims%i_end,                            &
                          pdims%j_start:pdims%j_end,                            &
                                      0:pdims%k_end),                           &
@@ -183,10 +190,8 @@ real(kind=real_umphys) ::                                                      &
 
   inverse_level,                                                               &
                      ! Set to (1. / levels_per_level)
-  delta_p,                                                                     &
-  Lc_full,                                                                     &
-  cpm,                                                                         &
-  lcrcp_moist    ! Layer pressure thickness * inverse_level
+  delta_p
+                     ! Layer pressure thickness * inverse_level
 
 !  (b) Others.
 integer :: i,j,k      ! Loop counters: k - vertical level index.
@@ -211,6 +216,10 @@ real(kind=real_umphys) ::                                                      &
     q_large(             tdims%i_start:tdims%i_end,                            &
                          tdims%j_start:tdims%j_end, large_levels),             &
     qcf_large(           tdims%i_start:tdims%i_end,                            &
+                         tdims%j_start:tdims%j_end, large_levels),             &
+    qrain_large(         tdims%i_start:tdims%i_end,                            &
+                         tdims%j_start:tdims%j_end, large_levels),             &
+    qgraupel_large(      tdims%i_start:tdims%i_end,                            &
                          tdims%j_start:tdims%j_end, large_levels),             &
     cloud_fraction_large(tdims%i_start:tdims%i_end,                            &
                          tdims%j_start:tdims%j_end, large_levels),             &
@@ -261,7 +270,7 @@ if (i_cld_area == acf_off) then
                rhc_row_length, rhc_rows,                                       &
                ntml,cumulus,                                                   &
                l_mixing_ratio,t_latest, bulk_cloud_fraction,                   &
-               q_latest, qcf_latest, qcl_latest,                               &
+               q_latest, qcf_latest, qcl_latest, qrain_latest, qgraupel_latest,&
                cloud_fraction_liquid,                                          &
                cloud_fraction_frozen, error_code )
 
@@ -283,8 +292,9 @@ else if (i_cld_area == acf_cusack) then
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( rhc_rows, rhc_row_length, rhcrit_large, rhcrit, tdims,           &
 !$OMP         large_levels, p_large, t_large, q_large, qcf_large,              &
+!$OMP         qrain_large, qgraupel_large,                                      &
 !$OMP         linked, qt_norm, p_layer_centres, t_latest, q_latest,            &
-!$OMP         qcf_latest, qsl, l_mixing_ratio)                                 &
+!$OMP         qcf_latest, qrain_latest, qgraupel_latest, qsl, l_mixing_ratio) &
 !$OMP private(i, j, qt_norm_next )
 !$OMP do SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
@@ -328,6 +338,8 @@ else if (i_cld_area == acf_cusack) then
       t_large(i,j,1) = t_latest(i,j,1)
       q_large(i,j,1) = q_latest(i,j,1)
       qcf_large(i,j,1) = qcf_latest(i,j,1)
+      qrain_large(i,j,1) = qrain_latest(i,j,1)
+      qgraupel_large(i,j,1) = qgraupel_latest(i,j,1)
 
       p_large(i,j,large_levels) =                                              &
         p_layer_centres(i,j,tdims%k_end)
@@ -335,6 +347,8 @@ else if (i_cld_area == acf_cusack) then
       t_large(i,j,large_levels) = t_latest(i,j,tdims%k_end)
       q_large(i,j,large_levels) = q_latest(i,j,tdims%k_end)
       qcf_large(i,j,large_levels) = qcf_latest(i,j,tdims%k_end)
+      qrain_large(i,j,large_levels) = qrain_latest(i,j,tdims%k_end)
+      qgraupel_large(i,j,large_levels) = qgraupel_latest(i,j,tdims%k_end)
       ! Test for continuity (assumed if linked is .true.)
       qt_norm_next=(q_latest(i,j,2)+qcf_latest(i,j,2))/qsl(i,j)
       linked(i,j,1) =                                                          &
@@ -351,7 +365,8 @@ else if (i_cld_area == acf_cusack) then
 !$OMP  p_layer_centres, l_mixing_ratio, rhc_rows,                              &
 !$OMP  rhc_row_length, rhcrit_large, rhcrit, inverse_level,                    &
 !$OMP  p_layer_boundaries, p_large, t_large, q_large, q_latest,                &
-!$OMP  qcf_large, qcf_latest, linked, qt_norm_next, qt_norm, tdims,            &
+!$OMP  qcf_large, qrain_large, qgraupel_large, qcf_latest,                     &
+!$OMP  qrain_latest, qgraupel_latest, linked, qt_norm_next, qt_norm, tdims,    &
 !$OMP  ntml_large, ntml )                                                      &
 !$OMP  private(i, j, k, k_index, stretcher, delta_p, qsl)
 
@@ -418,6 +433,8 @@ else if (i_cld_area == acf_cusack) then
         t_large(i,j,k_index) = t_latest(i,j,k)
         q_large(i,j,k_index) = q_latest(i,j,k)
         qcf_large(i,j,k_index) = qcf_latest(i,j,k)
+        qrain_large(i,j,k_index) = qrain_latest(i,j,k)
+        qgraupel_large(i,j,k_index) = qgraupel_latest(i,j,k)
 
         ! Calculate increment in variable values, pressure interpolation
         ! NB: Using X_large(i,j,(k_index+1)) as store for X increments
@@ -433,6 +450,10 @@ else if (i_cld_area == acf_cusack) then
            (q_latest(i,j,(k+1)) - q_latest(i,j,(k-1)))
             qcf_large(i,j,(k_index+1)) = stretcher *                           &
            (qcf_latest(i,j,(k+1)) - qcf_latest(i,j,(k-1)))
+            qrain_large(i,j,(k_index+1)) = stretcher *                         &
+           (qrain_latest(i,j,(k+1)) - qrain_latest(i,j,(k-1)))
+            qgraupel_large(i,j,(k_index+1)) = stretcher *                      &
+           (qgraupel_latest(i,j,(k+1)) - qgraupel_latest(i,j,(k-1)))
           else
             !               Interpolate from level k-1 to k
             stretcher = delta_p /                                              &
@@ -443,6 +464,10 @@ else if (i_cld_area == acf_cusack) then
            (q_large(i,j,k_index) - q_latest(i,j,(k-1)))
             qcf_large(i,j,(k_index+1)) = stretcher *                           &
            (qcf_large(i,j,k_index) - qcf_latest(i,j,(k-1)))
+            qrain_large(i,j,(k_index+1)) = stretcher *                         &
+           (qrain_large(i,j,k_index) - qrain_latest(i,j,(k-1)))
+            qgraupel_large(i,j,(k_index+1)) = stretcher *                      &
+           (qgraupel_large(i,j,k_index) - qgraupel_latest(i,j,(k-1)))
           end if
 
         else
@@ -456,11 +481,17 @@ else if (i_cld_area == acf_cusack) then
            (q_latest(i,j,(k+1)) - q_large(i,j,k_index))
             qcf_large(i,j,(k_index+1)) = stretcher *                           &
            (qcf_latest(i,j,(k+1)) - qcf_large(i,j,k_index))
+            qrain_large(i,j,(k_index+1)) = stretcher *                         &
+           (qrain_latest(i,j,(k+1)) - qrain_large(i,j,k_index))
+            qgraupel_large(i,j,(k_index+1)) = stretcher *                      &
+           (qgraupel_latest(i,j,(k+1)) - qgraupel_large(i,j,k_index))
           else
             !               No interpolation, freeze at level k
             t_large(i,j,(k_index+1)) = 0.0
             q_large(i,j,(k_index+1)) = 0.0
             qcf_large(i,j,(k_index+1)) = 0.0
+            qrain_large(i,j,(k_index+1)) = 0.0
+            qgraupel_large(i,j,(k_index+1)) = 0.0
           end if
 
         end if
@@ -472,6 +503,12 @@ else if (i_cld_area == acf_cusack) then
         if (qcf_large(i,j,k_index)  <                                          &
                      (abs(qcf_large(i,j,(k_index+1)))+tol_test))               &
                           qcf_large(i,j,(k_index+1)) = 0.0
+        if (qrain_large(i,j,k_index)  <                                        &
+                     (abs(qrain_large(i,j,(k_index+1)))+tol_test))             &
+                qrain_large(i,j,(k_index+1)) = 0.0
+        if (qgraupel_large(i,j,k_index)  <                                     &
+                     (abs(qgraupel_large(i,j,(k_index+1)))+tol_test))          &
+                          qgraupel_large(i,j,(k_index+1)) = 0.0
 
         ! Select variable values at level below layer centre
         t_large(i,j,(k_index-1)) = t_large(i,j,k_index) -                      &
@@ -480,6 +517,10 @@ else if (i_cld_area == acf_cusack) then
                                    q_large(i,j,(k_index+1))
         qcf_large(i,j,(k_index-1))=qcf_large(i,j,k_index)-                     &
                                    qcf_large(i,j,(k_index+1))
+        qrain_large(i,j,(k_index-1)) = qrain_large(i,j,k_index) -              &
+                                       qrain_large(i,j,(k_index+1))
+        qgraupel_large(i,j,(k_index-1)) = qgraupel_large(i,j,k_index) -        &
+                                          qgraupel_large(i,j,(k_index+1))
 
         ! Select variable values at level above layer centre
         ! NB: CEASE using X_large(i,j,(k_index+1)) as store for X increments.
@@ -489,6 +530,10 @@ else if (i_cld_area == acf_cusack) then
                                    q_large(i,j,k_index)
         qcf_large(i,j,(k_index+1))=qcf_large(i,j,(k_index+1)) +                &
                                    qcf_large(i,j,k_index)
+        qrain_large(i,j,(k_index+1)) = qrain_large(i,j,(k_index+1)) +          &
+                                       qrain_large(i,j,k_index)
+        qgraupel_large(i,j,(k_index+1)) = qgraupel_large(i,j,(k_index+1)) +    &
+                                          qgraupel_large(i,j,k_index)
       end do
     end do
 
@@ -509,7 +554,7 @@ else if (i_cld_area == acf_cusack) then
                rhc_row_length, rhc_rows,                                       &
                ntml_large, cumulus, l_mixing_ratio,                            &
                t_large, cloud_fraction_large,                                  &
-               q_large, qcf_large, qcl_large,                                  &
+               q_large, qcf_large, qcl_large, qrain_large, qgraupel_large,     &
                cloud_fraction_liquid_large,                                    &
                cloud_fraction_frozen_large, error_code )
 
@@ -520,8 +565,8 @@ else if (i_cld_area == acf_cusack) then
 !$OMP        cloud_fraction_liquid, cloud_fraction_liquid_large,               &
 !$OMP        cloud_fraction_frozen, cloud_fraction_frozen_large,               &
 !$OMP        q_latest, t_latest, tdims, t_large, q_large, large_levels,        &
-!$OMP        cpd, cpv_cpm, cl_cpm )                                          &
-!$OMP private(i, j, k, k_index, Lc_full, cpm, lcrcp_moist)
+!$OMP        cpd )                                                             &
+!$OMP private(i, j, k, k_index)
 !$OMP do SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -602,11 +647,7 @@ else if (i_cld_area == acf_cusack) then
         ! Transform q_latest from qT(vapour + liquid) to specific humidity.
         ! Transform T_latest from TL(vapour + liquid) to temperature.
         q_latest(i,j,k) = q_latest(i,j,k) - qcl_latest(i,j,k)
-        Lc_full = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
-        cpm = cpd + q_latest(i,j,k)*cpv_cpm + qcl_latest(i,j,k)*cl_cpm
-        lcrcp_moist = Lc_full / cpm
-        t_latest(i,j,k) = t_latest(i,j,k) +                                    &
-                            (qcl_latest(i,j,k) * lcrcp_moist)
+        t_latest(i,j,k) = t_latest(i,j,k) + lc / cpd * qcl_latest(i,j,k)
       end do
     end do
 
@@ -623,7 +664,7 @@ else if (i_cld_area == acf_brooks) then
              rhc_row_length, rhc_rows,                                         &
              ntml, cumulus, l_mixing_ratio,                                    &
              t_latest, bulk_cloud_fraction,                                    &
-             q_latest, qcf_latest, qcl_latest,                                 &
+             q_latest, qcf_latest, qcl_latest, qrain_latest, qgraupel_latest,  &
              cloud_fraction_liquid,                                            &
              cloud_fraction_frozen, error_code )
 

@@ -25,7 +25,7 @@ subroutine ls_cld(                                                             &
 !      From convection diagnosis (only used if A05_4A)
  ntml, cumulus, l_mixing_ratio,                                                &
 !      Prognostic Fields
- t, cf, q, qcf, qcl,                                                           &
+ t, cf, q, qcf, qcl, qrain, qgraupel,                                          &
 !      Liquid and frozen ice cloud fractions
  cfl, cff,                                                                     &
  i_err)
@@ -90,6 +90,15 @@ real(kind=real_umphys) ::                                                      &
 !       Critical relative humidity.  See the the paragraph incorporating
 !       eqs P292.11 to P292.14; the values need to be tuned for the give
 !       set of levels.
+
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+ qrain(         tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,levels),                             &
+!       Rain water content at processed levels (kg water per kg air).
+ qgraupel(      tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,levels)
+!       Graupel content at processed levels (kg water per kg air).
 
 integer ::                                                                     &
  ntml(          tdims%i_start:tdims%i_end,                                     &
@@ -189,6 +198,12 @@ real(kind=real_umphys) ::                                                      &
    qn(            tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end),                                  &
 !       Cloud water normalised with BS.
+   qv_l_est(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,levels),                           &
+!       Estimated vapour mixing ratio for each level.
+   ql_l_est(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,levels),                           &
+!       Estimated liquid mixing ratio for each level.
    grid_qc(       tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,levels),                           &
 !       Gridbox mean saturation excess at processed levels
@@ -268,7 +283,8 @@ end if
 !$OMP  l_mixing_ratio, qcf, ice_fraction_method, ctt_weight, i_eacf,           &
 !$OMP  rhc_row_length, rhc_rows, bl_levels, cloud_fraction_method, cf,         &
 !$OMP  overlap_ice_liquid, cff, t_weight, sub_cld, q, t, jblock, cfl_max,      &
-!$OMP  qsat_fixed, multrhc, cumulus, ntml, rhcrit, l_param_conv, tdims)        &
+!$OMP  qsat_fixed, multrhc, cumulus, ntml, rhcrit, l_param_conv, tdims,        &
+!$OMP  qv_l_est, ql_l_est,qrain,qgraupel)                                      &
 !$OMP  private(k, j, i, rhcritx, qc_points, rootwo, subgrid, qsl, qsl_ctt,     &
 !$OMP  phiqcf, cosqcf, qn_imp, qn_adj, overlap_max, overlap_min,               &
 !$OMP  overlap_random, temp0, temp1, temp2, qn, lqc, idx, qcfrbs, jj,          &
@@ -345,6 +361,10 @@ do k = 1, levels
         rhcritx = rhcrit(1,1,k)
       end if
 
+      ! Initial vapour/liquid estimates from QW and qsat(TL).
+      ql_l_est(i,j,k) = max(q(i,j,k) - qsl(i,j), 0.0_real_umphys)
+      qv_l_est(i,j,k) = min(q(i,j,k), qsl(i,j))
+
       ! Omit CUMULUS points below (and including) NTML+1
 
       if ( .not. l_param_conv .or. (l_param_conv .and.                         &
@@ -410,7 +430,8 @@ do k = 1, levels
   ! Qc_points_if:
   if (qc_points  >   0) then
     call ls_cld_c(p_theta_levels(1,1,k),rhcrit(1,1,k),qsl,qn,                  &
-                  q(1,1,k),t(1,1,k),                                           &
+                  q(1,1,k),qv_l_est(1,1,k),ql_l_est(1,1,k),t(1,1,k),           &
+                  qcf(1,1,k),qrain(1,1,k),qgraupel(1,1,k),                     &
                   qcl(1,1,k),cfl(1,1,k),grid_qc(1,1,k),bs(1,1,k),              &
                   idx,qc_points,rhc_row_length,rhc_rows,                       &
                   bl_levels,k, l_mixing_ratio)

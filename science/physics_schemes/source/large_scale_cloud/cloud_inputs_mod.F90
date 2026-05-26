@@ -209,15 +209,16 @@ logical :: l_bm_tweaks=.false.
                                  !    calculation of mixed-phase fraction.
 
 !=======================================================================
-! character options set from RUN_CLOUD namelist
+! Additional integer options set from RUN_CLOUD namelist
 !=======================================================================
 
 integer :: lsc_cp = imdi
                                  ! Moist heat capacity treatment mode:
-                                 ! 'none': no moist contribution to cp
-                                 ! 'dry':  use dry-air approximation
-                                 ! 'moist': use correct moist heat capacities
-                                 !          + temperature-dependent latent heats
+                                 ! lsc_cp_none : no moist contribution to cp
+                                 ! lsc_cp_dry  : use dry-air approximation
+                                 ! lsc_cp_moist: use moist heat capacities
+                                 !               and temperature-dependent
+                                 !               latent heats
 
 !=======================================================================
 ! real values set from RUN_CLOUD namelist
@@ -484,6 +485,7 @@ use nlsizes_namelist_mod, only: model_levels
 use umPrintMgr, only: umPrint
 implicit none
 character(len=50000) :: lineBuffer
+character(len=24)    :: lsc_cp_label
 real(kind=jprb)      :: zhook_handle
 integer              :: i, rh_lev
 
@@ -602,6 +604,18 @@ call umPrint(lineBuffer,src='cloud_inputs_mod')
 write(lineBuffer,'(A,L1)')' l_bm_tweaks = ',l_bm_tweaks
 call umPrint(lineBuffer,src='cloud_inputs_mod')
 write(lineBuffer,'(A,I0)')' lsc_cp = ',lsc_cp
+call umPrint(lineBuffer,src='cloud_inputs_mod')
+select case (lsc_cp)
+case (lsc_cp_none)
+  lsc_cp_label = 'lsc_cp_none'
+case (lsc_cp_dry)
+  lsc_cp_label = 'lsc_cp_dry'
+case (lsc_cp_moist)
+  lsc_cp_label = 'lsc_cp_moist'
+case default
+  lsc_cp_label = 'invalid'
+end select
+write(lineBuffer,'(A,A)')' lsc_cp_mode = ',trim(lsc_cp_label)
 call umPrint(lineBuffer,src='cloud_inputs_mod')
 
 call umPrint('- - - - - - end of namelist - - - - - -',                        &

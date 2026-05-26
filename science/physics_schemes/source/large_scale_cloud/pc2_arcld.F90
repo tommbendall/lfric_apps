@@ -21,19 +21,17 @@ subroutine pc2_arcld(                                                          &
  rhc_row_length, rhc_rows,zlcl_mixed,                                          &
  large_levels, levels_per_level,                                               &
 !      Prognostic Fields
- cf_area, t, cf, cfl, cff, q, qcl, qcf, rhts,                                  &
+ cf_area, t, cf, cfl, cff, q, qcl, qcf, qrain, qgraupel, rhts,                 &
  tlts, qtts, ptts,                                                             &
 !      Logical control
  l_mixing_ratio)
 
-use water_constants_mod,   only: lc, tm
+use water_constants_mod,   only: lc
 use planet_constants_mod,  only: cpd => cp
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims, pdims_l
 use level_heights_mod,     only: r_theta_levels
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
-
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
 use pc2_initiate_mod, only: pc2_initiate
@@ -107,6 +105,17 @@ real(kind=real_umphys) ::                                                      &
 !       Cloud ice content at processed levels (kg water per kg air).
 
 real(kind=real_umphys) ::                                                      &
+               !, intent(INOUT)
+   qrain(             tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                1:tdims%k_end),                                &
+!       Rain water content (kg water per kg air)
+   qgraupel(          tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                1:tdims%k_end)
+!       Graupel content (kg water per kg air)
+
+real(kind=real_umphys) ::                                                      &
                       !, intent(INOUT)
  t(                 tdims%i_start:tdims%i_end,                                 &
                     tdims%j_start:tdims%j_end,                                 &
@@ -162,10 +171,7 @@ real(kind=real_umphys) ::                                                      &
   qt_norm_next,                                                                &
                    ! Temporary space for qT_norm
   stretcher,                                                                   &
-  delta_p,                                                                     &
-  Lc_full,                                                                     &
-  cpm,                                                                         &
-  lcrcp_moist      ! Layer pressure thickness * inverse_level
+  delta_p          ! Layer pressure thickness * inverse_level
 
 real(kind=real_umphys) ::                                                      &
   qsl(              tdims%i_start:tdims%i_end,                                 &
@@ -201,6 +207,18 @@ real(kind=real_umphys) ::                                                      &
                       large_levels),                                           &
 !
     qcl_large(        tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                      large_levels),                                           &
+  !
+    qcf_large(        tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                      large_levels),                                           &
+  !
+    qrain_large(      tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                      large_levels),                                           &
+  !
+    qgraupel_large(   tdims%i_start:tdims%i_end,                               &
                       tdims%j_start:tdims%j_end,                               &
                       large_levels),                                           &
 !
@@ -261,10 +279,7 @@ inverse_level = 1.0 / levels_per_level
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-      lcrcp_moist = Lc_full / cpm
-      tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k)
+      tl(i,j,k) = t(i,j,k) - (lc / cpd) * qcl(i,j,k)
       qcl_latest(i,j,k) = qcl(i,j,k)
     end do !i
   end do !j
@@ -313,6 +328,9 @@ do j = tdims%j_start, tdims%j_end
     t_large   (i,j,1) = t(i,j,1)
     q_large   (i,j,1) = q(i,j,1)
     qcl_large (i,j,1) = qcl_latest(i,j,1)
+    qcf_large (i,j,1) = qcf(i,j,1)
+    qrain_large(i,j,1) = qrain(i,j,1)
+    qgraupel_large(i,j,1) = qgraupel(i,j,1)
     cf_large  (i,j,1) = cf(i,j,1)
     cfl_large (i,j,1) = cfl(i,j,1)
     cff_large (i,j,1) = cff(i,j,1)
@@ -326,6 +344,9 @@ do j = tdims%j_start, tdims%j_end
     t_large   (i,j,large_levels) = t(i,j,tdims%k_end)
     q_large   (i,j,large_levels) = q(i,j,tdims%k_end)
     qcl_large (i,j,large_levels) = qcl_latest(i,j,tdims%k_end)
+    qcf_large (i,j,large_levels) = qcf(i,j,tdims%k_end)
+    qrain_large(i,j,large_levels) = qrain(i,j,tdims%k_end)
+    qgraupel_large(i,j,large_levels) = qgraupel(i,j,tdims%k_end)
     cf_large  (i,j,large_levels) = cf(i,j,tdims%k_end)
     cfl_large (i,j,large_levels) = cfl(i,j,tdims%k_end)
     cff_large (i,j,large_levels) = cff(i,j,tdims%k_end)
@@ -397,6 +418,9 @@ do k = 2, (tdims%k_end - 1)
       t_large   (i,j,k_index) = t(i,j,k)
       q_large   (i,j,k_index) = q(i,j,k)
       qcl_large (i,j,k_index) = qcl_latest(i,j,k)
+      qcf_large (i,j,k_index) = qcf(i,j,k)
+      qrain_large(i,j,k_index) = qrain(i,j,k)
+      qgraupel_large(i,j,k_index) = qgraupel(i,j,k)
       cf_large  (i,j,k_index) = cf(i,j,k)
       cfl_large (i,j,k_index) = cfl(i,j,k)
       cff_large (i,j,k_index) = cff(i,j,k)
@@ -489,6 +513,9 @@ do k = 2, (tdims%k_end - 1)
                                       q_large(i,j,(k_index+1))
       qcl_large (i,j,(k_index-1)) = qcl_large(i,j,k_index)-                    &
                                       qcl_large(i,j,(k_index+1))
+      qcf_large (i,j,(k_index-1)) = qcf(i,j,k)
+      qrain_large(i,j,(k_index-1)) = qrain(i,j,k)
+      qgraupel_large(i,j,(k_index-1)) = qgraupel(i,j,k)
       cf_large  (i,j,(k_index-1)) = cf(i,j,k)
       cfl_large (i,j,(k_index-1)) = cfl(i,j,k)
       cff_large (i,j,(k_index-1)) = cff(i,j,k)
@@ -507,6 +534,9 @@ do k = 2, (tdims%k_end - 1)
                                       q_large(i,j,k_index)
       qcl_large (i,j,(k_index+1)) = qcl_large(i,j,(k_index+1)) +               &
                                       qcl_large(i,j,k_index)
+      qcf_large (i,j,(k_index+1)) = qcf(i,j,k)
+      qrain_large(i,j,(k_index+1)) = qrain(i,j,k)
+      qgraupel_large(i,j,(k_index+1)) = qgraupel(i,j,k)
       cf_large  (i,j,(k_index+1)) = cf(i,j,k)
       cfl_large (i,j,(k_index+1)) = cfl(i,j,k)
       cff_large (i,j,(k_index+1)) = cff(i,j,k)
@@ -555,8 +585,8 @@ end do
 
 call pc2_initiate(p_large,cumulus,rhcrit_large,                                &
   large_levels, rhc_row_length,rhc_rows,zlcl_mixed,r_large,                    &
-  t_large,cf_large,cfl_large,cff_large,q_large,qcl_large,                      &
-  rhts_large,l_mixing_ratio)
+  t_large,cf_large,cfl_large,cff_large,q_large,qcl_large,qcf_large,            &
+  qrain_large,qgraupel_large,rhts_large,l_mixing_ratio)
 
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
@@ -620,11 +650,7 @@ do k = 2, (tdims%k_end - 1)
       ! Update T
       ! Move qcl_latest into qcl.
       q(i,j,k) = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
-      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
-      lcrcp_moist = Lc_full / cpm
-      t(i,j,k) = t(i,j,k) - (qcl(i,j,k)*lcrcp_moist) +                         &
-              (qcl_latest(i,j,k) * lcrcp_moist)
+      t(i,j,k) = t(i,j,k) - (lc / cpd) * qcl(i,j,k) + (lc / cpd) * qcl_latest(i,j,k)
       qcl(i,j,k) = qcl_latest(i,j,k)
 
     end do

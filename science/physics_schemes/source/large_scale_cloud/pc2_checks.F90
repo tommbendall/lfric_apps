@@ -18,7 +18,7 @@ subroutine pc2_checks(                                                         &
 !   Pressure related fields
  p_theta_levels,                                                               &
 !   Prognostic Fields
- t, cf, cfl, cff, q, qcl, qcf,                                                 &
+ t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                                &
 !   Logical control
  l_mixing_ratio,                                                               &
 !   Sizes of input arrays
@@ -41,7 +41,7 @@ use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use cloud_inputs_mod,      only: i_pc2_checks_cld_frac_method,                 &
                                  l_ensure_min_in_cloud_qcf
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 use science_fixes_mod,     only: l_pc2_checks_sdfix
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
@@ -118,10 +118,18 @@ real(kind=real_umphys), intent(in out) ::                                      &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels),                                                 &
 !    Liquid content (kg water per kg air)
+     qrain(1-halo_i:row_length+halo_i,                                         &
+          1-halo_j:rows+halo_j,                                                &
+              1:model_levels),                                                 &
+  !    Rain content (kg water per kg air)
    qcf(1-halo_i:row_length+halo_i,                                             &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels),                                                 &
 !    Ice content (kg water per kg air)
+     qgraupel(1-halo_i:row_length+halo_i,                                      &
+              1-halo_j:rows+halo_j,                                            &
+              1:model_levels),                                                 &
+  !    Graupel content (kg water per kg air)
    qcf2(1-halo_i:row_length+halo_i,                                            &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels)
@@ -279,7 +287,9 @@ do k = 1,model_levels
         qcf_tot = qcf(i,j,k)
       end if
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+      cpm = cpd + q(i,j,k)*cpv_cpm                                             &
+                + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                           &
+                + (qcf_tot + qgraupel(i,j,k))*ci_cpm
       lcrcp_moist = Lc_full / cpm
       alpha = repsilon*Lc_full*qsl_t(i,j)/(r*t(i,j,k)**2)
       al = 1.0/(1.0+lcrcp_moist*alpha)
@@ -481,7 +491,9 @@ do k = 1,model_levels
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
           qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
           Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
+                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
+                    + (qcf_tot + qgraupel(i,j,k))*ci_cpm
           lsrcp_moist = Ls_full / cpm
           t(i,j,k) = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
@@ -498,7 +510,9 @@ do k = 1,model_levels
           q(i,j,k)   = q(i,j,k) + qcf2(i,j,k)
           qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
           Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
+                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
+                    + (qcf_tot + qgraupel(i,j,k))*ci_cpm
           lsrcp_moist = Ls_full / cpm
           t(i,j,k) = t(i,j,k) - qcf2(i,j,k) * lsrcp_moist
           qcf2(i,j,k) = 0.0
@@ -544,7 +558,9 @@ do k = 1,model_levels
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
           qcf_tot = qcf(i,j,k)
           Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
+                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
+                    + (qcf_tot + qgraupel(i,j,k))*ci_cpm
           lsrcp_moist = Ls_full / cpm
           t(i,j,k) = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
@@ -615,7 +631,9 @@ do k = 1,model_levels
           qcf_tot = qcf(i,j,k)
         end if
         Lf_full = lf - (ci_cpm - cl_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf_tot*ci_cpm
+        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
+                  + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                         &
+                  + (qcf_tot + qgraupel(i,j,k))*ci_cpm
         lfrcp_moist = Lf_full / cpm
         t(i,j,k) = t(i,j,k) + qcl(i,j,k) * lfrcp_moist
         qcl(i,j,k) = 0.0

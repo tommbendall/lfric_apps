@@ -19,8 +19,8 @@ contains
 !  Large-scale Cloud Scheme Compression routine (Cloud points only).
 ! Subroutine Interface:
 subroutine ls_cld_c(                                                           &
- p_f,rhcrit,qsl_f,qn_f,q_f,t_f,                                                &
- qcl_f,cf_f,grid_qc_f,bs_f,                                                    &
+ p_f,rhcrit,qsl_f,qn_f,q_f,qv_l_est_f,ql_l_est_f,t_f,                         &
+ qcf_f,qrain_f,qgraupel_f,qcl_f,cf_f,grid_qc_f,bs_f,                          &
  indx,points,rhc_row_length,rhc_rows,                                          &
  bl_levels,k, l_mixing_ratio)
 
@@ -30,7 +30,7 @@ use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims
 use cloud_inputs_mod,     only: i_eacf, all_clouds
-use lsc_cpm_mod,         only: cpv_cpm, cl_cpm
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
 implicit none
@@ -78,6 +78,27 @@ real(kind=real_umphys) ::                                                      &
    qn_f(          tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end)
 !       Normalised super/subsaturation ( = QC/BS).
+
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+ qv_l_est_f(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end),                                  &
+!       Estimated vapour mixing ratio for this level.
+ ql_l_est_f(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end)
+!       Estimated liquid mixing ratio for this level.
+
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+ qcf_f(         tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end),                                    &
+!       Cloud frozen-water content (kg water per kg air)
+ qrain_f(       tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end),                                    &
+!       Rain water content (kg water per kg air)
+ qgraupel_f(    tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end)
+!       Graupel content (kg water per kg air)
 
 logical ::                                                                     &
                       !, intent(in)
@@ -132,6 +153,8 @@ real(kind=real_umphys) ::                                                      &
                        ! Moist air heat capacity at constant pressure
  lcrcp_moist,                                                                  &
                        ! L_con / cp_moist
+ t_phys,                                                                       &
+                       ! Estimated physical temperature derived from TL
  qn_adj,                                                                       &
  rhcritx          ! scalar copy of RHCRIT(I,J)
 integer ::                                                                     &
@@ -198,8 +221,11 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_f(ii,ij) - tm)
-  cpm = cpd + q_f(ii,ij)*cpv_cpm
+  t_phys = t_f(ii,ij) + (lc / cpd) * ql_l_est_f(ii,ij)
+  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_phys - tm)
+  cpm = cpd + qv_l_est_f(ii,ij)*cpv_cpm                                        &
+            + (ql_l_est_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                      &
+            + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
   lcrcp_moist = Lc_full / cpm
   alphal = repsilon * Lc_full * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
   al = 1.0 / (1.0 + (lcrcp_moist * alphal))
@@ -278,7 +304,12 @@ do i = 1, points
   ! 3.3 Calculate 1st approx. to temperature, adjusting for latent heating
   ! ----------------------------------------------------------------------
 
-  t(i) = t_f(ii,ij) + lcrcp_moist*qcl_f(ii,ij)
+  ! Don't use definition of liquid temperature here
+  cpm = cpd + q_f(ii,ij)*cpv_cpm                                               &
+            + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                           &
+            + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+  lcrcp_moist = Lc_full / cpm
+  t(i) = t_f(ii,ij) + lcrcp_moist * qcl_f(ii,ij)
 end do ! Points_do1
 
 ! ----------------------------------------------------------------------
@@ -313,7 +344,9 @@ if (its  >=  2) then
         alphal = wtn * alphal + (1.0 - wtn) * alphal_nm1(i)
         alphal_nm1(i) = alphal
         Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-        cpm = cpd + q(i)*cpv_cpm + qcl_f(ii,ij)*cl_cpm
+        cpm = cpd + q(i)*cpv_cpm                                               &
+                  + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                     &
+                  + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
         lcrcp_moist = Lc_full / cpm
         al = 1.0 / (1.0 + (lcrcp_moist * alphal))
         ! Rhcrit_if2:
@@ -340,8 +373,12 @@ if (its  >=  2) then
         ! 4.3 Calculate Nth approx. to temperature, adjusting for latent heating
         ! ----------------------------------------------------------------------
 
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+        cpm = cpd + q(i)*cpv_cpm                                               &
+                  + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                     &
+                  + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+        lcrcp_moist = Lc_full / cpm
         t(i) = t_f(ii,ij) + lcrcp_moist * qcl_f(ii,ij)
-
       end if ! T_if
     end do ! Points_do2
   end do ! Its_do

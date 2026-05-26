@@ -63,6 +63,8 @@ contains
   !>@param[in,out] fqw               total water flux
   !>@param[in,out] rhokh             Heat eddy diffusivity
   !>@param[in]     mr_ice            Mixing ratio for ice cloud
+  !>@param[in]     mr_rain           Mixing ratio for rain
+  !>@param[in]     mr_graupel        Mixing ratio for graupel
   subroutine jules_imp_alg(mr, surf_heat_flux, canopy_evap,              &
                            water_extraction, lake_evap,                  &
                            derived_fields, radiation_fields,             &
@@ -70,6 +72,7 @@ contains
                            surface_fields, soil_fields, snow_fields,     &
                            outer, model_clock, loop, qw, tl, dqw1, dtl1, &
                            ct_ctq1, ftl, fqw, rhokh, mr_ice,             &
+                           mr_rain, mr_graupel,                          &
                            latent_heat, t1p5m, q1p5m, qcl1p5m,           &
                            t1p5m_ssi, q1p5m_ssi,                         &
                            qcl1p5m_ssi, t1p5m_land, q1p5m_land,          &
@@ -162,7 +165,7 @@ contains
     type( field_type ) :: soil_surf_ht_flux
     type( field_type ) :: surf_sw_net, surf_radnet
     type( field_type ) :: surf_lw_up, surf_lw_down
-    type( field_type ) :: mr_ice
+    type( field_type ) :: mr_ice, mr_rain, mr_graupel
 
     type( mesh_type ), pointer :: mesh => null()
     integer(i_def) :: loop, ncells
@@ -284,7 +287,8 @@ contains
                                        tile_lw_grey_albedo,                  &
                                        snowice_sublimation, surf_heat_flux,  &
                                        canopy_evap, water_extraction,        &
-                                       snowice_melt, mr_ice, rh_crit,        &
+                                       snowice_melt, mr_ice,                 &
+                                       mr_rain, mr_graupel, rh_crit,         &
                                        rhokh, fqw, ftl, dtrdz_tq_bl,         &
                                        alpha1_tile, ashtf_prime_tile,        &
                                        dtstar_tile, fracaero_t_tile,         &

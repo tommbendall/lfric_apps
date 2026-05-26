@@ -25,10 +25,14 @@ private
 
 type, public, extends(kernel_type) :: pc2_conv_coupling_kernel_type
   private
-  type(arg_type) :: meta_args(15) = (/                         &
+  type(arg_type) :: meta_args(19) = (/                         &
        arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! theta_wth
        arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! mv_wth
        arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! ml_wth
+       arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! mr_wth
+       arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! ms_wth
+       arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! mg_wth
+       arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! mci_wth
        arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! cfl_wth
        arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! cff_wth
        arg_type(GH_FIELD,  GH_REAL, GH_READ,      WTHETA),      & ! bcf_wth
@@ -62,6 +66,10 @@ contains
 !> @param[in]     theta_wth     Potential temperature field
 !> @param[in]     mv_wth        Vapour mass mixing ratio
 !> @param[in]     ml_wth        Liquid cloud mass mixing ratio
+!> @param[in]     mr_wth        Rain mass mixing ratio
+!> @param[in]     ms_wth        Frozen condensate mass mixing ratio
+!> @param[in]     mg_wth        Graupel mass mixing ratio
+!> @param[in]     mci_wth       Ice crystal mass mixing ratio
 !> @param[in]     cfl_wth       Liquid cloud fraction
 !> @param[in]     cff_wth       Ice cloud fraction
 !> @param[in]     bcf_wth       Bulk cloud fraction
@@ -83,6 +91,10 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
                                    theta_wth,                                  &
                                    mv_wth,                                     &
                                    ml_wth,                                     &
+                                   mr_wth,                                     &
+                                   ms_wth,                                     &
+                                   mg_wth,                                     &
+                                   mci_wth,                                    &
                                    cfl_wth,                                    &
                                    cff_wth,                                    &
                                    bcf_wth,                                    &
@@ -121,6 +133,10 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
     real(kind=r_def), intent(in),    dimension(undf_wth) :: theta_wth
     real(kind=r_def), intent(in),    dimension(undf_wth) :: mv_wth
     real(kind=r_def), intent(in),    dimension(undf_wth) :: ml_wth
+    real(kind=r_def), intent(in),    dimension(undf_wth) :: mr_wth
+    real(kind=r_def), intent(in),    dimension(undf_wth) :: ms_wth
+    real(kind=r_def), intent(in),    dimension(undf_wth) :: mg_wth
+    real(kind=r_def), intent(in),    dimension(undf_wth) :: mci_wth
     real(kind=r_def), intent(in),    dimension(undf_wth) :: cfl_wth
     real(kind=r_def), intent(in),    dimension(undf_wth) :: cff_wth
     real(kind=r_def), intent(in),    dimension(undf_wth) :: bcf_wth
@@ -142,7 +158,7 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
     real(r_um), dimension(seg_len,1) ::                                        &
                 p_work,                                                        &
                 ! Work arrays
-                qv_work,  qcl_work,                                            &
+                qv_work,  qcl_work, qrain_work, qcf_work, qgraupel_work,       &
                 bcf_work, cfl_work, cff_work, t_work,                          &
                 ! Forcings
                 t_forcing, qv_forcing, cfl_forcing, p_forcing,                 &
@@ -190,6 +206,9 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
 
           ! Cloud condensate and fraction after convection
           qcl_work(i,j)   = ml_wth(map_wth(1,i) + k) + dmcl_conv_wth(map_wth(1,i) + k)
+          qrain_work(i,j) = mr_wth(map_wth(1,i) + k)
+          qcf_work(i,j) = ms_wth(map_wth(1,i) + k) + mci_wth(map_wth(1,i) + k)
+          qgraupel_work(i,j) = mg_wth(map_wth(1,i) + k)
           cfl_work(i,j)   = cfl_wth(map_wth(1,i) + k) + dcfl_conv_wth(map_wth(1,i) + k)
           cff_work(i,j)   = cff_wth(map_wth(1,i) + k) + dcff_conv_wth(map_wth(1,i) + k)
           bcf_work(i,j)   = bcf_wth(map_wth(1,i) + k) + dbcf_conv_wth(map_wth(1,i) + k)
@@ -218,6 +237,9 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
 
           ! Cloud condensate and fraction after convection
           qcl_work(i,j)   = ml_wth(map_wth(1,i) + k) + dmcl_conv_wth(map_wth(1,i) + k)
+          qrain_work(i,j) = mr_wth(map_wth(1,i) + k)
+          qcf_work(i,j) = ms_wth(map_wth(1,i) + k) + mci_wth(map_wth(1,i) + k)
+          qgraupel_work(i,j) = mg_wth(map_wth(1,i) + k)
           cfl_work(i,j)   = cfl_wth(map_wth(1,i) + k) + dcfl_conv_wth(map_wth(1,i) + k)
           cff_work(i,j)   = cff_wth(map_wth(1,i) + k) + dcff_conv_wth(map_wth(1,i) + k)
           bcf_work(i,j)   = bcf_wth(map_wth(1,i) + k) + dbcf_conv_wth(map_wth(1,i) + k)
@@ -244,6 +266,9 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
                         t_work,           & ! Temperature
                         qv_work,          & ! Water vapour
                         qcl_work,         & ! Liquid water content
+                        qrain_work,       & ! rain water
+                        qcf_work,         & ! qcf
+                        qgraupel_work,    & ! graupel water
                         bcf_work,         & ! Bulk cloud fraction
                         cfl_work,         & ! Liquid cloud fraction
                         cff_work,         & ! Ice cloud fraction

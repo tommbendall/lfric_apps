@@ -23,7 +23,7 @@ subroutine pc2_homog_plus_turb(                                                &
 !   Timestep
  timestep,                                                                     &
 !   Prognostic Fields
- t, cf, cfl, cff, q, qcl,                                                      &
+ t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                                &
 !   Forcing quantities for driving the homogeneous forcing
  dtdt, dqdt, dldt, dpdt,                                                       &
 !   Other quantities for the turbulence
@@ -41,7 +41,7 @@ use pc2_constants_mod,     only: dbsdtbs_exp, pdf_power,                       &
                                  i_pc2_homog_g_cf, i_pc2_homog_g_width
 use cloud_inputs_mod,      only: l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph,     &
                                  i_pc2_homog_g_method
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 use science_fixes_mod,     only: l_pc2_homog_turb_q_neg
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 use pc2_total_cf_mod,      only: pc2_total_cf
@@ -143,6 +143,25 @@ real(kind=real_umphys) ::                                                      &
        tdims%j_start:tdims%j_end,                                              &
        nlevels)
 !    Liquid content (kg water per kg air)
+
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+   qrain(         tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  nlevels),                                                    &
+!    Rain water content (kg water per kg air)
+
+               !, intent(in)
+   qcf(           tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  nlevels),                                                    &
+!    Frozen condensate content (kg water per kg air)
+
+               !, intent(in)
+   qgraupel(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  nlevels)
+!    Graupel content (kg water per kg air)
 
 !    External functions:
 
@@ -276,7 +295,9 @@ do k = 1, nlevels
       ! Provide safe defaults for all branches before cloud-regime tests.
       g_mqc = 0.0
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+      cpm = cpd + q(i,j,k)*cpv_cpm                                             &
+          + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                                 &
+          + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
       lcrcp_moist = Lc_full / cpm
 
       ! There is no need to perform the total cloud fraction calculation in
@@ -309,7 +330,9 @@ do k = 1, nlevels
         ! with respect to temperature (alpha) first, then use this to calculate
         ! factor aL. Also estimate the rate of change of qsat with pressure.
         Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
+            + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                               &
+            + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
         lcrcp_moist  = Lc_full / cpm
         alpha=repsilon*Lc_full*qsl_t/(r*t(i,j,k)**2)
         al=1.0/(1.0+lcrcp_moist*alpha)
@@ -360,8 +383,8 @@ do k = 1, nlevels
                     -alpha_p*dpdt(i,j,k) ) + dldt(i,j,k)
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
-        ! wet bulb temperature.
-        tl = t(i,j,k)-lcrcp_moist*qcl(i,j,k)
+        ! for TL. Keep TL-definition conversion on fixed lc/cpd.
+        tl = t(i,j,k) - (lc / cpd) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else
@@ -428,7 +451,9 @@ do k = 1, nlevels
         end if
 
         Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm
+        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
+            + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                               &
+            + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
         lcrcp_moist = Lc_full / cpm
         alpha = repsilon*Lc_full*qsl_t/(r*t(i,j,k)**2)
         al = 1.0/(1.0+lcrcp_moist*alpha)

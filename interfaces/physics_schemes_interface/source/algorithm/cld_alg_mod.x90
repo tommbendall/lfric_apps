@@ -168,7 +168,8 @@ contains
 
       call invoke( smith_kernel_type( theta, exner , exner_wth, rh_crit,       &
                                        ntml, cumulus, mr(imr_v), mr(imr_cl),   &
-                                       mr_ice, cf_area, cf_fro, cf_liq,    &
+                                       mr_ice, mr(imr_r), mr(imr_g),           &
+                                       cf_area, cf_fro, cf_liq,                &
                                        cf_bulk, theta_inc) )
 
       call um_sizes_init(1_i_def)

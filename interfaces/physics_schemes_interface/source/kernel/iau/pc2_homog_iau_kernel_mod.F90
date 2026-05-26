@@ -145,6 +145,7 @@ subroutine pc2_homog_iau_code( nlayers,                    &
 
     real(r_um), dimension(row_length,rows,model_levels) :: &
                   qv_work, qcl_work,                       &
+                  qrain_work, qcf_work, qgraupel_work,     &
                   cfl_work, cff_work, bcf_work,            &
                   t_work, theta_work, pressure
 
@@ -193,6 +194,9 @@ subroutine pc2_homog_iau_code( nlayers,                    &
       ! Moist prognostics
       qv_work(1,1,k)   = mv_wth(map_wth(1) + k)
       qcl_work(1,1,k)  = ml_wth(map_wth(1) + k)
+      qrain_work(1,1,k) = 0.0_r_um
+      qcf_work(1,1,k) = 0.0_r_um
+      qgraupel_work(1,1,k) = 0.0_r_um
 
       ! Cast LFRic cloud fractions onto work arrays.
       cfl_work(1,1,k) = cfl_wth(map_wth(1) + k)
@@ -211,6 +215,9 @@ subroutine pc2_homog_iau_code( nlayers,                    &
                              cff_work,           & !   ice cloud fraction
                              qv_work,            & !   vapour
                              qcl_work,           & !   liquid water content
+                             qrain_work,         & !   rain
+                             qcf_work,           & !   qcf
+                             qgraupel_work,      & !   graupel
                                                    ! Forcings quantities for PC2:
                              dtdt,               & !   temperature forcing
                              dqdt,               & !   vapour forcing
@@ -220,7 +227,7 @@ subroutine pc2_homog_iau_code( nlayers,                    &
                              zero,               & !    dbsdtbs0
                              zero,               & !    dbsdtbs1
                                                    ! Model switches
-                             l_mr_physics )        !   mixing ratio
+                             l_mr_physics )       !   mixing ratio
 
     do k = 1, model_levels
 

@@ -38,7 +38,7 @@ module jules_imp_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_imp_kernel_type
     private
-    type(arg_type) :: meta_args(85) = (/                                          &
+    type(arg_type) :: meta_args(87) = (/                                          &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! outer
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! wetrho_in_w3
@@ -74,6 +74,8 @@ module jules_imp_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_5),&! water_extraction (kg m-2 s-1)
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_2),&! snowice_melt (kg m-2 s-1)
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! rh_crit_wth
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! rhokh_bl
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, W3),                       &! moist_flux_bl
@@ -177,6 +179,8 @@ contains
   !> @param[in,out] water_extraction     Extraction of water from each soil layer
   !> @param[in,out] snowice_melt         Surface, canopy and sea ice, snow and ice melt rate
   !> @param[in]     m_cf                 Cloud frozen mixing ratio after advection
+  !> @param[in]     m_r                  Rain mixing ratio after advection
+  !> @param[in]     m_g                  Graupel mixing ratio after advection
   !> @param[in]     rh_crit_wth          Critical relative humidity
   !> @param[in]     rhokh_bl             Heat eddy diffusivity on BL levels
   !> @param[in,out] moist_flux_bl        Vertical moisture flux on BL levels
@@ -282,6 +286,8 @@ contains
                             water_extraction,                   &
                             snowice_melt,                       &
                             m_cf,                               &
+                            m_r,                                &
+                            m_g,                                &
                             rh_crit_wth,                        &
                             rhokh_bl,                           &
                             moist_flux_bl,                      &
@@ -455,7 +461,8 @@ contains
                                                            height_wth,         &
                                                            rh_crit_wth,        &
                                                            dtrdz_tq_bl,        &
-                                                           m_cf, qw_wth, tl_wth
+                                                           m_cf, m_r, m_g,     &
+                                                           qw_wth, tl_wth
 
     real(kind=r_def), dimension(undf_2d), intent(in) :: ustar,                &
                                                         soil_moist_avail
@@ -550,6 +557,8 @@ contains
 
     ! profile fields from level 1 upwards
     real(r_um), dimension(seg_len,1) :: rhcpt, qcf_latest, co2
+
+    real(r_um), dimension(seg_len,1) :: qrain, qgraupel
 
     ! profile field on boundary layer levels
     real(r_um), dimension(seg_len,1) :: fqw, ftl, rhokh, rhokh_mix
@@ -1415,6 +1424,8 @@ contains
           ntml(i,1) = 1_i_def
           ! Critical relative humidity
           rhcpt(i,1) = rh_crit_wth(map_wth(1,i) + 1)
+          qrain(i,1) = m_r(map_wth(1,i) + 1)
+          qgraupel(i,1) = m_g(map_wth(1,i) + 1)
         end do
 
         ! Grid box mean screen level diagnostics
@@ -1426,7 +1437,8 @@ contains
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., sf_diag%t1p5m, work_2d_1, sf_diag%q1p5m, qcf_latest,   &
-               qcl1p5m_loc, work_2d_2, work_2d_3, error_code )
+               qcl1p5m_loc, qrain, qgraupel,                                   &
+               work_2d_2, work_2d_3, error_code )
         end if
 
         if (.not. associated(t1p5m, empty_real_data) ) then
@@ -1462,7 +1474,8 @@ contains
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., sf_diag%t1p5m_ssi, work_2d_1, sf_diag%q1p5m_ssi,       &
-               qcf_latest, qcl1p5m_loc, work_2d_2, work_2d_3, error_code )
+               qcf_latest, qcl1p5m_loc, qrain, qgraupel,                       &
+               work_2d_2, work_2d_3, error_code )
         end if
 
         if (.not. associated(t1p5m_ssi, empty_real_data) ) then
@@ -1515,7 +1528,8 @@ contains
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., t1p5m_land_loc, work_2d_1, q1p5m_land_loc,             &
-               qcf_latest, qcl1p5m_loc, work_2d_2, work_2d_3, error_code )
+               qcf_latest, qcl1p5m_loc, qrain, qgraupel,                       &
+               work_2d_2, work_2d_3, error_code )
         end if
 
         if (.not. associated(t1p5m_land, empty_real_data) ) then

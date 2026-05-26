@@ -430,7 +430,8 @@ contains
                           turbulence_fields, cloud_fields, surface_fields,     &
                           soil_fields, snow_fields, outer, model_clock, loop,  &
                           qw, tl, dqw1, dtl1, ct_ctq1, ftl, fqw, rhokh,        &
-                          mr_ice, latent_heat, t1p5m, q1p5m, qcl1p5m,          &
+                          mr_ice, mr(imr_r), mr(imr_g),                        &
+                          latent_heat, t1p5m, q1p5m, qcl1p5m,                   &
                           t1p5m_ssi, q1p5m_ssi, qcl1p5m_ssi, t1p5m_land,       &
                           q1p5m_land, qcl1p5m_land)
       call invoke(bl_imp2_kernel_type( outer, loop, wetrho_in_wth, exner,      &

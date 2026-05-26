@@ -31,7 +31,7 @@ use um_types,              only: real_umphys
 use atm_fields_bounds_mod, only: tdims
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
-use planet_constants_mod,  only: g, cp
+use planet_constants_mod,  only: g, cpd => cp
 use cloud_inputs_mod,      only: ent_coef_bm
 
 implicit none
@@ -79,7 +79,7 @@ real(kind=real_umphys), intent(in) :: mix_len_bm                               &
                                       ( tdims%i_start:tdims%i_end,             &
                                         tdims%j_start:tdims%j_end, nlevels )
 
-! Liquid water temperature (T - Lc/cp qcl) and total-water content (q + qcl)
+! Liquid water temperature (T - Lc/cpd qcl) and total-water content (q + qcl)
 real(kind=real_umphys), intent(in) :: tl_in                                    &
                                       ( tdims%i_start:tdims%i_end,             &
                                         tdims%j_start:tdims%j_end, nlevels )
@@ -172,7 +172,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP DEFAULT(none)                                                            &
 !$OMP SHARED( nlevels, tdims, zh, dzh, zhsc, bl_type_7, zh_eff,                &
 !$OMP         bl_w_var, tau_dec_bm, tau_hom_bm, ent_coef_bm,                   &
-!$OMP         z_theta, tl_in, qt_in, sig_tl, sig_qt, g, cp,                    &
+!$OMP         z_theta, tl_in, qt_in, sig_tl, sig_qt, g, cpd,                   &
 !$OMP         tl_below, qt_below, wvar_below, tau_dec_below, tau_hom_below,    &
 !$OMP         dtldz_below, dqtdz_below,                                        &
 !$OMP         tl_above, qt_above, wvar_above, tau_dec_above, tau_hom_above,    &
@@ -180,7 +180,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP         len_dec, len_hom, mix_len_bm )                                   &
 !$OMP private( i, j, k, km1, kp1, z_rho, ent_frac, w1, w2, tmp )
 
-!$OMP  do SCHEDULE(STATIC)
+!$OMP do SCHEDULE(STATIC)
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
     ! Calculate an effective PBL depth
@@ -225,8 +225,8 @@ do k = 1, nlevels
       ! Vertical gradients of Tl and qt, scaled by turbulent length-scale
       ! to scale with turbulent standard deviation
       tmp = 1.0 / ( z_theta(i,j,kp1) - z_theta(i,j,km1) )
-      sig_tl(i,j,k) = len_dec(i,j,k)*( (tl_in(i,j,kp1) - tl_in(i,j,km1)) * tmp &
-                                       + g/cp )
+      sig_tl(i,j,k) = len_dec(i,j,k) * ( (tl_in(i,j,kp1) - tl_in(i,j,km1))     &
+                   * tmp + g/cpd )
       sig_qt(i,j,k) = len_dec(i,j,k) * (qt_in(i,j,kp1) - qt_in(i,j,km1)) * tmp
 
     end do
@@ -288,7 +288,7 @@ do j = tdims%j_start, tdims%j_end
 
       ! Adjust Tl following dry lapse rate
       tl_below(i,j,k) = tl_below(i,j,k)                                        &
-                      - g/cp * ( z_theta(i,j,k) - z_theta(i,j,km1) )
+                      - g/cpd * ( z_theta(i,j,k) - z_theta(i,j,km1) )
 
       ! Entrain from level k
       ent_frac = ent_coef_bm  * ( z_theta(i,j,k) - z_rho )                     &
@@ -316,7 +316,7 @@ do j = tdims%j_start, tdims%j_end
            / ( z_theta(i,j,k) - z_theta(i,j,km1) )
         w1 = 1.0 - w2
         tl_below(i,j,k)      = w1 * tl_in(i,j,km1)    + w2 * ( tl_in(i,j,k)    &
-                              + g/cp * ( z_theta(i,j,k) - z_theta(i,j,km1) ) )
+                        + g/cpd * ( z_theta(i,j,k) - z_theta(i,j,km1) ) )
         qt_below(i,j,k)      = w1 * qt_in(i,j,km1)    + w2 * qt_in(i,j,k)
         wvar_below(i,j,k)    = w1 * bl_w_var(i,j,km1) + w2 * bl_w_var(i,j,k)
         tau_dec_below(i,j,k) = w1 * len_dec(i,j,km1)  + w2 * len_dec(i,j,k)
@@ -343,7 +343,7 @@ do j = tdims%j_start, tdims%j_end
 
         ! Adjust Tl following dry lapse rate
         tl_below(i,j,k) = tl_below(i,j,k)                                      &
-                        - g/cp * ( z_theta(i,j,k) - z_theta(i,j,km1) )
+                        - g/cpd * ( z_theta(i,j,k) - z_theta(i,j,km1) )
 
         ! Entrain from level k
         ent_frac = ent_coef_bm * ( z_theta(i,j,k) - max(zh_eff(i,j), z_rho) )  &
@@ -383,7 +383,7 @@ do j = tdims%j_start, tdims%j_end
 
       ! Adjust Tl following dry lapse rate
       tl_above(i,j,k) = tl_above(i,j,k)                                        &
-                      + g/cp * ( z_theta(i,j,kp1) - z_theta(i,j,k) )
+                      + g/cpd * ( z_theta(i,j,kp1) - z_theta(i,j,k) )
 
       ! Entrain from level k
       ent_frac = ent_coef_bm * ( z_rho - z_theta(i,j,k) )                      &
@@ -410,10 +410,10 @@ do k = 1, nlevels
     do i = tdims%i_start, tdims%i_end
       ! Convert entraining parcel Tl,qt sigmas back to local gradients
       tmp = 1.0 / tau_dec_below(i,j,k)
-      dtldz_below(i,j,k) = dtldz_below(i,j,k) * tmp - g/cp
+      dtldz_below(i,j,k) = dtldz_below(i,j,k) * tmp - g/cpd
       dqtdz_below(i,j,k) = dqtdz_below(i,j,k) * tmp
       tmp = 1.0 / tau_dec_above(i,j,k)
-      dtldz_above(i,j,k) = dtldz_above(i,j,k) * tmp - g/cp
+      dtldz_above(i,j,k) = dtldz_above(i,j,k) * tmp - g/cpd
       dqtdz_above(i,j,k) = dqtdz_above(i,j,k) * tmp
       ! Convert entraining parcel length-scales back to time-scales
       tmp = 1.0 / sqrt(wvar_below(i,j,k))

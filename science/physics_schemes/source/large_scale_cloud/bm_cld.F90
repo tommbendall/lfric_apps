@@ -246,6 +246,8 @@ real(kind=real_umphys) ::                                                      &
   mullay(3),                                                                   &
                       ! first moment of liquid SD distribution for three
                       ! modes
+  t_phys_l(3),                                                                  &
+                      ! Estimated physical temperature derived from TL
   cpm(3),                                                                      &
                       ! Moist heat capacity for three modes
   Lc_full(3),                                                                  &
@@ -253,10 +255,6 @@ real(kind=real_umphys) ::                                                      &
   dqsat(3)
                       ! Difference between ice and liquid saturation specific
                       ! humidity for three modes
-
-real(kind=real_umphys) :: cpm_f
-real(kind=real_umphys) :: Lc_full_f
-
 
 ! local arrays for bimodal cloud scheme
 ! ----------------------------------------------------------------------
@@ -439,7 +437,10 @@ do i = 1, points
       ! ----------------------------------------------------------------------
 
       do kk=idn,iup
-        Lc_full(kk) = lc - (cl_cpm - cpv_cpm) * (t_l(ii,ij,kk) - tm)
+        ! Keep TL-definition conversion fixed while forming a physical-
+        ! temperature estimate for latent-heat dependence.
+        t_phys_l(kk) = t_l(ii,ij,kk) + (lc / cpd) * ql_l_est(ii,ij,kk)
+        Lc_full(kk) = lc - (cl_cpm - cpv_cpm) * (t_phys_l(kk) - tm)
         cpm(kk) = cpd + cpv_cpm*qv_l_est(ii,ij,kk)                             &
                       + cl_cpm*ql_l_est(ii,ij,kk)                              &
                       + ci_cpm*qcf_f(ii,ij) + cl_cpm*qrain_l(ii,ij)            &
@@ -774,19 +775,12 @@ do i = 1, points
       ! ----------------------------------------------------------------------
 
       do kk=idn,iup
-        Lc_full(kk) = lc - (cl_cpm - cpv_cpm) * (t_l(ii,ij,kk) - tm)
-        cpm(kk) = cpd + (q_l(ii,ij,kk)-qcl(kk))*cpv_cpm + qcl(kk)*cl_cpm       &
-                      + qcf_f(ii,ij)*ci_cpm + cl_cpm*qrain_l(ii,ij)            &
-                      + ci_cpm*qgraupel_l(ii,ij)
-        t(i,kk) = t_l(ii,ij,kk) + (Lc_full(kk) / cpm(kk)) * qcl(kk)
+        ! Keep TL definition conversion fixed here: T = TL + (Lc/cpd)*ql.
+        t(i,kk) = t_l(ii,ij,kk) + (lc / cpd) * qcl(kk)
         p(i,kk) = p_l(ii,ij)
       end do
 
-      Lc_full_f = lc - (cl_cpm - cpv_cpm) * (t_l(ii,ij,ikk) - tm)
-      cpm_f = cpd + (q_l(ii,ij,ikk)-qcl_f(ii,ij))*cpv_cpm                      &
-                  + qcl_f(ii,ij)*cl_cpm + qcf_f(ii,ij)*ci_cpm                  &
-                  + cl_cpm*qrain_l(ii,ij) + ci_cpm*qgraupel_l(ii,ij)
-      t_f(ii,ij) = t_l(ii,ij,ikk) + (Lc_full_f / cpm_f) * qcl_f(ii,ij)
+      t_f(ii,ij) = t_l(ii,ij,ikk) + (lc / cpd) * qcl_f(ii,ij)
       q_f(ii,ij) = q_l(ii,ij,ikk) - qcl_f(ii,ij)
 
       ! Update phase estimates for the next iteration using current partition.

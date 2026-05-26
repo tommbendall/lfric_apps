@@ -15,7 +15,7 @@ contains
 ! Entrainment zone diagnosis.
 ! Subroutine Interface:
 subroutine bm_ez_diagnosis( p_theta_levels, tgrad_bm, z_theta,                 &
-                            ri_bm, zh, zhsc, dzh, bl_type_7, levels, t, q,     &
+                            ri_bm, zh, zhsc, dzh, bl_type_7, levels, t, q, ql, &
                             l_mixing_ratio, kez_inv, kez_bottom, kez_top)
 
 use yomhook,               only: lhook, dr_hook
@@ -23,7 +23,7 @@ use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use planet_constants_mod,  only: r, kappa, repsilon, grcp, cpd => cp
 use water_constants_mod,   only: lc, tm
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 use pc2_constants_mod,     only: bm_negative_init
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
@@ -43,7 +43,7 @@ implicit none
 !   (i.e. tgrad_bm). If an inversion is detected, search down to find the
 !   bottom of the entrainment zone. Keep looking down as long as the
 !   gradient monotonically decreases downward, but remains larger than
-!   1.1*g/cp. Then search upward from inversion level to find properties
+!   1.1*g/cpd. Then search upward from inversion level to find properties
 !   of air from above the EZ, identified as at least the level directly
 !   above the inversion level, or the driest level anywhere within 250m
 !   above the inversion level, whichever level is farthest from the
@@ -94,6 +94,9 @@ real(kind=real_umphys), intent(in) ::                                          &
    q(             tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,levels),                           &
 !       Total water content (QW) (kg per kg air).
+   ql(            tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,levels),                           &
+!       Liquid water content used for TL->T reconstruction in latent terms.
    t(             tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,levels)
 !       Liquid/frozen water temperature (TL) (K).
@@ -135,6 +138,10 @@ real(kind=real_umphys) ::                                                      &
                       ! First moment of the s-distribution at level k+1
  alx,                                                                          &
                       ! Local latent-heat correction term
+ cpm,                                                                          &
+                      ! Local moist heat capacity used in alx
+ temperature,                                                                  &
+                      ! Local temperature proxy for latent-heat term
  tlx,                                                                          &
                       ! Local liquid potential temperature
  qs
@@ -166,7 +173,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
   ! --  Section 1 - initialisations                                           --
   ! ----------------------------------------------------------------------------
 
-alphl=repsilon*lc/r
+alphl = repsilon*lc/r
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( tdims, levels, kez_inv, kez_bottom, kez_top, zh_eff, bl_type_7,  &
@@ -217,7 +224,7 @@ end if
 ! -- (i.e. tgrad_bm). If an inversion is detected, search down to find the  --
 ! -- bottom of the entrainment zone. Keep looking down as long as the       --
 ! -- gradient monotonically decreases downward, but remains larger than     --
-! -- 1.1*g/cp. Then search upward from inversion level to find properties   --
+! -- 1.1*g/cpd. Then search upward from inversion level to find properties  --
 ! -- of air from above the EZ, identified as at least the level directly    --
 ! -- above the inversion level, or the driest level anywhere within 250m    --
 ! -- above the inversion level, whichever level is farthest from the        --
@@ -235,11 +242,12 @@ end if
 
 !$OMP  PARALLEL                                                                &
 !$OMP  DEFAULT(none)                                                           &
-!$OMP  SHARED(tdims,t,q,p_theta_levels,l_mixing_ratio,grcp,                    &
+!$OMP  SHARED(tdims,t,q,ql,p_theta_levels,l_mixing_ratio,grcp,                 &
 !$OMP  tgrad_bm,kappa,repsilon,r,z_theta,alphl,levels,ri_bm,                   &
 !$OMP  zh_eff,i_bm_ez_opt,kez_top,kez_bottom,kez_inv,ez_max_bm,                &
-!$OMP  cpd, cpv_cpm, cl_cpm)                                                 &
-!$OMP  private(j,i,k,kk,qs,alphal,alx,tlx,mux,mukp1,l_turb)
+!$OMP  cpd, cpv_cpm, cl_cpm)                                                   &
+!$OMP  private(j,i,k,kk,qs,alphal,alx,cpm,temperature,tlx,mux,mukp1,           &
+!$OMP          l_turb)
 do k = 2, levels-3
 !$OMP do SCHEDULE(DYNAMIC)
   do j = tdims%j_start, tdims%j_end
@@ -250,8 +258,8 @@ do k = 2, levels-3
           tgrad_bm(i,j,k+1) > 0.1*grcp          .and.                          &
           tgrad_bm(i,j,k+2) > bm_negative_init  .and.                          &
           tgrad_bm(i,j,k)   > 0.0               .and.                          &
-          ((z_theta(i,j,k)    < 6.0e3 .and. i_bm_ez_opt==i_bm_ez_subcrit) .or. &
-          (i_bm_ez_opt==i_bm_ez_orig))) then
+          ((z_theta(i,j,k)    < 6.0e3 .and. i_bm_ez_opt == i_bm_ez_subcrit)    &
+          .or. (i_bm_ez_opt == i_bm_ez_orig))) then
 
         ! inversion found, so preset the level of the bottom of the EZ and
         ! the level representative of the air above the EZ.
@@ -264,7 +272,7 @@ do k = 2, levels-3
         ! potential temperature gradient is monotonically decreasing, but
         ! remains larger than 0.1*grcp. Never look further down than ez_max_bm
         ! below the inversion.
-        kk=k-1
+        kk = k-1
         kez_inv(i,j,kk) = k
 
         do while ( tgrad_bm(i,j,kk) < tgrad_bm(i,j,kk+1)        .and.          &
@@ -274,7 +282,7 @@ do k = 2, levels-3
 
           kez_inv(i,j,kk)   = k
           kez_bottom(i,j,k) = kk
-          kk=kk-1
+          kk = kk-1
 
         end do
 
@@ -294,8 +302,10 @@ do k = 2, levels-3
           call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
         end if
         alphal = alphl * qs / (tlx * tlx)
-        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
-                           * (tlx - tm)) / cpd) * alphal))
+        temperature = tlx + (lc / cpd) * ql(i,j,k)
+        cpm = cpd + cpv_cpm * (q(i,j,k) - ql(i,j,k)) + cl_cpm * ql(i,j,k)
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
+                              * (temperature - tm)) / cpm) * alphal))
         mux   = alx*(q(i,j,k) - qs)
 
         tlx = t(i,j,k+1)*(p_theta_levels(i,j,k)/                               &
@@ -307,11 +317,13 @@ do k = 2, levels-3
           call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
         end if
         alphal = alphl * qs / (tlx * tlx)
-        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
-                           * (tlx - tm)) / cpd) * alphal))
+        temperature = tlx + (lc / cpd) * ql(i,j,k+1)
+        cpm = cpd + cpv_cpm * (q(i,j,k+1) - ql(i,j,k+1)) + cl_cpm * ql(i,j,k+1)
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
+                              * (temperature - tm)) / cpm) * alphal))
         mukp1 = alx*(q(i,j,k+1) - qs)
 
-        kk=k+1
+        kk = k+1
         do while ( (kk < levels-1) .and.                                       &
                    ((z_theta(i,j,kk) < 1.25*z_theta(i,j,k+1)         .and.     &
                      z_theta(i,j,kk)-z_theta(i,j,k+1) < 250.0        .and.     &
@@ -328,8 +340,10 @@ do k = 2, levels-3
             call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
           end if
           alphal = alphl * qs / (tlx * tlx)
-          alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                      &
-                             * (tlx - tm)) / cpd) * alphal))
+          temperature = tlx + (lc / cpd) * ql(i,j,kk)
+          cpm = cpd + cpv_cpm * (q(i,j,kk) - ql(i,j,kk)) + cl_cpm * ql(i,j,kk)
+          alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
+                                * (temperature - tm)) / cpm) * alphal))
           mux   = alx*(q(i,j,kk) - qs)
 
           tlx = t(i,j,kk+1)*(p_theta_levels(i,j,k)/                            &
@@ -341,17 +355,19 @@ do k = 2, levels-3
             call qsat_wat(qs,tlx,p_theta_levels(i,j,k))
           end if
           alphal = alphl * qs / (tlx * tlx)
-          alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                      &
-                             * (tlx - tm)) / cpd) * alphal))
+          temperature = tlx + (lc / cpd) * ql(i,j,kk+1)
+          cpm = cpd + cpv_cpm * (q(i,j,kk+1) - ql(i,j,kk+1)) + cl_cpm * ql(i,j,kk+1)
+          alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
+                                * (temperature - tm)) / cpm) * alphal))
           mukp1 = alx*(q(i,j,kk+1) - qs)
 
           kez_top(i,j,k) = kk
 
-          kk=kk+1
+          kk = kk+1
 
         end do
 
-        if ( i_bm_ez_opt==i_bm_ez_subcrit ) then
+        if ( i_bm_ez_opt == i_bm_ez_subcrit ) then
           ! Option to only diagnose entrainment zones if turbulent
 
           ! Diagnose whether this entrainment zone is turbulent

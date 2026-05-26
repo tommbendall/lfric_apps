@@ -198,6 +198,10 @@ contains
       call exner_in_wth%copy_field_properties(pressure_inc)
       call invoke( pc2_conv_coupling_kernel_type(theta, mr_n(imr_v),           &
                                                  mr_n(imr_cl),                 &
+                                                 mr_n(imr_r),                  &
+                                                 mr_n(imr_s),                  &
+                                                 mr_n(imr_g),                  &
+                                                 mr_n(imr_ci),                 &
                                                  cfl_in, cff_in, bcf_in,       &
                                                  exner_in_wth, pressure_inc,   &
                                                  dtheta_mphys,                 &

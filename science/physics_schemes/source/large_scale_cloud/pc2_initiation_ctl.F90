@@ -366,7 +366,7 @@ end if
 ! Call checking routine
 ! Pass field arrays without halo cells.
 call pc2_checks(p_theta_levels,                                                &
-    t, cf, cfl, cff, q, qcl, qcf,                                              &
+    t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                             &
     l_mixing_ratio,                                                            &
     tdims%i_len, tdims%j_len, tdims%k_end,                                     &
     tdims%halo_i, tdims%halo_j, tdims%halo_i, tdims%halo_j, qcf2, wtrac)
@@ -473,13 +473,13 @@ else
      cumulus,rhcrit,                                                           &
      rhc_row_length,rhc_rows,zlcl_mixed,                                       &
      large_levels,levels_per_level,cf_area,                                    &
-     t,cf,cfl,cff,q,qcl,qcf,rhts,tlts,qtts,ptts,l_mixing_ratio)
+      t,cf,cfl,cff,q,qcl,qcf,qrain,qgraupel,rhts,tlts,qtts,ptts,l_mixing_ratio)
 
   else !i_cld_area
 
     call pc2_initiate(p_theta_levels,cumulus,rhcrit,                           &
       tdims%k_end, rhc_row_length,rhc_rows,zlcl_mixed,r_theta_levels,          &
-      t,cf,cfl,cff,q,qcl,rhts,l_mixing_ratio)
+      t,cf,cfl,cff,q,qcl,qcf_total,qrain,qgraupel,rhts,l_mixing_ratio)
 
   end if !i_cld_area
 
@@ -508,7 +508,7 @@ if ( cloud_pc2_tol > cloud_rounding_tol ) then
 
   call pc2_checks2(p_theta_levels,rhcrit,                                      &
       rhc_row_length,rhc_rows,                                                 &
-      t, cf, cfl, cff, q, qcl, l_mixing_ratio)
+      t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel, l_mixing_ratio)
 
   if (l_wtrac) then
     call wtrac_pc2_phase_chg(tdims, q, qcl, 'pc2_checks2', wtrac = wtrac)
@@ -519,7 +519,7 @@ end if
 ! Call first checking routine again
 ! Pass field arrays without halo cells.
 call pc2_checks(p_theta_levels,                                                &
-    t, cf, cfl, cff, q, qcl, qcf,                                              &
+    t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                             &
     l_mixing_ratio,                                                            &
     tdims%i_len, tdims%j_len, tdims%k_end,                                     &
     tdims%halo_i, tdims%halo_j, tdims%halo_i, tdims%halo_j, qcf2, wtrac)

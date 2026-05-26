@@ -26,7 +26,7 @@ module jules_timestep_alg_mod
   use model_clock_mod,            only: model_clock_type
 
   ! Moisture species
-  use mr_indices_mod,             only: nummr, imr_v, imr_s, imr_ci
+  use mr_indices_mod,             only: nummr, imr_v, imr_s, imr_ci, imr_r, imr_g
 
   ! JULES Science routines
   use rad_tile_alg_mod,          only: rad_tile_alg
@@ -268,7 +268,7 @@ contains
 
     ! Calculate total ice field
     call mr(imr_s)%copy_field_properties(mr_ice)
-    call invoke(setval_X(mr_ice, mr(imr_s)) )
+    call invoke(X_plus_Y(mr_ice, mr(imr_s), mr(imr_ci)) )
 
     ncells = twod_mesh%get_last_edge_cell()
 
@@ -312,7 +312,8 @@ contains
                          turbulence_fields, cloud_fields, surface_fields,     &
                          soil_fields, snow_fields, outer, model_clock, loop,  &
                          qw, tl, dqw1, dtl1, ct_ctq1, ftl, fqw, rhokh,        &
-                         mr_ice, latent_heat, t1p5m, q1p5m, qcl1p5m,          &
+                         mr_ice, mr(imr_r), mr(imr_g),                        &
+                         latent_heat, t1p5m, q1p5m, qcl1p5m,                  &
                          t1p5m_ssi, q1p5m_ssi, qcl1p5m_ssi, t1p5m_land,       &
                          q1p5m_land, qcl1p5m_land)
 
