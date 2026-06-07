@@ -417,22 +417,14 @@ contains
     panel_id => get_panel_id(du%get_mesh_id())
 
     call log_event('LOG_COLUMN: u_n', LOG_LEVEL_INFO)
-    call invoke( log_column_kernel_type(dummy_w2, u_n, panel_id, 37),          &
-                 log_column_kernel_type(dummy_w2, u_n, panel_id, 44),          &
-                 log_column_kernel_type(dummy_w2, u_n, panel_id, 57),          &
-                 log_column_kernel_type(dummy_w2, u_n, panel_id, 64) )
+    call invoke( log_column_kernel_type(dummy_w2, u_n, panel_id, 37) )
 
     call log_event('LOG_COLUMN: u_star', LOG_LEVEL_INFO)
-    call invoke( log_column_kernel_type(dummy_w2, u_star, panel_id, 37),       &
-                 log_column_kernel_type(dummy_w2, u_star, panel_id, 44),       &
-                 log_column_kernel_type(dummy_w2, u_star, panel_id, 57),       &
-                 log_column_kernel_type(dummy_w2, u_star, panel_id, 64) )
+    call derived_fields%get_field('u_star', u_star)
+    call invoke( log_column_kernel_type(dummy_w2, u_star, panel_id, 37) )
 
     call log_event('LOG_COLUMN: du', LOG_LEVEL_INFO)
-    call invoke( log_column_kernel_type(dummy_w2, du, panel_id, 37),           &
-                 log_column_kernel_type(dummy_w2, du, panel_id, 44),           &
-                 log_column_kernel_type(dummy_w2, du, panel_id, 57),           &
-                 log_column_kernel_type(dummy_w2, du, panel_id, 64) )
+    call invoke( log_column_kernel_type(dummy_w2, du, panel_id, 37) )
 
 
     if ( use_moisture ) then

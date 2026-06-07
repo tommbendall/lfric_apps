@@ -11,7 +11,7 @@ module rhs_alg_mod
   use constants_mod,                       only: r_def, r_second, i_def, l_def
   use model_clock_mod,                     only: model_clock_type
   use log_mod,                             only: log_event, &
-                                                 LOG_LEVEL_ERROR
+                                                 LOG_LEVEL_ERROR, LOG_LEVEL_INFO
   use sci_enforce_bc_kernel_mod,           only: enforce_bc_kernel_type
   use sci_geometric_constants_mod,         only: get_coordinates,     &
                                                  get_panel_id
@@ -57,6 +57,7 @@ module rhs_alg_mod
   use function_space_collection_mod,       only: function_space_collection
   use w2_vorticity_advection_kernel_mod,   only: w2_vorticity_advection_kernel_type
   use pressure_gradient_p0_kernel_mod,     only: pressure_gradient_p0_kernel_type
+  use log_column_kernel_mod,               only: log_column_kernel_type
 
   implicit none
 
@@ -151,7 +152,8 @@ contains
                                  u_base       => null(), &
                                  theta_base   => null(), &
                                  rho_base     => null(), &
-                                 exner        => null()
+                                 exner        => null(), &
+                                 panel_id
 
     type(field_type)    :: rhs_u
     integer(kind=i_def) :: mesh_id
@@ -171,6 +173,7 @@ contains
 
     geopotential => get_geopotential(mesh_id)
     mm_wtheta    => get_mass_matrix_fv(Wtheta, mesh_id)
+    panel_id     => get_panel_id(mesh_id)
 
     ! Using modified velocity mass matrix if needing damping layer
     if (dlayer_rhs) then
@@ -200,6 +203,10 @@ contains
       coriolis => get_coriolis(mesh_id)
       call invoke( matrix_vector_kernel_type( rhs_u, u, coriolis ) )
     end if
+
+    call log_event('LOG_COLUMN: rhs_u after coriolis', LOG_LEVEL_INFO)
+    call invoke( log_column_kernel_type(u, rhs_u, panel_id, 37) )
+
     call theta_v%initialise( theta%get_function_space(), halo_depth = req_halo_depth )
     call invoke( X_times_Y( theta_v, theta, moist_dyn(1) ),               &
                  inc_X_divideby_Y( theta_v,  moist_dyn(2) ),              &
@@ -210,6 +217,9 @@ contains
                  matrix_vector_kernel_type( rhs(igh_u), u_base, mm_vel ), &
                  inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_u ),            &
                  enforce_bc_kernel_type(rhs(igh_u)) )
+
+    call log_event('LOG_COLUMN: rhs_u after pressure', LOG_LEVEL_INFO)
+    call invoke( log_column_kernel_type(u, rhs_u, panel_id, 37) )
 
     if ( compute_rhs_t_d ) then
       call invoke( &

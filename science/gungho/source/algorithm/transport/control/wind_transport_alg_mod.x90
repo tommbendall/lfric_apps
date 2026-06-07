@@ -166,24 +166,15 @@ contains
 
         call log_field_minmax( LOG_LEVEL_INFO, 'xdot', u_w3_n(1) )
         call log_event('LOG_COLUMN: xdot_before', LOG_LEVEL_INFO)
-        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 37),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 44),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 57),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 64) )
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 37) )
 
         call log_field_minmax( LOG_LEVEL_INFO, 'ydot', u_w3_n(2) )
         call log_event('LOG_COLUMN: ydot_before', LOG_LEVEL_INFO)
-        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 37),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 44),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 57),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 64) )
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 37) )
 
         call log_field_minmax( LOG_LEVEL_INFO, 'zdot', u_w3_n(3) )
         call log_event('LOG_COLUMN: zdot_before', LOG_LEVEL_INFO)
-        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 37),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 44),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 57),   &
-                     log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 64) )
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 37) )
 
         if ( LPROF ) call stop_timing( id_to, 'transport.wind_to_comps' )
 
@@ -200,24 +191,15 @@ contains
 
         call log_field_minmax( LOG_LEVEL_INFO, 'xdot', u_w3_np1(1) )
         call log_event('LOG_COLUMN: xdot_after', LOG_LEVEL_INFO)
-        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 37),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 44),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 57),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 64) )
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 37) )
 
         call log_field_minmax( LOG_LEVEL_INFO, 'ydot', u_w3_np1(2) )
         call log_event('LOG_COLUMN: ydot_after', LOG_LEVEL_INFO)
-        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 37),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 44),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 57),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 64) )
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 37) )
 
         call log_field_minmax( LOG_LEVEL_INFO, 'zdot', u_w3_np1(3) )
         call log_event('LOG_COLUMN: zdot_after', LOG_LEVEL_INFO)
-        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 37),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 44),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 57),   &
-                     log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 64) )
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 37) )
 
         ! -------------------------------------------------------------------- !
         ! Return from components to full wind field in W2
