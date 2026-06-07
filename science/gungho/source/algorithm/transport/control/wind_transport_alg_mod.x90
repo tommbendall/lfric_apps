@@ -28,7 +28,8 @@ module wind_transport_alg_mod
   use sci_geometric_constants_mod,    only: get_coordinates, get_panel_id
   use log_mod,                        only: log_event,       &
                                             LOG_LEVEL_ERROR, &
-                                            LOG_LEVEL_TRACE
+                                            LOG_LEVEL_TRACE, &
+                                            LOG_LEVEL_INFO
   use sci_mapping_constants_mod,      only: get_project_xdot_to_w2,  &
                                             get_project_ydot_to_w2,  &
                                             get_project_zdot_to_w2
@@ -43,6 +44,7 @@ module wind_transport_alg_mod
   use transport_enumerated_types_mod, only: equation_form_advective
   use transport_field_mod,            only: transport_field
   use transport_metadata_mod,         only: transport_metadata_type
+  use log_column_kernel_mod,          only: log_column_kernel_type
 
   implicit none
 
@@ -93,6 +95,7 @@ contains
     type(field_type),           pointer :: chi(:)
     type(field_type),           pointer :: panel_id
     type(field_type),           pointer :: rmultiplicity_w2
+    type(field_type)                    :: dummy_w3
     type(operator_type),        pointer :: mm_w2
     type(operator_type),        pointer :: mm_w2b_inv
     type(operator_type),        pointer :: project_xdot_to_w2
@@ -143,6 +146,7 @@ contains
           call u_w3_inc(dir)%initialise( w3_fs )
           call u_w3_np1(dir)%initialise( w3_fs )
         end do
+        call dummy_w3%initialise( w3_fs )
         call log_field_minmax( LOG_LEVEL_TRACE, 'advected u', wind_n )
 
         optimised_conversion = (                                               &
@@ -160,9 +164,26 @@ contains
           ) )
         end if
 
-        call log_field_minmax( LOG_LEVEL_TRACE, 'xdot', u_w3_n(1) )
-        call log_field_minmax( LOG_LEVEL_TRACE, 'ydot', u_w3_n(2) )
-        call log_field_minmax( LOG_LEVEL_TRACE, 'zdot', u_w3_n(3) )
+        call log_field_minmax( LOG_LEVEL_INFO, 'xdot', u_w3_n(1) )
+        call log_event('LOG_COLUMN: xdot_before', LOG_LEVEL_INFO)
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 37),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 44),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 57),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(1), panel_id, 64) )
+
+        call log_field_minmax( LOG_LEVEL_INFO, 'ydot', u_w3_n(2) )
+        call log_event('LOG_COLUMN: ydot_before', LOG_LEVEL_INFO)
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 37),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 44),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 57),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(2), panel_id, 64) )
+
+        call log_field_minmax( LOG_LEVEL_INFO, 'zdot', u_w3_n(3) )
+        call log_event('LOG_COLUMN: zdot_before', LOG_LEVEL_INFO)
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 37),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 44),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 57),   &
+                     log_column_kernel_type(dummy_w3, u_w3_n(3), panel_id, 64) )
 
         if ( LPROF ) call stop_timing( id_to, 'transport.wind_to_comps' )
 
@@ -176,6 +197,27 @@ contains
                   transport_metadata                                           &
           )
         end do
+
+        call log_field_minmax( LOG_LEVEL_INFO, 'xdot', u_w3_np1(1) )
+        call log_event('LOG_COLUMN: xdot_after', LOG_LEVEL_INFO)
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 37),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 44),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 57),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(1), panel_id, 64) )
+
+        call log_field_minmax( LOG_LEVEL_INFO, 'ydot', u_w3_np1(2) )
+        call log_event('LOG_COLUMN: ydot_after', LOG_LEVEL_INFO)
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 37),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 44),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 57),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(2), panel_id, 64) )
+
+        call log_field_minmax( LOG_LEVEL_INFO, 'zdot', u_w3_np1(3) )
+        call log_event('LOG_COLUMN: zdot_after', LOG_LEVEL_INFO)
+        call invoke( log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 37),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 44),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 57),   &
+                     log_column_kernel_type(dummy_w3, u_w3_np1(3), panel_id, 64) )
 
         ! -------------------------------------------------------------------- !
         ! Return from components to full wind field in W2
