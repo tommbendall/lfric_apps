@@ -221,6 +221,18 @@ contains
     call log_event('LOG_COLUMN: rhs_u after pressure', LOG_LEVEL_INFO)
     call invoke( log_column_kernel_type(u, rhs_u, panel_id, 37) )
 
+    call log_event('LOG_COLUMN: rhs exner', LOG_LEVEL_INFO)
+    call invoke( log_column_kernel_type(rho_base, exner, panel_id, 37),        &
+                 log_column_kernel_type(rho_base, exner, panel_id, 44),        &
+                 log_column_kernel_type(rho_base, exner, panel_id, 57),        &
+                 log_column_kernel_type(rho_base, exner, panel_id, 64) )
+
+    call log_event('LOG_COLUMN: rhs theta', LOG_LEVEL_INFO)
+    call invoke( log_column_kernel_type(theta_base, theta_v, panel_id, 37),    &
+                 log_column_kernel_type(theta_base, theta_v, panel_id, 44),    &
+                 log_column_kernel_type(theta_base, theta_v, panel_id, 57),    &
+                 log_column_kernel_type(theta_base, theta_v, panel_id, 64) )
+
     if ( compute_rhs_t_d ) then
       call invoke( &
     ! Compute rhs_theta
