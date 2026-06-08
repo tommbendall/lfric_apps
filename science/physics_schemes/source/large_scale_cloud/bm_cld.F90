@@ -188,7 +188,6 @@ real(kind=real_umphys) ::                                                      &
 
 
 !  Local parameters and other physical constants------------------------
-real(kind=real_umphys) :: alphl,alphi      ! For liquid AlphaL calculation.
 real(kind=real_umphys) :: wtn              ! Weighting for ALPHAL iteration
 parameter (wtn=0.75)
 real(kind=real_umphys) :: mph_overlap      ! Minimal overlap between liquid    &
@@ -246,12 +245,16 @@ real(kind=real_umphys) ::                                                      &
   mullay(3),                                                                   &
                       ! first moment of liquid SD distribution for three
                       ! modes
-  t_phys_l(3),                                                                  &
+  t_phys_l(3),                                                                 &
                       ! Estimated physical temperature derived from TL
   cpm(3),                                                                      &
                       ! Moist heat capacity for three modes
+  cpm_dag(3),                                                                  &
+                      ! Post-TL-conversion moist heat capacity for three modes
   Lc_full(3),                                                                  &
                       ! Temperature-dependent latent heat of condensation
+  lrv0,                                                                        &
+                      ! Reference latent heat of vaporisation: lc + (cl-cpv)*tm
   dqsat(3)
                       ! Difference between ice and liquid saturation specific
                       ! humidity for three modes
@@ -301,9 +304,6 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Set pre-caclulated constants
 
-alphl=repsilon*lc/r
-alphi=repsilon*(lc+lf)/r
-
 sq2rp  = (2.0/pi)**(0.5)
 sq2    = (2.0)**0.5
 sq6    = (6.0)**0.5
@@ -333,6 +333,10 @@ else
 end if
 
 its = 5
+
+! Reference latent heat of vaporisation: Lrv0 = lc + (cl - cpv)*tm.
+! This is a constant used in the moist TL-definition conversions.
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 do i = 1, points
   ii = indx(i,1)
@@ -375,14 +379,16 @@ do i = 1, points
       do kk = idn,iup
 
         if (t_l(ii,ij,kk) > bm_tiny) then
-          alphal(kk) = alphl*qsl_l(ii,ij,kk) / (t_l(ii,ij,kk)*t_l(ii,ij,kk))
+          alphal(kk) = repsilon * (lc - (cl_cpm - cpv_cpm)*(t_l(ii,ij,kk) - tm)) &
+                     * qsl_l(ii,ij,kk) / (r * t_l(ii,ij,kk)*t_l(ii,ij,kk))
         else
           alphal(kk) = 1.0
         end if
         alphal_nm1(i,kk) = alphal(kk)
 
         if (t_l(ii,ij,kk) > bm_tiny .and. qcf_f(ii,ij) > 0.0) then
-          alphai(kk) = alphi*qsi_l(ii,ij,kk) / (t_l(ii,ij,kk)*t_l(ii,ij,kk))
+          alphai(kk) = repsilon * ((lc + lf) - (ci_cpm - cpv_cpm)*(t_l(ii,ij,kk) - tm)) &
+                     * qsi_l(ii,ij,kk) / (r * t_l(ii,ij,kk)*t_l(ii,ij,kk))
         else
           alphai(kk) = 1.0
         end if
@@ -437,14 +443,20 @@ do i = 1, points
       ! ----------------------------------------------------------------------
 
       do kk=idn,iup
-        ! Keep TL-definition conversion fixed while forming a physical-
-        ! temperature estimate for latent-heat dependence.
-        t_phys_l(kk) = t_l(ii,ij,kk) + (lc / cpd) * ql_l_est(ii,ij,kk)
-        Lc_full(kk) = lc - (cl_cpm - cpv_cpm) * (t_phys_l(kk) - tm)
+        ! Moist heat capacity using pre-TL-conversion species.
         cpm(kk) = cpd + cpv_cpm*qv_l_est(ii,ij,kk)                             &
-                      + cl_cpm*ql_l_est(ii,ij,kk)                              &
-                      + ci_cpm*qcf_f(ii,ij) + cl_cpm*qrain_l(ii,ij)            &
-                      + ci_cpm*qgraupel_l(ii,ij)
+                      + cl_cpm*(ql_l_est(ii,ij,kk) + qrain_l(ii,ij))           &
+                      + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+        ! Post-TL-conversion heat capacity: cloud liquid evaporates to vapour;
+        ! since m_v + m_cl = q_l (total water), this uses q_l directly.
+        cpm_dag(kk) = cpd + cpv_cpm*q_l(ii,ij,kk)                              &
+                          + cl_cpm*qrain_l(ii,ij)                              &
+                          + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+        ! Recover physical temperature from liquid temperature using the
+        ! moist form of the TL definition.
+        t_phys_l(kk) = (cpm_dag(kk) / cpm(kk)) * t_l(ii,ij,kk)                 &
+                     + (lrv0 / cpm(kk)) * ql_l_est(ii,ij,kk)
+        Lc_full(kk) = lc - (cl_cpm - cpv_cpm) * (t_phys_l(kk) - tm)
 
         ! Latent heating correction term:
         al(kk) = 1.0 / (1.0 + ((Lc_full(kk) / cpm(kk)) * alphal(kk)))
@@ -459,12 +471,12 @@ do i = 1, points
         if ( l_bm_sigma_s_grad ) then
           ! Account for local gradients in calculation of sigma_s
           sgllay(kk) = al(kk)                                                  &
-                     * abs( alphal(kk)*( g/cpm(kk) + dtldz_l(ii,ij,kk) )       &
+                     * abs( alphal(kk)*( g/cpd + dtldz_l(ii,ij,kk) )           &
                             - dqtdz_l(ii,ij,kk) ) * turb_var_fac_bm            &
                      * sqrt( 0.5*wvar_l(ii,ij,kk) * tdc_l(ii,ij,kk)            &
                            / inv_thm_l(ii,ij,kk) )
           sgilay(kk) = al(kk)                                                  &
-                     * abs( alphai(kk)*( g/cpm(kk) + dtldz_l(ii,ij,kk) )       &
+                     * abs( alphai(kk)*( g/cpd + dtldz_l(ii,ij,kk) )           &
                             - dqtdz_l(ii,ij,kk) ) * turb_var_fac_bm            &
                      * sqrt( 0.5*wvar_l(ii,ij,kk) * tdc_l(ii,ij,kk)            &
                            / ( inv_tmp_l(ii,ij,kk) + inv_thm_l(ii,ij,kk) ) )
@@ -473,13 +485,13 @@ do i = 1, points
           ! standard deviation of liquid SD distribution for each mode (ignoring
           ! phase-relaxation time scale):
           sgllay(kk) = al(kk)                                                  &
-                     * alphal(kk)*g/cpm(kk) * turb_var_fac_bm                  &
+                     * alphal(kk)*g/cpd * turb_var_fac_bm                  &
                      * sqrt(0.5*wvar_l(ii,ij,kk)*tdc_l(ii,ij,kk)               &
                              /inv_thm_l(ii,ij,kk))
           ! standard deviation of ice SD distribution for each mode (including
           ! phase-relaxation time scale):
           sgilay(kk) = al(kk)                                                  &
-                     * alphai(kk)*g/cpm(kk) * turb_var_fac_bm                  &
+                     * alphai(kk)*g/cpd * turb_var_fac_bm                      &
                      * sqrt(0.5*wvar_l(ii,ij,kk)*tdc_l(ii,ij,kk)               &
                              /(inv_tmp_l(ii,ij,kk)+inv_thm_l(ii,ij,kk)))
         end if
@@ -775,12 +787,24 @@ do i = 1, points
       ! ----------------------------------------------------------------------
 
       do kk=idn,iup
-        ! Keep TL definition conversion fixed here: T = TL + (Lc/cpd)*ql.
-        t(i,kk) = t_l(ii,ij,kk) + (lc / cpd) * qcl(kk)
+        ! Recompute cpm with the newly determined qcl, then recover physical
+        ! temperature from liquid temperature using the moist TL definition.
+        ! Note that q_l = qv + qcl
+        cpm(kk) = cpd + cpv_cpm*(q_l(ii,ij,kk) - qcl(kk))                      &
+                      + cl_cpm*(qcl(kk) + qrain_l(ii,ij))                      &
+                      + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+        t(i,kk) = (cpm_dag(kk) / cpm(kk)) * t_l(ii,ij,kk)                      &
+                + (lrv0 / cpm(kk)) * qcl(kk)
         p(i,kk) = p_l(ii,ij)
       end do
 
-      t_f(ii,ij) = t_l(ii,ij,ikk) + (lc / cpd) * qcl_f(ii,ij)
+      ! Recompute cpm for the output level using the final qcl_f.
+      ! Note that q_l = qv + qcl
+      cpm(ikk) = cpd + cpv_cpm*(q_l(ii,ij,ikk) - qcl_f(ii,ij))                 &
+                     + cl_cpm*(qcl_f(ii,ij) + qrain_l(ii,ij))                  &
+                     + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+      t_f(ii,ij) = (cpm_dag(ikk) / cpm(ikk)) * t_l(ii,ij,ikk)                  &
+                 + (lrv0 / cpm(ikk)) * qcl_f(ii,ij)
       q_f(ii,ij) = q_l(ii,ij,ikk) - qcl_f(ii,ij)
 
       ! Update phase estimates for the next iteration using current partition.

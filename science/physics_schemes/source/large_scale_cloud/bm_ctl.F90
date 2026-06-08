@@ -206,8 +206,6 @@ integer :: errorstatus     !, intent(out)  0 if OK; 1 if bad arguments.
 real(kind=real_umphys) ::                                                      &
  alphal,                                                                       &
                       ! Local gradient of clausius-clapeyron
- alphl,                                                                        &
-                      ! repsilon*lc/r
  mux,                                                                          &
                       ! Local first moment of the s-distribution
  sigx ( tdims%i_start:tdims%i_end, 3 ),                                        &
@@ -216,6 +214,10 @@ real(kind=real_umphys) ::                                                      &
                       ! Local latent-heat correction term
  cpm,                                                                          &
                       ! Local moist heat capacity
+ cpm_dag,                                                                      &
+                      ! Post-TL-conversion moist heat capacity
+ lrv0,                                                                         &
+                      ! Reference latent heat of vaporisation: lc + (cl-cpv)*tm
  t_phys,                                                                       &
                       ! Local physical temperature estimate for latent heat
  tlx,                                                                          &
@@ -400,7 +402,7 @@ character(len=errormessagelength) :: comments
 ! ----------------------------------------------------------------------
 errorstatus=0
 
-alphl=repsilon*lc/r
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! ==Main Block==--------------------------------------------------------
 ! Subroutine structure :
@@ -442,7 +444,7 @@ case ( i_bm_ez_orig, i_bm_ez_subcrit )
   ! Options using entrainment zone diagnosis on model-levels
 
   call  bm_ez_diagnosis( p_theta_levels,tgrad_bm,z_theta,ri_bm,zh,zhsc,dzh,    &
-                         bl_type_7,levels,t_in,q_in,qcl,                       &
+                         bl_type_7,levels,t_in,q_in,qcl,qcf,qrain,qgraupel,    &
                          l_mixing_ratio,kez_inv,kez_bottom,kez_top)
 
 case ( i_bm_ez_entpar )
@@ -486,11 +488,11 @@ end if
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED(levels,tdims,qcl,cfl,sskew,svar_turb,svar_bm,t_in,q_in,z_theta,   &
 !$OMP        p_theta_levels,svar_ini,l_mixing_ratio,g,cpd,r,qcf,cff,cf,        &
-!$OMP        cfl_max,kappa,repsilon,lcld,alphl,kez_top,kez_bottom,kez_inv,t,q, &
+!$OMP        cfl_max,kappa,repsilon,lcld,kez_top,kez_bottom,kez_inv,t,q,       &
 !$OMP        qrain,qgraupel,qv_lay_est,ql_lay_est,                             &
 !$OMP        tau_dec_bm,tau_hom_bm,tau_mph_bm,bl_w_var,l_bm_sigma_s_grad,      &
 !$OMP        i_bm_ez_opt, turb_var_fac_bm, mix_len_bm, max_sigmas,             &
-!$OMP        min_sigx_ft, min_sigx_fac, cpv_cpm, cl_cpm, ci_cpm,               &
+!$OMP        min_sigx_ft, min_sigx_fac, cpv_cpm, cl_cpm, ci_cpm, lrv0,         &
 !$OMP        tl_above, qt_above, wvar_above, tau_dec_above, tau_hom_above,     &
 !$OMP        dtldz_above, dqtdz_above,                                         &
 !$OMP        tl_below, qt_below, wvar_below, tau_dec_below, tau_hom_below,     &
@@ -500,8 +502,8 @@ end if
 !$OMP private(j,i,k,kk,qsl,alphal,alx,qnx,tlx,mux,sigx,qc_points,idx,          &
 !$OMP         tl_lay,ql_lay,qsl_lay,qsi_lay,tdc_lay,inv_thm_lay,inv_tmp_lay,   &
 !$OMP         wvar_lay,qsl_v,qsi_v,km1,kp1,kkm1,kkp1,                          &
-!$OMP         dtldz_lay,dqtdz_lay,tmp,cpm,t_phys,l_set_modes,qrain_lay,        &
-!$OMP         qgraupel_lay)
+!$OMP         dtldz_lay,dqtdz_lay,tmp,cpm,cpm_dag,t_phys,l_set_modes,          &
+!$OMP         qrain_lay,qgraupel_lay)
 
 !$OMP do SCHEDULE(STATIC)
 do k = 1, levels
@@ -614,11 +616,15 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       qsl_lay(i,j,2) = qsl_v(i)
       qsi_lay(i,j,2) = qsi_v(i)
 
-      alphal = alphl * qsl_v(i) / (t_in(i,j,k) * t_in(i,j,k))
+      alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(t_in(i,j,k) - tm))         &
+             * qsl_v(i) / (r * t_in(i,j,k) * t_in(i,j,k))
       cpm = cpd + qv_lay_est(i,j,2)*cpv_cpm                                    &
         + (ql_lay_est(i,j,2) + qrain_lay(i,j))*cl_cpm                          &
         + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-      t_phys = t_in(i,j,k) + (lc / cpd) * ql_lay_est(i,j,2)
+      cpm_dag = cpd + cpv_cpm*ql_lay(i,j,2) + cl_cpm*qrain_lay(i,j)            &
+                    + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+      t_phys = (cpm_dag / cpm) * t_in(i,j,k)                                   &
+             + (lrv0 / cpm) * ql_lay_est(i,j,2)
       alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                           &
                   * (t_phys - tm)) / cpm) * alphal))
 
@@ -796,11 +802,15 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
 
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,3)
-        alphal = alphl*qsl / (tl_lay(i,j,3)*tl_lay(i,j,3))
+        alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,3) - tm))     &
+               * qsl / (r * tl_lay(i,j,3)*tl_lay(i,j,3))
         cpm = cpd + qv_lay_est(i,j,3)*cpv_cpm                                  &
             + (ql_lay_est(i,j,3) + qrain_lay(i,j))*cl_cpm                      &
             + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-        t_phys = tl_lay(i,j,3) + (lc / cpd) * ql_lay_est(i,j,3)
+        cpm_dag = cpd + cpv_cpm*ql_lay(i,j,3) + cl_cpm*qrain_lay(i,j)          &
+                      + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        t_phys = (cpm_dag / cpm) * tl_lay(i,j,3)                               &
+               + (lrv0 / cpm) * ql_lay_est(i,j,3)
         alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
                * (t_phys - tm)) / cpm) * alphal))
 
@@ -829,11 +839,15 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         !--------------------------------------------------------------------
 
         qsl = qsl_lay(i,j,1)
-        alphal = alphl*qsl / (tl_lay(i,j,1)*tl_lay(i,j,1))
+        alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,1) - tm))     &
+               * qsl / (r * tl_lay(i,j,1)*tl_lay(i,j,1))
         cpm = cpd + qv_lay_est(i,j,1)*cpv_cpm                                  &
             + (ql_lay_est(i,j,1) + qrain_lay(i,j))*cl_cpm                      &
             + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-        t_phys = tl_lay(i,j,1) + (lc / cpd) * ql_lay_est(i,j,1)
+        cpm_dag = cpd + cpv_cpm*ql_lay(i,j,1) + cl_cpm*qrain_lay(i,j)          &
+                      + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        t_phys = (cpm_dag / cpm) * tl_lay(i,j,1)                               &
+               + (lrv0 / cpm) * ql_lay_est(i,j,1)
         alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
                * (t_phys - tm)) / cpm) * alphal))
 
@@ -868,14 +882,20 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       do i = tdims%i_start, tdims%i_end
 
         ! Copy properties of middle mode, from current level
-        alphal = alphl * qsl_lay(i,j,2) / (tl_lay(i,j,2) * tl_lay(i,j,2))
+        alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,2) - tm))     &
+               * qsl_lay(i,j,2) / (r * tl_lay(i,j,2) * tl_lay(i,j,2))
         cpm = cpd + qv_lay_est(i,j,2)*cpv_cpm                                  &
             + (ql_lay_est(i,j,2) + qrain_lay(i,j))*cl_cpm                      &
             + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-        t_phys = tl_lay(i,j,2) + (lc / cpd) * ql_lay_est(i,j,2)
+        cpm_dag = cpd + cpv_cpm*ql_lay(i,j,2) + cl_cpm*qrain_lay(i,j)          &
+                      + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        t_phys = (cpm_dag / cpm) * tl_lay(i,j,2)                               &
+               + (lrv0 / cpm) * ql_lay_est(i,j,2)
         alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                         &
               * (t_phys - tm)) / cpm) * alphal))
-        sl_modes(i,j,k,2) = tl_lay(i,j,2) + (g/cpd) * z_theta(i,j,k)
+        sl_modes(i,j,k,2) = tl_lay(i,j,2)                                      &
+          + (g*(1.0 + ql_lay(i,j,2) + qcf(i,j,k)                               &
+              + qrain_lay(i,j) + qgraupel_lay(i,j)) / cpm_dag) * z_theta(i,j,k)
         qw_modes(i,j,k,2) = ql_lay(i,j,2)
         rh_modes(i,j,k,2) = ql_lay(i,j,2) / qsl_lay(i,j,2)
         sd_modes(i,j,k,2) = sigx(i,2) / ( alx * qsl_lay(i,j,2) )
@@ -883,26 +903,38 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         if ( l_set_modes(i) ) then
           ! Modes from above and below defined;
           ! Copy properties of mode from below
-          alphal = alphl * qsl_lay(i,j,1) / (tl_lay(i,j,1) * tl_lay(i,j,1))
+          alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,1) - tm))   &
+                 * qsl_lay(i,j,1) / (r * tl_lay(i,j,1) * tl_lay(i,j,1))
           cpm = cpd + qv_lay_est(i,j,1)*cpv_cpm                                &
               + (ql_lay_est(i,j,1) + qrain_lay(i,j))*cl_cpm                    &
               + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-          t_phys = tl_lay(i,j,1) + (lc / cpd) * ql_lay_est(i,j,1)
+          cpm_dag = cpd + cpv_cpm*ql_lay(i,j,1) + cl_cpm*qrain_lay(i,j)        &
+                        + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+          t_phys = (cpm_dag / cpm) * tl_lay(i,j,1)                             &
+                 + (lrv0 / cpm) * ql_lay_est(i,j,1)
           alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
                   * (t_phys - tm)) / cpm) * alphal))
-          sl_modes(i,j,k,1) = tl_lay(i,j,1) + (g/cpd) * z_theta(i,j,k)
+          sl_modes(i,j,k,1) = tl_lay(i,j,1)                                    &
+            + (g*(1.0 + ql_lay(i,j,1) + qcf(i,j,k)                             &
+                + qrain_lay(i,j) + qgraupel_lay(i,j)) / cpm_dag) * z_theta(i,j,k)
           qw_modes(i,j,k,1) = ql_lay(i,j,1)
           rh_modes(i,j,k,1) = ql_lay(i,j,1) / qsl_lay(i,j,1)
           sd_modes(i,j,k,1) = sigx(i,1) / ( alx * qsl_lay(i,j,1) )
           ! Copy properties of mode from above
-          alphal = alphl * qsl_lay(i,j,3) / (tl_lay(i,j,3) * tl_lay(i,j,3))
+          alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,3) - tm))   &
+                 * qsl_lay(i,j,3) / (r * tl_lay(i,j,3) * tl_lay(i,j,3))
           cpm = cpd + qv_lay_est(i,j,3)*cpv_cpm                                &
             + (ql_lay_est(i,j,3) + qrain_lay(i,j))*cl_cpm                      &
             + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-          t_phys = tl_lay(i,j,3) + (lc / cpd) * ql_lay_est(i,j,3)
+          cpm_dag = cpd + cpv_cpm*ql_lay(i,j,3) + cl_cpm*qrain_lay(i,j)        &
+                        + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+          t_phys = (cpm_dag / cpm) * tl_lay(i,j,3)                             &
+                 + (lrv0 / cpm) * ql_lay_est(i,j,3)
           alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
                       * (t_phys - tm)) / cpm) * alphal))
-          sl_modes(i,j,k,3) = tl_lay(i,j,3) + (g/cpd) * z_theta(i,j,k)
+          sl_modes(i,j,k,3) = tl_lay(i,j,3)                                    &
+            + (g*(1.0 + ql_lay(i,j,3) + qcf(i,j,k)                             &
+                + qrain_lay(i,j) + qgraupel_lay(i,j)) / cpm_dag) * z_theta(i,j,k)
           qw_modes(i,j,k,3) = ql_lay(i,j,3)
           rh_modes(i,j,k,3) = ql_lay(i,j,3) / qsl_lay(i,j,3)
           sd_modes(i,j,k,3) = sigx(i,3) / ( alx * qsl_lay(i,j,3) )

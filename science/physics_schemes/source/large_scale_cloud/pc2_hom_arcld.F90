@@ -24,12 +24,13 @@ subroutine pc2_hom_arcld(                                                      &
 !      Logical control
  l_mixing_ratio)
 
-use water_constants_mod,  only: lc
+use water_constants_mod,  only: lc, tm
 use planet_constants_mod, only: cpd => cp
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: pdims,tdims
 use qsat_mod, only: qsat_wat, qsat_wat_mix
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 
 use pc2_homog_plus_turb_mod, only: pc2_homog_plus_turb
 implicit none
@@ -122,6 +123,12 @@ real(kind=real_umphys) ::                                                      &
 !       Set to (1. / levels_per_level)
   qt_norm_next,                                                                &
 !       Temporary space for qT_norm
+  cpm,                                                                         &
+!       Moist heat capacity at a grid point
+  cpm_dag,                                                                     &
+!       Modified moist heat capacity for TL/T inversion
+  lrv0,                                                                        &
+!       Reference latent heat of vaporisation: lc + (cl-cpv)*tm
   stretcher,                                                                   &
   delta_p
 !       Layer pressure thickness * inverse_level
@@ -218,13 +225,16 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 inverse_level = 1.0 / levels_per_level
 qrain_large = 0.0_real_umphys
 qgraupel_large = 0.0_real_umphys
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! create new arrays for TL and current qcl
 
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      tl(i,j,k) = t(i,j,k) - (lc / cpd) * qcl(i,j,k)
+      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
+      cpm_dag = cpd + (q(i,j,k) + qcl(i,j,k))*cpv_cpm + qcf(i,j,k)*ci_cpm
+      tl(i,j,k) = (cpm/cpm_dag)*t(i,j,k) - (lrv0/cpm_dag)*qcl(i,j,k)
     end do
   end do
 end do

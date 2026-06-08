@@ -184,6 +184,11 @@ real(kind=real_umphys) ::                                                      &
 !       Temperature-dependent latent heat of condensation (J/kg)
    cpm,                                                                        &
 !       Moist air heat capacity at constant pressure (J/kg/K)
+   cpm_dag,                                                                    &
+!       Modified moist heat capacity for TL/T conversion:
+!       cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+   lrv0,                                                                       &
+!       Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
    lcrcp_moist
 !       L_con / cp_moist (K)
 
@@ -263,6 +268,8 @@ else
   multrhc=0
 end if
 
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
+
 ! ==Main Block==--------------------------------------------------------
 
 ! Loop round levels to be processed
@@ -274,7 +281,7 @@ end if
 !$OMP  qcl_c, q_c, deltacl_c, deltacf_c, qsl_t_c, l_out, l_bs, al,             &
 !$OMP  deltal, descent_factor, q_out, bs, i, j, k, l, qsl_tl, tl_c,            &
 !$OMP  alpha, qc, frac_init,                                                   &
-!$OMP  Lc_full, cpm, lcrcp_moist)
+!$OMP  Lc_full, cpm, cpm_dag, lcrcp_moist)
 do k = 1, nlevels
 
   if ( i_pc2_init_logic == pc2init_logic_simplified ) then
@@ -356,9 +363,13 @@ do k = 1, nlevels
         + (qcl(ind_i(i),ind_j(i),k) + qrain(ind_i(i),ind_j(i),k))*cl_cpm       &
         + (qcf(ind_i(i),ind_j(i),k) + qgraupel(ind_i(i),ind_j(i),k))*ci_cpm
       lcrcp_moist = Lc_full / cpm
-      ! Keep TL-definition conversion on fixed lc/cpd.
-      tl_c = t(ind_i(i),ind_j(i),k) - (lc / cpd)                               &
-                 * qcl(ind_i(i),ind_j(i),k)
+      ! Use moist T->TL formula.
+      cpm_dag = cpd                                                            &
+              + cpv_cpm*(q(ind_i(i),ind_j(i),k)+ qcl(ind_i(i),ind_j(i),k))     &
+              + cl_cpm*qrain(ind_i(i),ind_j(i),k)                              &
+              + ci_cpm*(qcf(ind_i(i),ind_j(i),k) + qgraupel(ind_i(i),ind_j(i),k))
+      tl_c = (cpm / cpm_dag) * t(ind_i(i),ind_j(i),k)                          &
+           - (lrv0 / cpm_dag) * qcl(ind_i(i),ind_j(i),k)
 
       if ( l_mixing_ratio ) then
         call qsat_wat_mix(qsl_tl, tl_c, p_theta_levels(ind_i(i),ind_j(i),k))

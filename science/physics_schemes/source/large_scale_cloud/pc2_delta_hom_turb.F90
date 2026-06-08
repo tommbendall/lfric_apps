@@ -196,6 +196,10 @@ real(kind=real_umphys) ::                                                      &
 !       Temperature-dependent latent heat of condensation (J/kg)
    cpm,                                                                        &
 !       Moist-air specific heat at constant pressure (J/kg/K)
+   cpm_dag,                                                                    &
+!       Modified moist heat capacity for TL/T conversion: cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+   lrv0,                                                                       &
+!       Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
    lcrcp_moist,                                                                &
 !       L_con / cp_moist (K)
    sd
@@ -224,13 +228,15 @@ real(kind=real_umphys) ::                                                      &
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
+
 !$OMP  PARALLEL do DEFAULT(none) SCHEDULE(DYNAMIC) private(k,                  &
 !$OMP  j, i, tl, qsl_t, qsl_tl, alpha, al,                                     &
 !$OMP  sd, cfl_to_m, sky_to_m, g_mqc, dqcdt, qc, dbsdtbs,                      &
-!$OMP  c_1, deltal, Lc_full, cpm, lcrcp_moist)                                 &
+!$OMP  c_1, deltal, Lc_full, cpm, cpm_dag, lcrcp_moist)                        &
 !$OMP  SHARED(tdims,cfl,t,qcl,p_theta_levels,l_mixing_ratio,                   &
 !$OMP     repsilon,r,q,dqin,dtin,dbsdtbs0,dbsdtbs1,                            &
-!$OMP     timestep,dcflpc2,                                                    &
+!$OMP     timestep,dcflpc2,lrv0,                                               &
 !$OMP     dcfpc2,cf,cff,dqclpc2,dqpc2,dtpc2,                                   &
 !$OMP     i_pc2_homog_g_method,cpd,cpv_cpm,cl_cpm,ci_cpm,                      &
 !$OMP     qrain,qcf,qgraupel)
@@ -330,9 +336,11 @@ do k = 1, tdims%k_end
         dqcdt = al * ( dqin(i,j,k) - alpha*dtin(i,j,k) )
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
-        ! for TL. Keep TL-definition conversion on fixed lc/cpd.
+        ! for TL. Use moist T->TL formula.
 
-        tl = t(i,j,k) - (lc / cpd) * qcl(i,j,k)
+        cpm_dag = cpd + cpv_cpm*(q(i,j,k) + qcl(i,j,k))                        &
+                + cl_cpm*qrain(i,j,k) + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
+        tl = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else

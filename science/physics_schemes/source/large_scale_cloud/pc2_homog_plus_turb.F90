@@ -204,6 +204,11 @@ real(kind=real_umphys) ::                                                      &
                 ! Temperature-dependent latent heat of condensation (J/kg)
  cpm,                                                                          &
                 ! Moist-air specific heat at constant pressure (J/kg/K)
+ cpm_dag,                                                                      &
+                ! Modified moist heat capacity for TL/T conversion:
+                ! cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+ lrv0,                                                                         &
+                ! Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
  lcrcp_moist,                                                                  &
                 ! L_con / cp_moist (K)
  sd             ! Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
@@ -252,6 +257,7 @@ character(len=*), parameter :: RoutineName='PC2_HOMOG_PLUS_TURB'
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! ==Main Block==--------------------------------------------------------
 
@@ -261,8 +267,8 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP  PARALLEL do DEFAULT(SHARED) SCHEDULE(DYNAMIC) private(cfl_c,            &
 !$OMP  index_npt, npt, cf_c, cff_c, deltacf_c, qsl_t, tl,                      &
 !$OMP  qsl_tl, alpha, al, alpha_p, sd, g_mqc, dqcdt, dbsdtbs, qc, deltal, i,   &
-!$OMP  j, k, c_1, deltacl_c, cfl_to_m, sky_to_m, Lc_full,                     &
-!$OMP  cpm, lcrcp_moist)
+!$OMP  j, k, c_1, deltacl_c, cfl_to_m, sky_to_m, Lc_full,                      &
+!$OMP  cpm, cpm_dag, lcrcp_moist)
 do k = 1, nlevels
 
   ! Copy points into compressed arrays
@@ -383,8 +389,10 @@ do k = 1, nlevels
                     -alpha_p*dpdt(i,j,k) ) + dldt(i,j,k)
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
-        ! for TL. Keep TL-definition conversion on fixed lc/cpd.
-        tl = t(i,j,k) - (lc / cpd) * qcl(i,j,k)
+        ! for TL. Use moist T->TL formula.
+        cpm_dag = cpd + cpv_cpm*(q(i,j,k) + qcl(i,j,k))                        &
+                + cl_cpm*qrain(i,j,k) + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
+        tl = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else

@@ -153,6 +153,10 @@ real(kind=real_umphys) ::                                                      &
                        ! Moist air heat capacity at constant pressure
  lcrcp_moist,                                                                  &
                        ! L_con / cp_moist
+ cpm_dag,                                                                      &
+                       ! Modified heat capacity for TL/T conversion
+ lrv0,                                                                         &
+                       ! Reference latent heat for TL/T conversion
  t_phys,                                                                       &
                        ! Estimated physical temperature derived from TL
  qn_adj,                                                                       &
@@ -202,6 +206,7 @@ else
   multrhc = 0
 end if
 alphl=repsilon*lc/r
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 !        RHCRITX = RHCRIT(1,1)
 ! Points_do1:
@@ -221,11 +226,14 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  t_phys = t_f(ii,ij) + (lc / cpd) * ql_l_est_f(ii,ij)
-  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_phys - tm)
   cpm = cpd + qv_l_est_f(ii,ij)*cpv_cpm                                        &
             + (ql_l_est_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                      &
             + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+  cpm_dag = cpd + (qv_l_est_f(ii,ij) + ql_l_est_f(ii,ij))*cpv_cpm              &
+                + qrain_f(ii,ij)*cl_cpm                                        &
+                + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+  t_phys = (cpm_dag / cpm) * t_f(ii,ij) + (lrv0 / cpm) * ql_l_est_f(ii,ij)
+  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_phys - tm)
   lcrcp_moist = Lc_full / cpm
   alphal = repsilon * Lc_full * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
   al = 1.0 / (1.0 + (lcrcp_moist * alphal))

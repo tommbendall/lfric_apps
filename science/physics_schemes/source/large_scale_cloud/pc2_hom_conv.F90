@@ -206,6 +206,11 @@ real(kind=real_umphys) ::                                                      &
 !       Temperature-dependent latent heat of condensation (J/kg)
    cpm,                                                                        &
 !       Moist-air specific heat at constant pressure (J/kg/K)
+   cpm_dag,                                                                    &
+!       Modified moist heat capacity for TL/T conversion:
+!       cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+   lrv0,                                                                       &
+!       Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
    lcrcp_moist,                                                                &
 !       L_con / cp_moist (K)
    sd,                                                                         &
@@ -255,6 +260,8 @@ integer                  :: errorstatus
 ! ==Main Block==--------------------------------------------------------
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
@@ -357,8 +364,10 @@ do j = tdims%j_start, tdims%j_end
       dqcdt = dqcdt - al * dcs * (qsl_t-q(i,j))
 
       ! Calculate Qc
-      ! Keep TL-definition conversion on fixed lc/cpd.
-      tl = t(i,j) - (lc / cpd) * qcl(i,j)
+      ! Use moist T->TL formula.
+      cpm_dag = cpd + cpv_cpm*(q(i,j) + qcl(i,j))                              &
+              + cl_cpm*qrain(i,j) + ci_cpm*(qcf(i,j) + qgraupel(i,j))
+      tl = (cpm / cpm_dag) * t(i,j) - (lrv0 / cpm_dag) * qcl(i,j)
       if ( l_mr_physics ) then
         call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j))
       else

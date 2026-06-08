@@ -36,6 +36,7 @@ subroutine ls_arcld(                                                           &
 
 use water_constants_mod,  only: lc, tm
 use planet_constants_mod, only: cpd => cp
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims, pdims, tdims_s
@@ -190,8 +191,13 @@ real(kind=real_umphys) ::                                                      &
 
   inverse_level,                                                               &
                      ! Set to (1. / levels_per_level)
-  delta_p
+  delta_p,                                                                     &
                      ! Layer pressure thickness * inverse_level
+  cpm,                                                                         &
+                     ! Moist heat capacity at constant pressure
+  cpm_dag,                                                                     &
+                     ! Modified heat capacity for TL/T conversion
+  lrv0               ! Reference latent heat for TL/T conversion
 
 !  (b) Others.
 integer :: i,j,k      ! Loop counters: k - vertical level index.
@@ -286,6 +292,7 @@ else if (i_cld_area == acf_cusack) then
   !       Vertical gradient area cloud option
 
   inverse_level = 1.0 / levels_per_level
+  lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
   ! Test for continuity between adjacent layers based on supersaturation
   ! (qt - qsl) / qsl : as we take differences the - qsl term drops out.
@@ -565,8 +572,9 @@ else if (i_cld_area == acf_cusack) then
 !$OMP        cloud_fraction_liquid, cloud_fraction_liquid_large,               &
 !$OMP        cloud_fraction_frozen, cloud_fraction_frozen_large,               &
 !$OMP        q_latest, t_latest, tdims, t_large, q_large, large_levels,        &
-!$OMP        cpd )                                                             &
-!$OMP private(i, j, k, k_index)
+!$OMP        qcf_latest, qrain_latest, qgraupel_latest,                        &
+!$OMP        cpd, cpv_cpm, cl_cpm, ci_cpm, lrv0 )                              &
+!$OMP private(i, j, k, k_index, cpm, cpm_dag)
 !$OMP do SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -647,7 +655,14 @@ else if (i_cld_area == acf_cusack) then
         ! Transform q_latest from qT(vapour + liquid) to specific humidity.
         ! Transform T_latest from TL(vapour + liquid) to temperature.
         q_latest(i,j,k) = q_latest(i,j,k) - qcl_latest(i,j,k)
-        t_latest(i,j,k) = t_latest(i,j,k) + lc / cpd * qcl_latest(i,j,k)
+        cpm = cpd + cpv_cpm*q_latest(i,j,k)                                    &
+                  + cl_cpm*(qcl_latest(i,j,k)+qrain_latest(i,j,k))             &
+                  + ci_cpm*(qcf_latest(i,j,k)+qgraupel_latest(i,j,k))
+        cpm_dag = cpd + cpv_cpm*(q_latest(i,j,k)+qcl_latest(i,j,k))            &
+                      + cl_cpm*qrain_latest(i,j,k)                             &
+                      + ci_cpm*(qcf_latest(i,j,k)+qgraupel_latest(i,j,k))
+        t_latest(i,j,k) = (cpm_dag / cpm) * t_latest(i,j,k)                    &
+                        + (lrv0 / cpm) * qcl_latest(i,j,k)
       end do
     end do
 

@@ -26,8 +26,9 @@ subroutine pc2_arcld(                                                          &
 !      Logical control
  l_mixing_ratio)
 
-use water_constants_mod,   only: lc
+use water_constants_mod,   only: lc, tm
 use planet_constants_mod,  only: cpd => cp
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims, pdims_l
@@ -171,7 +172,13 @@ real(kind=real_umphys) ::                                                      &
   qt_norm_next,                                                                &
                    ! Temporary space for qT_norm
   stretcher,                                                                   &
-  delta_p          ! Layer pressure thickness * inverse_level
+  delta_p,                                                                     &
+                   ! Layer pressure thickness * inverse_level
+  cpm,                                                                         &
+                   ! Moist heat capacity at constant pressure
+  cpm_dag,                                                                     &
+                   ! Modified heat capacity for TL/T conversion
+  lrv0             ! Reference latent heat for TL/T conversion
 
 real(kind=real_umphys) ::                                                      &
   qsl(              tdims%i_start:tdims%i_end,                                 &
@@ -273,13 +280,20 @@ character(len=*), parameter :: RoutineName='PC2_ARCLD'
 ! ---------------------------------------------------------------------
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 inverse_level = 1.0 / levels_per_level
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! Create new arrays for TL and current qcl
 
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      tl(i,j,k) = t(i,j,k) - (lc / cpd) * qcl(i,j,k)
+      cpm = cpd + cpv_cpm*q(i,j,k)                                             &
+                + cl_cpm*(qcl(i,j,k)+qrain(i,j,k))                             &
+                + ci_cpm*(qcf(i,j,k)+qgraupel(i,j,k))
+      cpm_dag = cpd + cpv_cpm*(q(i,j,k)+qcl(i,j,k))                            &
+                    + cl_cpm*qrain(i,j,k)                                      &
+                    + ci_cpm*(qcf(i,j,k)+qgraupel(i,j,k))
+      tl(i,j,k) = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
       qcl_latest(i,j,k) = qcl(i,j,k)
     end do !i
   end do !j
@@ -649,8 +663,15 @@ do k = 2, (tdims%k_end - 1)
       ! Update Q
       ! Update T
       ! Move qcl_latest into qcl.
+      cpm = cpd + cpv_cpm*q(i,j,k)                                             &
+                + cl_cpm*(qcl(i,j,k)+qrain(i,j,k))                             &
+                + ci_cpm*(qcf(i,j,k)+qgraupel(i,j,k))
       q(i,j,k) = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
-      t(i,j,k) = t(i,j,k) - (lc / cpd) * qcl(i,j,k) + (lc / cpd) * qcl_latest(i,j,k)
+      cpm_dag = cpd + cpv_cpm*q(i,j,k)                                         &
+                    + cl_cpm*(qcl_latest(i,j,k)+qrain(i,j,k))                  &
+                    + ci_cpm*(qcf(i,j,k)+qgraupel(i,j,k))
+      t(i,j,k) = (cpm / cpm_dag) * t(i,j,k)                                    &
+               + (lrv0 / cpm_dag) * (qcl_latest(i,j,k) - qcl(i,j,k))
       qcl(i,j,k) = qcl_latest(i,j,k)
 
     end do
