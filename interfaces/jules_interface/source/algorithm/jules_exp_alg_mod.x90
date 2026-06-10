@@ -11,7 +11,7 @@ module jules_exp_alg_mod
   use field_mod,            only: field_type
   use integer_field_mod,    only: integer_field_type
   use field_collection_mod, only: field_collection_type
-  use mr_indices_mod,       only: nummr, imr_v, imr_cl, imr_ci, imr_s
+  use mr_indices_mod,       only: nummr, imr_v, imr_cl, imr_ci, imr_s, imr_r, imr_g
 
   use function_space_mod,            only: function_space_type
   use function_space_collection_mod, only: function_space_collection
@@ -404,8 +404,9 @@ contains
     ! Call explicit Jules scheme
     call invoke_jules_exp_kernel_type(ncells, ncells_halo, theta, exner_in_wth,&
                                u_in_w3, v_in_w3,                               &
-                               mr_n(imr_v), mr_n(imr_cl), mr_ice,              &
-                               height_w3, height_wth, zh, z0msea, z0m,         &
+                               mr_n(imr_v), mr_n(imr_cl), mr_ice, mr_n(imr_r), &
+                               mr_n(imr_g), height_w3, height_wth,             &
+                               zh, z0msea, z0m,                                &
                                tile_fraction, leaf_area_index,                 &
                                canopy_height, peak_to_trough_orog,             &
                                silhouette_area_orog, soil_albedo,              &

@@ -46,7 +46,7 @@ module jules_exp_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_exp_kernel_type
     private
-    type(arg_type) :: meta_args(108) = (/                                      &
+    type(arg_type) :: meta_args(110) = (/                                      &
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! theta_in_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! exner_in_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      W3, STENCIL(REGION)),      &! u_in_w3
@@ -54,6 +54,8 @@ module jules_exp_kernel_mod
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_v_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_cl_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_cf_n
+         arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_r_n
+         arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_g_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      W3),                       &! height_w3
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! height_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      ANY_DISCONTINUOUS_SPACE_1),&! zh_2d
@@ -176,6 +178,8 @@ contains
   !> @param[in]     m_v_n                  Vapour mixing ratio at time level n
   !> @param[in]     m_cl_n                 Cloud liquid mixing ratio at time level n
   !> @param[in]     m_cf_n                 Cloud frozen mixing ratio at time level n
+  !> @param[in]     m_r_n                  Rain mixing ratio at time level n
+  !> @param[in]     m_g_n                  Graupel mixing ratio at time level n
   !> @param[in]     height_w3              Height of density space above surface
   !> @param[in]     height_wth             Height of theta space above surface
   !> @param[in]     zh_2d                  Boundary layer depth
@@ -323,6 +327,8 @@ contains
                            m_v_n,                                 &
                            m_cl_n,                                &
                            m_cf_n,                                &
+                           m_r_n,                                 &
+                           m_g_n,                                 &
                            height_w3,                             &
                            height_wth,                            &
                            zh_2d,                                 &
@@ -589,7 +595,8 @@ contains
     real(kind=r_def), dimension(undf_wth), intent(in)   :: theta_in_wth,       &
                                                            exner_in_wth,       &
                                                            m_v_n, m_cl_n,      &
-                                                           m_cf_n,             &
+                                                           m_cf_n, m_r_n,      &
+                                                           m_g_n,              &
                                                            height_wth,         &
                                                            cf_bulk, cf_liquid, &
                                                            ozone
@@ -713,7 +720,7 @@ contains
     real(r_def) :: sw_diffuse_blue_surf
 
     ! profile fields from level 0 upwards
-    real(r_um), dimension(seg_len,1,0:1) :: p_theta_levels, q, qcl, qcf
+    real(r_um), dimension(seg_len,1,0:1) :: p_theta_levels, q, qcl, qcf, qrain, qgraupel
 
     real(r_um), dimension(co2_dim_len,co2_dim_row) :: co2
 
@@ -1369,6 +1376,8 @@ contains
         qcf(i,1,1) = m_cf_n(map_wth(1,i)+k_blend_tq(i,1))
         bulk_cloud_fraction(i,1,1) = cf_bulk(map_wth(1,i)+k_blend_tq(i,1))
       end if
+      qrain(i,1,1)    = m_r_n(map_wth(1,i)+k_blend_tq(i,1))
+      qgraupel(i,1,1) = m_g_n(map_wth(1,i)+k_blend_tq(i,1))
       forcing%qw_1_ij(i,1) = q(i,1,1) + qcl(i,1,1) + qcf(i,1,1)
       forcing%tl_1_ij(i,1) = temperature(i,1,1) - lcrcp*qcl(i,1,1) - lsrcp*qcf(i,1,1)
 
@@ -1403,7 +1412,7 @@ contains
        ! IN dimensions/logicals
        1,                                                                      &
        ! IN fields
-       p_theta_levels,temperature,q,qcf,qcl,bulk_cloud_fraction,               &
+       p_theta_levels,temperature,q,qcf,qcl,qrain,qgraupel,bulk_cloud_fraction,&
        ! OUT fields
        bt,bq,bt_cld,bq_cld,bt_blend,bq_blend,a_qs,a_dqsdt,dqsdt                &
        )

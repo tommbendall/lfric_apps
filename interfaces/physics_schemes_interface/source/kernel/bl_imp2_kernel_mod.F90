@@ -281,8 +281,8 @@ contains
     use pc2_constants_mod, only: i_cld_smith, i_cld_pc2,            &
                                  pc2init_logic_smooth, acf_off, i_cld_bimodal
     use planet_constants_mod, only: p_zero, kappa, planet_radius, g => g_bl,   &
-                                    cp => cp_bl
-    use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
+                                    cpd => cp_bl
+    use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm, cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
     use timestep_mod, only: timestep
 
     ! subroutines used
@@ -395,7 +395,7 @@ contains
     ! profile field on boundary layer levels
     real(r_bl), dimension(seg_len,1,bl_levels) :: fqw, ftl, rhokh,           &
          bq_gb, bt_gb, dtrdz_charney_grid, rdz_charney_grid, rhokh_mix, qw,  &
-         tl, dqw, dtl, fqw_star, ftl_star
+         tl, dqw, dtl, fqw_star, ftl_star, cpm_bl
 
     ! profile fields on u/v points and all levels
     real(r_bl), dimension(seg_len,1,nlayers) :: r_u, r_v
@@ -443,7 +443,7 @@ contains
     real(r_bl) :: weight1, weight2, weight3, ftl_m, fqw_m,     &
          f_buoy_m, dissip_mol, fric_heating_inc, z_blyr
 
-    real(r_um) :: Lc_full, cpm, lcrcp_moist
+    real(r_um) :: cpm, cpm_dag, lrv0, lrs0
 
     real(r_um), parameter :: qcl_max_factor = 0.1_r_um
 
@@ -457,6 +457,8 @@ contains
     ! Assuming map_wth(1) points to level 0
     ! and map_w3(1) points to level 1
     !-----------------------------------------------------------------------
+    lrv0 = lc + (cl_cpm - cpv_cpm) * tm
+    lrs0 = (lc + lf) + (ci_cpm - cpv_cpm) * tm
     do i = 1, seg_len
       do k = 1, nlayers
         ! height of rho levels from centre of planet
@@ -540,6 +542,17 @@ contains
       l_correct = .true.
     end if
 
+    do i = 1, seg_len
+      do k = 1, bl_levels
+        cpm_bl(i,1,k) = cpd + cpv_cpm_bl*m_v(map_wth(1,i)+k)                   &
+                            + cl_cpm_bl*(m_cl(map_wth(1,i)+k)                  &
+                                       + m_r(map_wth(1,i)+k))                  &
+                            + ci_cpm_bl*(m_ci(map_wth(1,i)+k)                  &
+                                      + m_s(map_wth(1,i)+k)                    &
+                                      + m_g(map_wth(1,i)+k))
+      end do
+    end do
+
     call bdy_impl4 (                                                         &
          ! IN levels, switches
          bl_levels,  l_correct,                                              &
@@ -547,6 +560,7 @@ contains
          gamma1, gamma2, rhokm_u, rhokm_v,                                   &
          rdz_charney_grid, r_rho_levels, dtrdz_charney_grid,rdz_u,rdz_v,     &
          ct_ctq,cq_cm_u,cq_cm_v,dqw_nt,dtl_nt,                               &
+         cpm_bl,                                                             &
          ! INOUT data :
          qw,tl,fqw,ftl,taux,tauy,fqw_star,ftl_star,taux_star,tauy_star,      &
          r_u,r_v,du_star,dv_star,dqw,dtl,rhokh,bl_diag,                      &
@@ -601,12 +615,12 @@ contains
           weight3 = r_rho_levels(i,1,k+1) - r_theta_levels(i,1,k)
           ftl_m = weight2 * ftl(i,1,k+1) + weight3 * ftl(i,1,k)
           fqw_m = weight2 * fqw(i,1,k+1) + weight3 * fqw(i,1,k)
-          f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cp) +                             &
+          f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cpm_bl(i,1,k)) +                  &
                          bq_gb(i,1,k)*fqw_m )/weight1
 
           dissip_mol = dissip_u(i,1,k)+dissip_v(i,1,k) + f_buoy_m
           fric_heating_inc = max (0.0_r_bl, timestep * dissip_mol             &
-                                           / ( cp*rho_wet_tq(i,1,k) ) )
+                                           / ( cpm_bl(i,1,k)*rho_wet_tq(i,1,k) ) )
 
           ! Save level 1 heating increment for redistribution over
           ! boundary layer
@@ -622,12 +636,12 @@ contains
             ftl_m = weight2 * ftl(i,1,k+1) + weight3 * ftl(i,1,k)
             fqw_m = weight2 * fqw(i,1,k+1) + weight3 * fqw(i,1,k)
 
-            f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cp) +                           &
+            f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cpm_bl(i,1,k)) +                &
                            bq_gb(i,1,k)*fqw_m )/weight1
 
             dissip_mol = dissip_u(i,1,k)+dissip_v(i,1,k) + f_buoy_m
             fric_heating_incv(i,1) = max (0.0_r_bl, timestep * dissip_mol     &
-                                                   / ( cp*rho_wet_tq(i,1,k) ) )
+                                                   / ( cpm_bl(i,1,k)*rho_wet_tq(i,1,k) ) )
 
             if ( z_theta(i,1,k) <= zh(i,1) ) then
               !------------------------------------------------------
@@ -680,10 +694,19 @@ contains
       ! Create Tl and qT outside boundary layer levels
       do i = 1, seg_len
         do k = bl_levels+1, nlayers
-          t_latest(i,1,k) = theta_star(map_wth(1,i) + k)   &
-                            * exner_in_wth(map_wth(1,i) + k) &
-                            + dt_conv(map_wth(1,i) + k)      &
-                            - lc/cp * m_cl(map_wth(1,i) + k)
+          cpm = cpd + cpv_cpm*m_v(map_wth(1,i)+k)                              &
+                    + cl_cpm*(m_cl(map_wth(1,i)+k) + m_r(map_wth(1,i)+k))      &
+                    + ci_cpm*(m_ci(map_wth(1,i)+k) + m_s(map_wth(1,i)+k)       &
+                             + m_g(map_wth(1,i)+k))
+          cpm_dag = cpd + cpv_cpm*(m_v(map_wth(1,i)+k) + m_cl(map_wth(1,i)+k)) &
+                        + cl_cpm*m_r(map_wth(1,i)+k)                           &
+                        + ci_cpm*(m_ci(map_wth(1,i)+k) + m_s(map_wth(1,i)+k)   &
+                                  + m_g(map_wth(1,i)+k))
+          t_latest(i,1,k) = (cpm/cpm_dag)                                      &
+                            * ( theta_star(map_wth(1,i) + k)                   &
+                              * exner_in_wth(map_wth(1,i) + k)                 &
+                              + dt_conv(map_wth(1,i) + k) )                    &
+                            - (lrv0/cpm_dag)*m_cl(map_wth(1,i)+k)
           q_latest(i,1,k) = m_v(map_wth(1,i) + k) + m_cl(map_wth(1,i) + k)
         end do
       end do
@@ -731,7 +754,7 @@ contains
         ! Remove qcf from T(liquid) and Q(vapour+liquid)
         if (.not. l_noice_in_turb)                                             &
              call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest,           &
-                          qcl_latest )
+                          qcl_latest, qrain, qgraupel )
 
         ! Which cloud scheme are we using?
         ! 3 options are available:
@@ -780,10 +803,17 @@ contains
           ! content
           do k = 1, nlayers
             do i = 1, seg_len
+              cpm = cpd + q_earliest(i,1,k)*cpv_cpm                            &
+                       + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm             &
+                       + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
+              cpm_dag = cpd + cpv_cpm*(q_earliest(i,1,k)+qcl_earliest(i,1,k))  &
+                           + cl_cpm*qrain(i,1,k)                               &
+                           + ci_cpm*(qcf_total(i,1,k)+qgraupel(i,1,k))
               qt_force(i,1,k) = ( q_latest(i,1,k)                              &
                    - (q_earliest(i,1,k) + qcl_earliest(i,1,k)) )
-              tl_force(i,1,k) = ( t_latest(i,1,k)                              &
-                  - (t_earliest(i,1,k)- lc/cp * qcl_earliest(i,1,k)) )
+              tl_force(i,1,k) = t_latest(i,1,k)                                &
+                     - ( (cpm/cpm_dag)*t_earliest(i,1,k)                       &
+                     - (lrv0/cpm_dag)*qcl_earliest(i,1,k) )
             end do
           end do
 
@@ -851,12 +881,10 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_earliest(i,1,k) - tm)
-                  cpm = cp + q_earliest(i,1,k) * cpv_cpm                       &
-                           + (qcl_earliest(i,1,k) + qrain(i,1,k)) * cl_cpm     &
-                           + (qcf_total(i,1,k) + qgraupel(i,1,k)) * ci_cpm
-                  lcrcp_moist = Lc_full / cpm
-                  t_inc_pc2(i,1,k)   =  (-lcrcp_moist) * qcl_earliest(i,1,k)
+                  cpm_dag = cpd + cpv_cpm*(q_earliest(i,1,k)+qcl_earliest(i,1,k)) &
+                               + cl_cpm*qrain(i,1,k)                          &
+                               + ci_cpm*(qcf_total(i,1,k)+qgraupel(i,1,k))
+                  t_inc_pc2(i,1,k)   =  (-lrv0/cpm_dag) * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
                   qcl_inc_pc2(i,1,k) =  (-qcl_earliest(i,1,k))
                   cfl_inc_pc2(i,1,k) =  (-cfl_earliest(i,1,k))
@@ -1169,7 +1197,7 @@ contains
         do i = 1, seg_len
           dtheta_bl(map_wth(1,i)) =                                            &
                t_latest(i,1,1) / exner_in_wth(map_wth(1,i) + 1)                &
-               + ftl(i,1,1) / (cp * rhokh(i,1,1)) - theta_star(map_wth(1,i))
+               + ftl(i,1,1) / (cpm_bl(i,1,1) * rhokh(i,1,1)) - theta_star(map_wth(1,i))
           m_v(map_wth(1,i))  = m_v(map_wth(1,i) + 1)                           &
                + fqw(i,1,1) / rhokh(i,1,1)
         end do

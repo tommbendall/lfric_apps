@@ -29,7 +29,8 @@ subroutine bdy_impl3 (                                                         &
 ! in levels/switches
  bl_levels, l_correct,                                                         &
 ! in fields
- q,qcl,qcf,q_latest,qcl_latest,qcf_latest,t,t_latest,                          &
+ q,qcl,qcf,qrain,qgraupel,q_latest,qcl_latest,qcf_latest,                      &
+ qrain_latest,qgraupel_latest,t,t_latest,                                      &
  dtrdz_charney_grid,dtrdz_u,dtrdz_v,rhokh,rhokm_u,rhokm_v,                     &
  rdz_charney_grid,rdz_u,rdz_v,gamma1,gamma2,gamma_in,                          &
  du_nt,dv_nt, r_theta_levels, r_rho_levels,                                    &
@@ -94,6 +95,12 @@ real(kind=r_bl), intent(in) ::                                                 &
  qcf(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,              &
      tdims_l%k_start:bl_levels),                                               &
                                  ! in Cloud ice (kg per kg air)
+ qrain(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,            &
+     tdims_l%k_start:bl_levels),                                               &
+                                 ! in Rain water content (kg per kg air)
+ qgraupel(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,         &
+     tdims_l%k_start:bl_levels),                                               &
+                                 ! in Graupel content (kg per kg air)
  q_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                 &
           bl_levels),                                                          &
                                  ! in specific humidity
@@ -103,6 +110,12 @@ real(kind=r_bl), intent(in) ::                                                 &
  qcf_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,               &
             bl_levels),                                                        &
                                  ! in Cloud ice (kg per kg air)
+ qrain_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,             &
+              bl_levels),                                                      &
+                                 ! in Rain water content (kg per kg air)
+ qgraupel_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,          &
+                 bl_levels),                                                   &
+                                 ! in Graupel content (kg per kg air)
  t(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),             &
                                  ! in temperature
                                  !    Latest estimates to time
@@ -335,8 +348,8 @@ real(kind=jprb)               :: zhook_handle
 
 ! Local variables for temperature-dependent moist heat capacity
 real(kind=r_bl) :: lc_bl, lf_bl, tm_bl
-real(kind=r_bl) :: Lc_full, Ls_full, cpm
-real(kind=r_bl) :: lcrcp_moist, lsrcp_moist
+real(kind=r_bl) :: cpm, cpm_dag
+real(kind=r_bl) :: lrv0, lrs0
 
 character(len=*), parameter :: RoutineName='BDY_IMPL3'
 
@@ -347,6 +360,8 @@ blm1 = bl_levels-1
 lf_bl = real(lf, r_bl)
 lc_bl = real(lc, r_bl)
 tm_bl = real(tm, r_bl)
+lrv0 = lc_bl + (cl_cpm_bl - cpv_cpm_bl) * tm_bl
+lrs0 = (lc_bl + lf_bl) + (ci_cpm_bl - cpv_cpm_bl) * tm_bl
 
 max_threads = 1
 !$ max_threads = omp_get_max_threads()
@@ -357,16 +372,17 @@ tdims_seg_block = min(tdims_omp_block, tdims%i_len)
 !$OMP  blm1,tdims, dqw_nt,dtl_nt,q_latest,qcl_latest,dtrdz_v,dtrdz_u,udims,    &
 !$OMP  rdz_v,gamma1,q,qcl,qcf,t_latest,t,ftl,rhokh,dtl,rdz_charney_grid,dqw,   &
 !$OMP  tau_x,rhokm_u,du,rdz_u,vdims,tau_y,dv, qcf_latest,                      &
+!$OMP  qrain,qgraupel,qrain_latest,qgraupel_latest,                            &
 !$OMP  qw,tl,r_theta_levels,r_theta_u,r_theta_v,r_rho_levels,fqw,              &
 !$OMP  dtrdz_charney_grid,gamma2,ct_ctq,dqw1,dtl1,ctctq1,model_type,           &
 !$OMP  cq_cm_u_1,cq_cm_v_1,du_1,dv_1,                                          &
 !$OMP  dqw1_1,dtl1_1,ctctq1_1,                                                 &
 !$OMP  ct_prod, cu_prod, cv_prod,k_blend_tq,k_blend_u,k_blend_v,               &
-!$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,                          &
-!$OMP  cp_bl,cpv_cpm_bl,cl_cpm_bl,ci_cpm_bl,lc_bl,lf_bl,tm_bl)              &
+!$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,                           &
+!$OMP  cp_bl,cpv_cpm_bl,cl_cpm_bl,ci_cpm_bl,lc_bl,lf_bl,tm_bl,lrv0,lrs0)       &
 !$OMP  private(k,j,i,r_sq,rbt,temp,temp_u,temp_v,l,temp_out,temp_u_out,        &
 !$OMP  temp_v_out,at,am,rbm,rr_sq,ii,gamma1_uv,gamma2_uv,                      &
-!$OMP  Lc_full,Ls_full,cpm,lcrcp_moist,lsrcp_moist)
+!$OMP  cpm,cpm_dag)
 
 if ( l_correct ) then
 
@@ -376,34 +392,36 @@ if ( l_correct ) then
       do i = tdims%i_start, tdims%i_end
         ! Don't use QW, TL here as these are no longer at time level n
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
-                      + qcf_latest(i,j,k)                                      &
-                      - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)
+                      + qcf_latest(i,j,k) + qrain_latest(i,j,k)                &
+                      + qgraupel_latest(i,j,k)                                 &
+                      - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)                     &
+                      - qrain(i,j,k) - qgraupel(i,j,k)
 
-        ! Latent heat and heat capacity at latest time level
-        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
-        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        ! Heat capacity at latest time level
         cpm = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                               &
-                    + qcl_latest(i,j,k)*cl_cpm_bl                              &
-                    + qcf_latest(i,j,k)*ci_cpm_bl
-        lcrcp_moist = Lc_full / cpm
-        lsrcp_moist = Ls_full / cpm
+                    + (qcl_latest(i,j,k)+qrain_latest(i,j,k))*cl_cpm_bl        &
+                    + (qcf_latest(i,j,k)+qgraupel_latest(i,j,k))*ci_cpm_bl
+        cpm_dag = cp_bl                                                        &
+            + cpv_cpm_bl*(q_latest(i,j,k)+qcl_latest(i,j,k)+qcf_latest(i,j,k)) &
+            + cl_cpm_bl*qrain_latest(i,j,k) + ci_cpm_bl*qgraupel_latest(i,j,k)
 
         ! For now store TL_latest in dtl_nt
-        dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
-             - lcrcp_moist * qcl_latest(i,j,k)                                 &
-             - lsrcp_moist * qcf_latest(i,j,k)
+        dtl_nt(i,j,k) = (cpm/cpm_dag)*t_latest(i,j,k)                          &
+             - (lrv0/cpm_dag)*qcl_latest(i,j,k)                                &
+             - (lrs0/cpm_dag)*qcf_latest(i,j,k)
 
-        ! Latent heat and heat capacity at old time level
-        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                            &
-                    + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-        lcrcp_moist = Lc_full / cpm
-        lsrcp_moist = Ls_full / cpm
+        ! Heat capacity at old time level
+        cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                                      &
+                    + (qcl(i,j,k)+qrain(i,j,k))*cl_cpm_bl                      &
+                    + (qcf(i,j,k)+qgraupel(i,j,k))*ci_cpm_bl
+        cpm_dag = cp_bl + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))          &
+                        + cl_cpm_bl*qrain(i,j,k) + ci_cpm_bl*qgraupel(i,j,k)
 
         ! Now subtract original TL so that dtl_nt is the difference in TL
         dtl_nt(i,j,k) = dtl_nt(i,j,k)                                          &
-             - ( t(i,j,k) - lcrcp_moist*qcl(i,j,k) - lsrcp_moist*qcf(i,j,k) )
+             - ( (cpm/cpm_dag)*t(i,j,k)                                        &
+             - (lrv0/cpm_dag)*qcl(i,j,k)                                       &
+             - (lrs0/cpm_dag)*qcf(i,j,k) )
       end do
     end do
   end do
@@ -431,33 +449,34 @@ else
   do k = 1, bl_levels
     do j = tdims%j_start, tdims%j_end
       do i = tdims%i_start, tdims%i_end
-        qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)
+        qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k) + qrain(i,j,k) + qgraupel(i,j,k)
 
-        ! Calculate variable latent heats and heat capacties
-        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
-        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm_bl)
+        ! Calculate heat capacities
         cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                                      &
-                    + qcl(i,j,k)*cl_cpm_bl + qcf(i,j,k)*ci_cpm_bl
-        lcrcp_moist = Lc_full / cpm
-        lsrcp_moist = Ls_full / cpm
+                    + (qcl(i,j,k)+qrain(i,j,k))*cl_cpm_bl                      &
+                    + (qcf(i,j,k)+qgraupel(i,j,k))*ci_cpm_bl
+        cpm_dag = cp_bl + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))          &
+                        + cl_cpm_bl*qrain(i,j,k) + ci_cpm_bl*qgraupel(i,j,k)
 
-        tl(i,j,k) = t(i,j,k) - lcrcp_moist*qcl(i,j,k) - lsrcp_moist*qcf(i,j,k)
+        tl(i,j,k) = (cpm/cpm_dag)*t(i,j,k)                                     &
+                  - (lrv0/cpm_dag)*qcl(i,j,k)                                  &
+                  - (lrs0/cpm_dag)*qcf(i,j,k)
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
-                        + qcf_latest(i,j,k) - qw(i,j,k)
+                        + qcf_latest(i,j,k) + qrain_latest(i,j,k)              &
+                        + qgraupel_latest(i,j,k) - qw(i,j,k)
 
-        ! Calculate latent heats and heat capacties at latest time level
-        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
-        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t_latest(i,j,k) - tm_bl)
+        ! Calculate heat capacities at latest time level
         cpm = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                               &
-                    + qcl_latest(i,j,k)*cl_cpm_bl                              &
-                    + qcf_latest(i,j,k)*ci_cpm_bl
-        lcrcp_moist = Lc_full / cpm
-        lsrcp_moist = Ls_full / cpm
+                    + (qcl_latest(i,j,k)+qrain_latest(i,j,k))*cl_cpm_bl        &
+                    + (qcf_latest(i,j,k)+qgraupel_latest(i,j,k))*ci_cpm_bl
+        cpm_dag = cp_bl                                                        &
+            + cpv_cpm_bl*(q_latest(i,j,k)+qcl_latest(i,j,k)+qcf_latest(i,j,k)) &
+            + cl_cpm_bl*qrain_latest(i,j,k) + ci_cpm_bl*qgraupel_latest(i,j,k)
 
-        dtl_nt(i,j,k) = t_latest(i,j,k)                                        &
-                        - lcrcp_moist * qcl_latest(i,j,k)                      &
-                        - lsrcp_moist * qcf_latest(i,j,k)                      &
-                        - tl(i,j,k)
+        dtl_nt(i,j,k) = (cpm/cpm_dag)*t_latest(i,j,k)                          &
+                      - (lrv0/cpm_dag)*qcl_latest(i,j,k)                       &
+                      - (lrs0/cpm_dag)*qcf_latest(i,j,k)                       &
+                      - tl(i,j,k)
       end do
     end do
   end do

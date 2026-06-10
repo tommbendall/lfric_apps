@@ -31,7 +31,13 @@ real(kind=prec), intent(in) ::                                                 &
                               ! in Cloud liq water (kg per kg air).
  qcf(tdims_l%i_start:tdims_l%i_end,                                            &
      tdims_l%j_start:tdims_l%j_end,tdims_l%k_start:bl_levels),                 &
-                              ! in Cloud liq water (kg per kg air).
+                              ! in Cloud ice water (kg per kg air).
+ qrain(tdims_l%i_start:tdims_l%i_end,                                          &
+       tdims_l%j_start:tdims_l%j_end,tdims_l%k_start:bl_levels),               &
+                              ! in Rain mixing ratio (kg per kg air).
+ qgraupel(tdims_l%i_start:tdims_l%i_end,                                       &
+          tdims_l%j_start:tdims_l%j_end,tdims_l%k_start:bl_levels),            &
+                              ! in Graupel mixing ratio (kg per kg air).
  cf_bulk(tdims%i_start:tdims%i_end,                                            &
          tdims%j_start:tdims%j_end, bl_levels)
                               ! in Cloud fraction (decimal).
@@ -70,9 +76,9 @@ real(kind=prec), intent(out) ::                                                &
 real(kind=prec) ::                                                             &
  qs(tdims%i_start:tdims%i_end,                                                 &
     tdims%j_start:tdims%j_end), & ! WORK Saturated mixing ratio.
- tmp1(tdims%i_start:tdims%i_end), & ! TEMP array to contain lc or ls
+ tmp1(tdims%i_start:tdims%i_end), & ! TEMP array to contain latent heat
 
- tmp2(tdims%i_start:tdims%i_end) ! TEMP array to contain lcrcp or lsrcp
+ tmp2(tdims%i_start:tdims%i_end) ! TEMP array to contain latent heat / cpm
 
 ! Local variables for temperature-dependent moist heat capacity
 real(kind=prec) :: cpd_local, lf_local
@@ -99,9 +105,9 @@ lf_local  = real(lf, prec)
 
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
 !$OMP private(i, j, k, bc, qs, tmp1, tmp2, cpm)                                &
-!$OMP SHARED(bl_levels, p, t, q, qcf, qcl, cf_bulk, bt, bq, bt_cld, bq_cld,    &
-!$OMP        bt_gb, bq_gb, a_qs, a_dqsdt, dqsdt, tdims, l_mr_physics, r,       &
-!$OMP        repsilon, c_virtual, etar, lcrcp, ls, lsrcp, l_noice_in_turb,     &
+!$OMP SHARED(bl_levels, p, t, q, qcf, qcl, qrain, qgraupel, cf_bulk, bt, bq,   &
+!$OMP        bt_cld, bq_cld, bt_gb, bq_gb, a_qs, a_dqsdt, dqsdt, tdims,        &
+!$OMP        l_mr_physics, r, repsilon, c_virtual, etar, l_noice_in_turb,      &
 !$OMP        cpd_local, lf_local, cpv_cpm, cl_cpm, ci_cpm)
 
 do k = 1, bl_levels
@@ -130,7 +136,7 @@ do k = 1, bl_levels
   !   Using the temp arrays and splitting the i index helps vectorisation,
   !   Before the index split, no vectorisation was taking place as each
   !   conditional was computationally heavy with only minor differences
-  !   between each side (differences being the lc, ls, lcrcp & lsrcp variables)
+  !   between each side
 
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -138,13 +144,15 @@ do k = 1, bl_levels
         ! Condensation: temperature-dependent latent heat
         tmp1(i) = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
         cpm = cpd_local + q(i,j,k)*cpv_cpm                                     &
-                        + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
+                        + (qcl(i,j,k)+qrain(i,j,k))*cl_cpm                     &
+                        + (qcf(i,j,k)+qgraupel(i,j,k))*ci_cpm
         tmp2(i) = tmp1(i) / cpm
       else
         ! Sublimation: temperature-dependent latent heat
         tmp1(i) = (lc + lf_local) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
         cpm = cpd_local + q(i,j,k)*cpv_cpm                                     &
-                        + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
+                        + (qcl(i,j,k)+qrain(i,j,k))*cl_cpm                     &
+                        + (qcf(i,j,k)+qgraupel(i,j,k))*ci_cpm
         tmp2(i) = tmp1(i) / cpm
       end if
     end do ! p_points,i
@@ -157,7 +165,8 @@ do k = 1, bl_levels
     do i = tdims%i_start, tdims%i_end
       bt(i,j,k) = 1.0_prec/t(i,j,k)
       bq(i,j,k) =                                                              &
-        c_virtual/(1.0_prec+c_virtual*q(i,j,k)-qcl(i,j,k)-qcf(i,j,k))
+        c_virtual/(1.0_prec+c_virtual*q(i,j,k)-qcl(i,j,k)-qcf(i,j,k)           &
+                           -qrain(i,j,k)-qgraupel(i,j,k))
 
 
       dqsdt(i,j,k) = (repsilon * tmp1(i) * qs(i,j))                            &

@@ -31,6 +31,7 @@ subroutine bdy_impl4 (                                                         &
 ! in data :
  gamma1,gamma2,rhokm_u,rhokm_v,rdz_charney_grid, r_rho_levels,                 &
  dtrdz_charney_grid,rdz_u,rdz_v,ct_ctq,cq_cm_u,cq_cm_v,dqw_nt,dtl_nt,          &
+ cpm,                                                                          &
 ! INOUT data :
  qw,tl,fqw,ftl,tau_x,tau_y, fqw_star,ftl_star,taux_star,tauy_star,             &
  du,dv,du_star,dv_star, dqw,dtl, rhokh, BL_diag,                               &
@@ -43,7 +44,6 @@ use atm_fields_bounds_mod, only:                                               &
 use bl_diags_mod, only: strnewbldiag
 use tuning_segments_mod, only:  bl_segment_size
 use model_domain_mod, only: model_type, mt_single_column
-use planet_constants_mod, only: cp => cp_bl
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 
@@ -101,8 +101,11 @@ real(kind=r_bl), intent(in) ::                                                 &
         bl_levels),                                                            &
                                       ! in NT incr to qw
  dtl_nt(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                   &
-        bl_levels)
+        bl_levels),                                                            &
                                       ! in NT incr to TL
+ cpm(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                      &
+     bl_levels)
+                                      ! in Moist heat capacity (cp + sum species)
 
 !  In/outs :-
 !     Declaration of BL diagnostics.
@@ -360,7 +363,7 @@ if ( l_correct ) then
   do k = 2, bl_levels
     do j = tdims%j_start, tdims%j_end
       do i = tdims%i_start, tdims%i_end
-        ftl(i,j,k) = ftl(i,j,k)*cp
+        ftl(i,j,k) = ftl(i,j,k)*cpm(i,j,k)
       end do
     end do
   end do

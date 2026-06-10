@@ -431,7 +431,8 @@ contains
     call invoke(bl_exp_kernel_type( theta, rho, rho_in_wth, wetrho_in_wth,     &
                                     exner, exner_in_wth, u_in_w3, v_in_w3,     &
                                     w_in_wth, velocity_w2v, mr_n(imr_v),       &
-                                    mr_n(imr_cl), mr_ice, height_w3,           &
+                                    mr_n(imr_cl), mr_ice, mr_n(imr_r),         &
+                                    mr_n(imr_g), height_w3,                    &
                                     height_wth, dz_wth, rdz_w3, dtrdz_wth,     &
                                     shear, delta, max_diff_smag, zh, ntml,     &
                                     cumulus, tile_fraction, sd_orog,           &

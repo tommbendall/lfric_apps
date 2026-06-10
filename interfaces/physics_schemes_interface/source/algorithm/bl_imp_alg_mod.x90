@@ -418,9 +418,11 @@ contains
     do loop = 1,2
       ! Call the implicit scheme for scalars
       call invoke(bl_imp_kernel_type( loop, theta, exner_in_wth, mr_n(imr_v),  &
-                                      mr_n(imr_cl), mrn_ice, theta_star,       &
+                                      mr_n(imr_cl), mrn_ice, mr_n(imr_r),      &
+                                      mr_n(imr_g), theta_star,                 &
                                       height_w3, height_wth, dt_conv,          &
                                       mr(imr_v), mr(imr_cl), mr_ice,           &
+                                      mr(imr_r), mr(imr_g),                    &
                                       dtrdz_tq_bl, rdz_w3, blend_height_tq,    &
                                       bl_type_ind, rhokh, fqw, ftl, dqw, dtl,  &
                                       dqw_nt, dtl_nt, qw, tl, ct_ctq,          &
@@ -431,7 +433,7 @@ contains
                           soil_fields, snow_fields, outer, model_clock, loop,  &
                           qw, tl, dqw1, dtl1, ct_ctq1, ftl, fqw, rhokh,        &
                           mr_ice, mr(imr_r), mr(imr_g),                        &
-                          latent_heat, t1p5m, q1p5m, qcl1p5m,                   &
+                          latent_heat, t1p5m, q1p5m, qcl1p5m,                  &
                           t1p5m_ssi, q1p5m_ssi, qcl1p5m_ssi, t1p5m_land,       &
                           q1p5m_land, qcl1p5m_land)
       call invoke(bl_imp2_kernel_type( outer, loop, wetrho_in_wth, exner,      &
@@ -461,17 +463,20 @@ contains
     flag_blpert = (blpert_type == blpert_type_theta_star .or. &
                    blpert_type == blpert_type_theta_and_moist)
 
-    if ((use_xios_io .and. write_diag .and. diag_step .and. & 
+    if ((use_xios_io .and. write_diag .and. diag_step .and. &
          outer == outer_iterations) .or. flag_blpert) then
       call taux%copy_field_properties(tauz)
       call ustar_implicit%copy_field_properties(theta_star_surf)
       call ustar_implicit%copy_field_properties(qv_star_surf)
 
       call map_physics_winds(taux, tauy, tauz, tau_w2)
-      call invoke( bl_imp_diag_kernel_type(bt_bl, bq_bl, ftl, fqw, &
-                                           taux, tauy, wetrho_in_w3, &
-                                           theta_star_surf, qv_star_surf, &
-                                           ustar_implicit, zh) )
+      call invoke( bl_imp_diag_kernel_type(bt_bl, bq_bl, ftl, fqw,             &
+                                           taux, tauy, wetrho_in_w3,           &
+                                           theta_star_surf, qv_star_surf,      &
+                                           ustar_implicit, zh,                 &
+                                           mr_n(imr_v), mr_n(imr_cl),          &
+                                           mr_n(imr_ci), mr_n(imr_s),          &
+                                           mr_n(imr_r), mr_n(imr_g)) )
     end if
 
     if (outer == outer_iterations) then
@@ -522,7 +527,7 @@ contains
                                    pseudotau_w2,                               &
                                    z0m_eff, rho, wetrho_in_w3,                 &
                                    mr(imr_v), mr(imr_cl), mr(imr_s),           &
-                                   mr(imr_r),                                  &
+                                   mr(imr_r), mr(imr_g),                       &
                                    nr_mphys, ns_mphys, murk,                   &
                                    cf_bulk, cf_area, cf_liq, cf_fro,           &
                                    dtheta_bl, exner_in_wth, dt_conv,           &

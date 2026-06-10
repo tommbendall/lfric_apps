@@ -40,7 +40,7 @@ module bl_exp_kernel_mod
   !>
   type, public, extends(kernel_type) :: bl_exp_kernel_type
     private
-    type(arg_type) :: meta_args(93) = (/                                       &
+    type(arg_type) :: meta_args(95) = (/                                       &
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! theta_in_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      W3),                       &! rho_in_w3
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! rho_in_wth
@@ -54,6 +54,8 @@ module bl_exp_kernel_mod
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_v_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_cl_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_ci_n
+         arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_r_n
+         arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_g_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      W3),                       &! height_w3
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! height_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! dz_wth
@@ -277,6 +279,8 @@ contains
                          m_v_n,                                 &
                          m_cl_n,                                &
                          m_ci_n,                                &
+                         m_r_n,                                 &
+                         m_g_n,                                 &
                          height_w3,                             &
                          height_wth,                            &
                          dz_wth,                                &
@@ -445,6 +449,7 @@ contains
                                                            velocity_w2v,       &
                                                            m_v_n, m_cl_n,      &
                                                            m_ci_n,             &
+                                                           m_r_n, m_g_n,       &
                                                            height_wth,         &
                                                            dz_wth,             &
                                                            dtrdz_wth,          &
@@ -536,7 +541,7 @@ contains
 
     ! profile fields from level 0 upwards
     real(r_bl), dimension(seg_len,1,0:nlayers) :: p_theta_levels, etadot, w, &
-         q, qcl, qcf, r_theta_levels
+         q, qcl, qcf, qrain, qgraupel, r_theta_levels
 
     ! profile fields with a hard-wired 2
     real(r_bl), dimension(seg_len,1,2,bl_levels) :: rad_hr, micro_tends
@@ -554,8 +559,8 @@ contains
     real(r_bl), dimension(seg_len,1,3) :: t_frac, t_frac_dsc, we_lim, &
          we_lim_dsc, zrzi, zrzi_dsc
 
-    real(r_bl) :: Lc_full, Ls_full, cpm
-    real(r_bl) :: lcrcp_moist, lsrcp_moist
+    real(r_bl) :: cpm, cpm_dag
+    real(r_bl) :: lrv0, lrs0
 
     ! single level integer fields
     integer(i_um), dimension(seg_len,1) :: ntml, ntpar, kent, kent_dsc
@@ -708,6 +713,10 @@ contains
         q(i,1,k) = m_v_n(map_wth(1,i) + k)
         ! cloud liquid mixing ratio
         qcl(i,1,k) = m_cl_n(map_wth(1,i) + k)
+        ! rain mixing ratio
+        qrain(i,1,k) = m_r_n(map_wth(1,i) + k)
+        ! graupel mixing ratio
+        qgraupel(i,1,k) = m_g_n(map_wth(1,i) + k)
         ! cloud ice mixing ratio
         qcf_conv(i,1,k) = m_ci_n(map_wth(1,i) + k)
         bulk_cf_conv(i,1,k) = cf_bulk(map_wth(1,i) + k)
@@ -775,6 +784,8 @@ contains
     !-----------------------------------------------------------------------
     ! Things saved from other parametrization schemes on this timestep
     !-----------------------------------------------------------------------
+    lrv0 = lc + (cl_cpm_bl - cpv_cpm_bl) * tm
+    lrs0 = (lc + lf) + (ci_cpm_bl - cpv_cpm_bl) * tm
     do i = 1, seg_len
       do k = 1, bl_levels
         ! microphysics tendancy terms
@@ -785,16 +796,16 @@ contains
         rad_hr(i,1,2,k) = sw_heating_rate(map_wth(1,i)+k)
         ! temperature
         temperature(i,1,k) = theta(i,1,k) * exner_theta_levels(i,1,k)
-        Lc_full = lc - (cl_cpm_bl - cpv_cpm_bl) * (temperature(i,1,k) - tm)
-        Ls_full = (lc + lf) - (ci_cpm_bl - cpv_cpm_bl) * (temperature(i,1,k) - tm)
         cpm = cp_bl + q(i,1,k)*cpv_cpm_bl                                      &
-                    + qcl(i,1,k)*cl_cpm_bl                                     &
-                    + qcf(i,1,k)*ci_cpm_bl
-        lcrcp_moist = Lc_full / cpm
-        lsrcp_moist = Ls_full / cpm
-        tl(i,1,k) = temperature(i,1,k) - lcrcp_moist*qcl(i,1,k)              &
-                  - lsrcp_moist*qcf(i,1,k)
-        qw(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)
+                    + (qcl(i,1,k)+qrain(i,1,k))*cl_cpm_bl                      &
+                    + (qcf(i,1,k)+qgraupel(i,1,k))*ci_cpm_bl
+        cpm_dag = cp_bl + cpv_cpm_bl*(q(i,1,k)+qcl(i,1,k)+qcf(i,1,k))          &
+                        + cl_cpm_bl*qrain(i,1,k) + ci_cpm_bl*qgraupel(i,1,k)
+        tl(i,1,k) = (cpm/cpm_dag)*temperature(i,1,k)                           &
+                  - (lrv0/cpm_dag)*qcl(i,1,k)                                  &
+                  - (lrs0/cpm_dag)*qcf(i,1,k)
+        qw(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)                         &
+                  + qrain(i,1,k) + qgraupel(i,1,k)
       end do
     end do
 
@@ -840,7 +851,7 @@ contains
       ! IN dimensions/logicals
       bl_levels,                                                               &
       ! IN fields
-      p_theta_levels,temperature,q,qcf,qcl,bulk_cloud_fraction,                &
+      p_theta_levels,temperature,q,qcf,qcl,qrain,qgraupel,bulk_cloud_fraction, &
       ! OUT fields
       bt,bq,bt_cld,bq_cld,bt_gb,bq_gb,a_qs,a_dqsdt,dqsdt                       &
       )
@@ -900,7 +911,7 @@ contains
       z_theta,z_rho,rhostar,bt,bq,bt_cld,bq_cld,bt_gb,bq_gb,a_qs,a_dqsdt,      &
       dqsdt,recip_l_mo_sea, flandg, rib_gb, sil_orog_land_gb,z0m_eff_gb,       &
     ! IN cloud/moisture data :
-      bulk_cloud_fraction,q,qcf,qcl,temperature,qw,tl,                         &
+      bulk_cloud_fraction,q,qcf,qcl,qrain,qgraupel,temperature,qw,tl,          &
     ! IN everything not covered so far :
       rad_hr,micro_tends,fb_surf,ustargbm,p_star,tstar,                        &
       zh_prev, zhpar,zlcl,ho2r2_orog_gb,sd_orog,wtrac_as,                      &
