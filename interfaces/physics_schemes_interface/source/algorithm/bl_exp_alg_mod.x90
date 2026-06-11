@@ -209,13 +209,15 @@ contains
     ! Fields for calculating heat capacities and latent heats
     type( field_type ) :: temperature
     type( field_type ) :: Lc_field, Ls_field
-    type( field_type ) :: cp_moist_field
+    type( field_type ) :: cp_moist_field, cpm_dag_field
     type( field_type ) :: lcrcp, lsrcp, lrcp_dmr
     type( field_type ) :: dmr_ice
 
     real(kind=r_def)   :: cpv_cpm_rdef, cl_cpm_rdef, ci_cpm_rdef
     real(kind=r_def)   :: cpv_minus_cl, cpv_minus_ci
     real(kind=r_def)   :: Lc_rdef, Lf_rdef, Tm_rdef
+    real(kind=r_def)   :: Lrv0_rdef, Lrs0_rdef
+    real(kind=r_def)   :: cpd_rdef
 
     ! local variables
     type(mesh_type),           pointer :: mesh
@@ -370,23 +372,27 @@ contains
     call Lc_field%initialise(theta%get_function_space())
     call Ls_field%initialise(theta%get_function_space())
     call cp_moist_field%initialise(theta%get_function_space())
+    call cpm_dag_field%initialise(theta%get_function_space())
     call lcrcp%initialise(theta%get_function_space())
     call lsrcp%initialise(theta%get_function_space())
     call lrcp_dmr%initialise(theta%get_function_space())
     call dmr_ice%initialise(theta%get_function_space())
 
+    cpd_rdef = REAL(cpd, r_def)
     cpv_cpm_rdef = REAL(cpv_cpm_bl, r_def)
     cl_cpm_rdef = REAL(cl_cpm_bl, r_def)
     ci_cpm_rdef = REAL(ci_cpm_bl, r_def)
     cpv_minus_cl = cpv_cpm_rdef - cl_cpm_rdef
-    cpv_minus_ci = cpv_cpm_rdef - cl_cpm_rdef
+    cpv_minus_ci = cpv_cpm_rdef - ci_cpm_rdef
     Lc_rdef = REAL(lc, r_def)
     Lf_rdef = REAL(lf, r_def)
     Tm_rdef = REAL(tm, r_def)
+    Lrv0_rdef = Lc_rdef - cpv_minus_cl * Tm_rdef
+    Lrs0_rdef = Lc_rdef + Lf_rdef - ( cpv_cpm_rdef - ci_cpm_rdef ) * Tm_rdef
 
     ! TL calculation, requiring latent heat and heat capacity
     call invoke(                                                               &
-        ! cpm
+        ! cpm = cpd + cpv*mv + cl*(mcl + mr) + ci*(mci + ms + mg)
         aX_plus_bY(                                                            &
             cp_moist_field, cpv_cpm_rdef, mr_n(imr_v),                         &
             cl_cpm_rdef, mr_n(imr_cl)                                          &
@@ -395,35 +401,47 @@ contains
         inc_X_plus_bY(cp_moist_field, ci_cpm_rdef, mr_n(imr_ci)),              &
         inc_X_plus_bY(cp_moist_field, cl_cpm_rdef, mr_n(imr_s)),               &
         inc_X_plus_bY(cp_moist_field, ci_cpm_rdef, mr_n(imr_g)),               &
-        inc_a_plus_X(cpd, cp_moist_field),                                     &
-        ! Lc and Ls
-        X_times_Y(temperature, theta, exner_in_wth),                           &
-        inc_X_minus_a(temperature, Tm_rdef),                                   &
-        a_times_X(Lc_field, cpv_minus_cl, temperature),                        &
-        a_times_X(Ls_field, cpv_minus_ci, temperature),                        &
-        inc_a_plus_X(Lc, Lc_field),                                            &
-        inc_a_plus_X(Lf, Ls_field),                                            &
-        ! lcrcp and lsrcp
-        X_divideby_Y(lcrcp, Lc_field, cp_moist_field),                         &
-        X_divideby_Y(lsrcp, Ls_field, cp_moist_field),                         &
-
-        ! Calculate TL = T - (lc/cp)*mcl
-        X_times_Y(dtl_mphys, dtheta_mphys, exner_in_wth),                      &
-        X_times_Y(lrcp_dmr, lcrcp, dmr_mphys(imr_cl)),                         &
+        inc_a_plus_X(cpd_rdef, cp_moist_field),                                &
+        ! cpm_dag common part = cpd + cpv*(mv + mcl) + cl*mr
+        ! (ice-phase contribution added per-branch below: ci for liquid TL,
+        !  cpv for ice-liquid TL)
+        a_times_X(cpm_dag_field, cpv_cpm_rdef, mr_n(imr_v)),                   &
+        inc_X_plus_bY(cpm_dag_field, cpv_cpm_rdef, mr_n(imr_cl)),              &
+        inc_X_plus_bY(cpm_dag_field, cl_cpm_rdef, mr_n(imr_r)),                &
+        inc_a_plus_X(cpd_rdef, cpm_dag_field),                                 &
+        ! dTL numerator = cpm * dT - Lrv0 * dqcl
+        X_times_Y(temperature, dtheta_mphys, exner_in_wth),                    &
+        X_times_Y(dtl_mphys, cp_moist_field, temperature),                     &
+        a_times_X(lrcp_dmr, Lrv0_rdef, dmr_mphys(imr_cl)),                     &
         inc_X_minus_Y(dtl_mphys, lrcp_dmr),                                    &
-        ! And mt = mv + mcl
+        ! dmt = dmv + dmcl
         X_plus_Y(dmt_mphys, dmr_mphys(imr_v), dmr_mphys(imr_cl))               &
     )
     if (.not. l_noice_in_turb) then
-      ! Add in ice increments
+      ! Ice-liquid TL: cpm_dag_ice = ... + cpv*(mci + ms + mg)
+      ! (ice species treated as vapour in dag-world)
+      ! Also subtract Lrs0 * dqcf from TL numerator; add ice and snow to dmt
       call invoke(                                                             &
+          inc_X_plus_bY(cpm_dag_field, cpv_cpm_rdef, mr_n(imr_ci)),            &
+          inc_X_plus_bY(cpm_dag_field, cpv_cpm_rdef, mr_n(imr_s)),             &
+          inc_X_plus_bY(cpm_dag_field, cpv_cpm_rdef, mr_n(imr_g)),             &
           X_plus_Y(dmr_ice, dmr_mphys(imr_ci), dmr_mphys(imr_s)),              &
-          X_times_Y(lrcp_dmr, lsrcp, dmr_mphys(imr_ci)),                       &
+          a_times_X(lrcp_dmr, Lrs0_rdef, dmr_mphys(imr_ci)),                   &
           inc_X_minus_Y(dtl_mphys, lrcp_dmr),                                  &
           inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_s)),                           &
           inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_ci))                           &
       )
+    else
+      ! Liquid TL: cpm_dag_liq = ... + ci*(mci + ms + mg)
+      ! (ice species retain their ice heat capacity in dag-world)
+      call invoke(                                                             &
+          inc_X_plus_bY(cpm_dag_field, ci_cpm_rdef, mr_n(imr_ci)),             &
+          inc_X_plus_bY(cpm_dag_field, ci_cpm_rdef, mr_n(imr_s)),              &
+          inc_X_plus_bY(cpm_dag_field, ci_cpm_rdef, mr_n(imr_g))               &
+      )
     end if
+    ! Complete TL: dTL = (cpm*dT - Lrv0*dqcl [- Lrs0*dqcf]) / cpm_dag
+    call invoke(inc_X_divideby_Y(dtl_mphys, cpm_dag_field))
 
     ! Switch UM to running i-first on whole domain
     call um_sizes_init(ncells)

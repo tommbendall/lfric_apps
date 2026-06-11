@@ -1323,16 +1323,6 @@ contains
         nsigmasf       = real(nsigmasf_in, r_um)
         nscalesf       = real(nscalesf_in, r_um)
         fcrit          = real(fcrit_in, r_um)
-
-        ! Set microphysics heat capacity
-        select case (lsp_cp_in)
-          case (lsp_cp_none)
-            lsp_cp = lsp_cp_none
-          case (lsp_cp_dry)
-            lsp_cp = lsp_cp_dry
-          case (lsp_cp_moist)
-            lsp_cp = lsp_cp_moist
-        end select
       end if
 
       ! UM options needed if CASIM is being used
@@ -1461,6 +1451,20 @@ contains
                          l_tendency=.false. )
 
       end if ! microphysics_casim
+
+      ! Set microphysics heat capacity
+      select case (lsp_cp_in)
+        case (lsp_cp_none)
+          lsp_cp = lsp_cp_none
+        case (lsp_cp_dry)
+          lsp_cp = lsp_cp_dry
+        case (lsp_cp_moist)
+          lsp_cp = lsp_cp_moist
+      end select
+
+    else
+      ! Need to still set lsp_cm to pass checks
+      lsp_cp = lsp_cp_none
     end if ! microphysics == microphysics_um
 
     !---------------------------------------------------------

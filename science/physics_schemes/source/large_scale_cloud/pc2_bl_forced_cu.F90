@@ -157,6 +157,9 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP         cpd, cpv_cpm, cl_cpm, ci_cpm )                                   &
 !$OMP private ( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced,             &
 !$OMP           dqcl, qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
+Lc_full = 0.0
+cpm = 0.0
+lcrcp_moist = 0.0
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
     zc_depth = zhnl(i,j)+dzh(i,j)-zlcl(i,j)
@@ -268,6 +271,9 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 !$OMP         wtrac_pc2, cpd, cpv_cpm, cl_cpm, ci_cpm )                        &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &
 !$OMP          qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
+  Lc_full = 0.0
+  cpm = 0.0
+  lcrcp_moist = 0.0
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       zc_depth = zhnl(i,j)-zlcl(i,j)
