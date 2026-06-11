@@ -85,6 +85,8 @@ subroutine find_nan_code(nlayers,                    &
                          ndf_2d, undf_2d, map_2d,    &
                          ndf_n, undf_n, map_n )
 
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+
   implicit none
 
   ! Arguments
@@ -124,7 +126,7 @@ subroutine find_nan_code(nlayers,                    &
 
   do df = 1, dofs_to_loop
     do k = 0, top
-      if (field(map_3d(df) + k) /= field(map_3d(df) + k)) then
+      if (.not. ieee_is_finite(field(map_3d(df) + k))) then
         ! If the maximum is at this location, write its information
         nan_lev(map_n(1))    = real(k, r_def)
         nan_count(map_n(1))  = 1.0_r_def
@@ -140,7 +142,7 @@ subroutine find_nan_code(nlayers,                    &
   if (ndf_3d == 6) then
     df = 5
     do k = 0, nlayers
-      if (field(map_3d(df) + k) /= field(map_3d(df) + k)) then
+      if (.not. ieee_is_finite(field(map_3d(df) + k))) then
         ! If the maximum is at this location, write its information
         nan_lev(map_n(1))    = real(k, r_def)
         nan_count(map_n(1))  = 1.0_r_def
