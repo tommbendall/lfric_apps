@@ -52,7 +52,7 @@ contains
     real(r_def), allocatable :: theta_w3(:)
     real(r_def), allocatable :: dz_wtheta(:)
     real(r_def), allocatable :: temperature_wtheta(:)
-    real(r_def), allocatable :: moist_mass_fac(:)
+    real(r_def), allocatable :: cpm(:)
 
     ! Output fields and expected results fields
     real(r_def), allocatable :: d_mass_wtheta(:), d_mass_wtheta_answer(:)
@@ -91,7 +91,7 @@ contains
     allocate(theta_w3(1:undf_w3))
     allocate(dz_wtheta(1:undf_wtheta))
     allocate(temperature_wtheta(1:undf_wtheta))
-    allocate(moist_mass_fac(1:undf_wtheta))
+    allocate(cpm(1:undf_wtheta))
     allocate(d_mass_wtheta(1:undf_wtheta))
     allocate(layer_heat_capacity_wtheta(1:undf_wtheta))
     allocate(t_layer_boundaries(1:undf_flux))
@@ -184,7 +184,7 @@ contains
     0.00000000000000_r_def,   271.35612463620419_r_def,   253.95723731767976_r_def,   236.34506555313783_r_def,   229.06085339566562_r_def,   214.73524443165661_r_def,   211.95547074782371_r_def,   214.10995107971758_r_def  &
     /)
 
-    moist_mass_fac = 1.0_r_def
+    cpm = cp
 
     ! Set all output fields to 0.0
     d_mass_wtheta = 0.0_r_def
@@ -201,14 +201,13 @@ contains
                                    rho_wtheta, &
                                    dz_wtheta, &
                                    temperature_wtheta, &
-                                   moist_mass_fac, &
+                                   cpm, &
                                    d_mass_wtheta, &
                                    layer_heat_capacity_wtheta, &
                                    t_layer_boundaries, &
                                    p_zero, &
                                    kappa, &
                                    gravity, &
-                                   cp, &
                                    ndf_w3, &
                                    undf_w3, &
                                    map_w3(:,cell), &

@@ -144,6 +144,7 @@ contains
 
     real(kind=r_def) :: p, t, m
     real(r_def) :: cv, chi3_av, phi0
+    real(r_def) :: cvv, cl, ci, Rv
 
     nlayers=3
     call get_w0_m3x3_q3x3x3_size( ndf_w0, undf_w0, ncells, &
@@ -225,6 +226,10 @@ contains
     moist_int(:) = 0.0_r_def
 
     cv = cp - rd
+    cvv = 0.0_r_def
+    cl = 0.0_r_def
+    ci = 0.0_r_def
+    Rv = 0.0_r_def
     phi0 = 19.0_r_def
 
     cell = 1
@@ -245,6 +250,7 @@ contains
                                  chi3,                           &
                                  panel_id,                       &
                                  cv,                             &
+                                 cvv, cl, ci, Rv,                &
                                  ndf_w3, undf_w3,                &
                                  map_w3(:,cell), basis_w3,       &
                                  ndf_w2, undf_w2,                &

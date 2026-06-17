@@ -20,10 +20,17 @@ contains
                              convection_fields, microphysics_fields )
 
     use constants_mod,              only: r_def
-    use driver_water_constants_mod, only: Lc => latent_heat_h2o_condensation, &
-                                          Lf => latent_heat_h2o_fusion
+    use driver_water_constants_mod, only: Lv0 => latent_heat_h2o_condensation, &
+                                          Lf0 => latent_heat_h2o_fusion,       &
+                                          cpv => heat_capacity_h2o_vapour,     &
+                                          cl  => heat_capacity_h2o,            &
+                                          ci  => heat_capacity_ice,            &
+                                          Tm => T_freeze_h2o
     use field_mod,                  only: field_type
     use field_collection_mod,       only: field_collection_type
+    use formulation_config_mod,     only: gungho_cp, gungho_cp_none,           &
+                                          gungho_cp_dry, gungho_cp_moist
+    use planet_config_mod,          only: cpd => cp
 
     implicit none
 
@@ -33,7 +40,8 @@ contains
     type( field_collection_type ), intent(in) :: convection_fields
     type( field_collection_type ), intent(in) :: microphysics_fields
 
-    real( kind=r_def ) :: Lcf
+    real( kind=r_def ) :: Lvr, Lsr
+    real( kind=r_def ) :: cpv_local, cl_local, ci_local
 
     type( field_type ), pointer :: heat_flux_bl => null()
     type( field_type ), pointer :: sw_direct_toa_rts => null()
@@ -50,7 +58,24 @@ contains
 
     type( field_type )          :: heat_flux_surf
 
-    Lcf = Lc + Lf
+    ! Set heat capacities and latent heats
+    select case(gungho_cp)
+    case(gungho_cp_none)
+      cpv_local = 0.0_r_def
+      cl_local = 0.0_r_def
+      ci_local = 0.0_r_def
+    case(gungho_cp_dry)
+      cpv_local = cpd
+      cl_local = cpd
+      ci_local = cpd
+    case(gungho_cp_moist)
+      cpv_local = cpv
+      cl_local = cl
+      ci_local = ci
+    end select
+
+    Lvr = Lv0 + (cl - cpv_local)*Tm
+    Lsr = Lvr + Lf0 + (ci_local - cl_local)*Tm
 
     call turbulence_fields%get_field('heat_flux_bl', heat_flux_bl)
     call radiation_fields%get_field('sw_direct_toa_rts', sw_direct_toa_rts)
@@ -76,10 +101,10 @@ contains
                  inc_X_plus_Y(accumulated_fluxes, sw_up_surf_rts),              &
                  inc_X_minus_Y(accumulated_fluxes, lw_down_surf_rts),           &
                  inc_X_plus_Y(accumulated_fluxes, lw_up_surf_rts),              &
-                 inc_X_plus_bY(accumulated_fluxes, Lc, ls_rain),                &
-                 inc_X_plus_bY(accumulated_fluxes, Lcf, ls_snow),               &
-                 inc_X_plus_bY(accumulated_fluxes, Lc, conv_rain),              &
-                 inc_X_plus_bY(accumulated_fluxes, Lcf, conv_snow) )
+                 inc_X_plus_bY(accumulated_fluxes, Lvr, ls_rain),               &
+                 inc_X_plus_bY(accumulated_fluxes, Lsr, ls_snow),               &
+                 inc_X_plus_bY(accumulated_fluxes, Lvr, conv_rain),             &
+                 inc_X_plus_bY(accumulated_fluxes, Lsr, conv_snow) )
 
     nullify(heat_flux_bl, sw_direct_toa_rts, sw_up_toa_rts, lw_up_toa_rts)
     nullify(sw_down_surf_rts, sw_up_surf_rts, lw_down_surf_rts)

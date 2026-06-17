@@ -13,7 +13,8 @@ use field_collection_mod,    only: field_collection_type
 use function_space_collection_mod, only: function_space_collection
 use function_space_mod,      only: function_space_type
 use fs_continuity_mod,       only: W3, Wtheta
-use mr_indices_mod,          only: nummr, imr_v, imr_cl, imr_ci, imr_s
+use mr_indices_mod,          only: nummr, imr_v, imr_cl, imr_ci, imr_s,        &
+                                   imr_r, imr_g
 use moist_dyn_mod,           only: num_moist_factors, total_mass
 use constants_mod,           only: r_def, i_def, l_def
 use io_config_mod,           only: write_diag, use_xios_io
@@ -32,8 +33,13 @@ use lfric_xios_write_mod,    only: write_field_generic
 use mesh_mod,                only: mesh_type
 use field_parent_mod,        only: write_interface
 use empty_data_mod,          only: empty_real_data
-use planet_config_mod,       only: p_zero, kappa, gravity, cp
+use planet_config_mod,       only: p_zero, kappa, gravity, cpd => cp
+use driver_water_constants_mod,                                                &
+                             only: cpv => heat_capacity_h2o_vapour,            &
+                                   cl  => heat_capacity_h2o,                   &
+                                   ci  => heat_capacity_ice
 use microphysics_config_mod, only: microphysics_casim
+use radiation_config_mod,    only: rad_cp, rad_cp_none, rad_cp_dry, rad_cp_moist
 use radiation_diags_mod,     only: initialise_diags_for_radiation, &
                                    output_diags_for_radiation
 use set_thermodynamic_kernel_mod, only: set_thermodynamic_kernel_type
@@ -241,9 +247,9 @@ subroutine radiation_alg(dtheta_rad, theta, exner, mr, moist_dyn,             &
 
   ! Local thermodynamic fields
   type( field_type ) :: d_mass
-  type( field_type ) :: layer_heat_capacity
+  type( field_type ) :: layer_heat_capacity, cpm
   type( field_type ) :: t_layer_boundaries
-  type( field_type ) :: mr_ice, n_ice
+  type( field_type ) :: mr_liq, mr_ice, n_ice
 
   ! Local diagnostic fields
   type( field_type ) :: &
@@ -277,6 +283,7 @@ subroutine radiation_alg(dtheta_rad, theta, exner, mr, moist_dyn,             &
     sw_direct_uv_surf_rts, sw_direct_uv_clear_surf_rts, &
     sw_up_uv_surf_rts, sw_up_uv_clear_surf_rts, &
     photolysis_rates_rts
+  real(kind=r_def)   :: cpv_local, cl_local, ci_local
   integer( tik )     :: id_sw, id_lw
 
   call log_event( 'slow_physics: Running Radiation', LOG_LEVEL_DEBUG )
@@ -458,14 +465,46 @@ subroutine radiation_alg(dtheta_rad, theta, exner, mr, moist_dyn,             &
     call layer_heat_capacity%set_write_behaviour(write_diag_behaviour)
     call t_layer_boundaries%set_write_behaviour(write_diag_behaviour)
 
+    ! Get specific heat capacity -----------------------------------------------
+    call cpm%initialise(theta%get_function_space())
+
+    select case(rad_cp)
+    case(rad_cp_none)
+      cpv_local = 0.0_r_def
+      cl_local = 0.0_r_def
+      ci_local = 0.0_r_def
+    case(rad_cp_dry)
+      cpv_local = cpd
+      cl_local = cpd
+      ci_local = cpd
+    case(rad_cp_moist)
+      cpv_local = cpv
+      cl_local = cl
+      ci_local = ci
+    end select
+
+    call mr_liq%initialise(mr(imr_v)%get_function_space())
+    call mr_ice%initialise(mr(imr_v)%get_function_space())
+
+    call invoke(                                                               &
+        X_plus_Y(mr_liq, mr(imr_cl), mr(imr_r)),                               &
+        X_plus_Y(mr_ice, mr(imr_ci), mr(imr_s)),                               &
+        inc_X_plus_Y(mr_ice, mr(imr_g)),                                       &
+        setval_c(cpm, cpd),                                                    &
+        inc_X_plus_bY(cpm, cpv_local, mr(imr_v)),                              &
+        inc_X_plus_bY(cpm, cl_local, mr_liq),                                  &
+        inc_X_plus_bY(cpm, ci_local, mr_ice)                                   &
+    )
+
     call invoke( set_thermodynamic_kernel_type( &
                    exner, exner_in_wth, theta, theta_in_w3, rho_in_wth, &
-                   dz_in_wth, temperature_in_wth, moist_dyn(total_mass), &
+                   dz_in_wth, temperature_in_wth, cpm, &
                    d_mass, layer_heat_capacity, &
-                   t_layer_boundaries, p_zero, kappa, gravity, cp ), &
+                   t_layer_boundaries, p_zero, kappa, gravity ), &
                  name="set_thermodynamics_fields" )
 
     ! Set total ice mass and number fields
+    ! TODO: this code repeats some of what is above
     call mr(imr_s)%copy_field_properties(mr_ice)
     call ni_mphys%copy_field_properties(n_ice)
     call invoke( setval_X(mr_ice, mr(imr_s)) )

@@ -261,6 +261,7 @@ contains
         qrain(i,1,k) = m_r(map_wth(1,i) + k)
         qgraupel(i,1,k) = m_g(map_wth(1,i) + k)
         qcf_in(i,1,k) = m_cf(map_wth(1,i) + k)
+        qcl_out(i,1,k) = m_cl(map_wth(1,i) + k)
         ! cloud fields
         cf_inout(i,1,k) = cf_bulk(map_wth(1,i) + k)
         cff_inout(i,1,k) = cf_ice(map_wth(1,i) + k)

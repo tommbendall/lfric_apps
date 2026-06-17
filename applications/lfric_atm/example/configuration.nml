@@ -100,6 +100,7 @@ chem_scheme='none',
 /
 &convection
 cape_timescale=1800.0,
+conv_cp='none'
 cv_scheme='gregory_rowntree',
 dx_ref=50000.0,
 efrac=1.0,
@@ -160,6 +161,7 @@ dlayer_on=.false.,
 dry_static_adjust=.true.,
 eos_method='sampled',
 exner_from_eos=.false.,
+gungho_cp='moist'
 horizontal_physics_predictor=.false.
 horizontal_transport_predictor=.false.
 init_exner_bt=.true.,
@@ -426,6 +428,7 @@ hleaf=5.7e4,
 hwood=1.1e4,
 i_modiscopt='on',
 iscrntdiag='decoupled_trans',
+jules_cp='none'
 l_anthrop_heat_src=.false.,
 l_epot_corr=.true.,
 l_elev_land_ice=.false.,

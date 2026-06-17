@@ -24,7 +24,8 @@ subroutine mphys_turb_gen_mixed_phase( q_work, t_work, qcl_work, qcf_work,     &
                                        rhodz_dry, rhodz_moist, deltaz,         &
                                        qcl_mpt, tau_d, inv_prt, disprate,      &
                                        inv_mt, si_avg, dcfl_mp, sigma2_s ,     &
-                                       qcf2_work, icenumber, snownumber  )
+                                       qcf2_work, qrain, qgraupel,             &
+                                       icenumber, snownumber  )
 
 ! Microphysics modules
 use mphys_inputs_mod,      only: mp_dz_scal
@@ -109,6 +110,16 @@ real(kind=real_umphys), intent(in out) ::                                      &
                          qcf2_work(tdims%i_start : tdims%i_end,                &
                                  tdims%j_start : tdims%j_end,                  &
                                              1 : tdims%k_end )
+
+real(kind=real_umphys), intent(in) ::                                          &
+                         qrain(tdims%i_start : tdims%i_end,                    &
+                               tdims%j_start : tdims%j_end,                    &
+                                           1 : tdims%k_end )
+
+real(kind=real_umphys), intent(in) ::                                          &
+                         qgraupel(tdims%i_start : tdims%i_end,                 &
+                                  tdims%j_start : tdims%j_end,                 &
+                                              1 : tdims%k_end )
 
 real, intent(in) ::  icenumber(tdims_l%i_start:tdims_l%i_end,                  &
                                tdims_l%j_start:tdims_l%j_end,                  &
@@ -433,7 +444,8 @@ end if
 !$OMP        p_layer_centres,grd_pts,qcf_work,cx,repsilon,t_limit,bl_w_var,    &
 !$OMP        pref,constp,g,r,mp_dz_scal,siw_lim,cfl_work,q_n,cfl_n,cf_n,       &
 !$OMP        qcl_inc,q_inc,t_inc,cfl_inc,cf_inc,qcl_work,cf_work, l_casim,     &
-!$OMP        icenumber_cas, snownumber_cas, qcf2_work, ipcx, ipdx, spcx,spdx,  &
+!$OMP        icenumber_cas, snownumber_cas, qcf2_work, qrain, qgraupel,        &
+!$OMP        ipcx, ipdx, spcx,spdx,                                            &
 !$OMP        l_wtrac, wtrac_pc2, mp_czero, mp_tau_lim, Gam_1_imu_id, Gam_1_imu,&
 !$OMP        Gam_1_smu_sd, Gam_1_smu, ni_small, ns_small,                      &
 !$OMP        cpd, cpv_cpm, cl_cpm, ci_cpm)
@@ -560,8 +572,9 @@ do k = 1, bl_levels-1
 
         Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
         cpm = cpd + cpv_cpm * q_work(i,j,k)                                    &
-              + cl_cpm * qcl_work(i,j,k)                                       &
-              + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+              + cl_cpm * (qcl_work(i,j,k) + qrain(i,j,k))                      &
+              + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k)                   &
+                          + qgraupel(i,j,k))
 
         bi = 1.0 / q_local2d(i,j) + Ls_full**2 /                               &
               (cpm * rv * t_local2d(i,j) ** 2)
@@ -645,8 +658,9 @@ do k = 1, bl_levels-1
             q_inc(i,j,k)   = q_inc(i,j,k)   - qcl_mpt(i,j,k)
             Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
             cpm = cpd + cpv_cpm * q_work(i,j,k)                                &
-                      + cl_cpm * qcl_work(i,j,k)                               &
-                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+                      + cl_cpm * (qcl_work(i,j,k) + qrain(i,j,k))              &
+                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k)           &
+                                  + qgraupel(i,j,k))
             lcrcp_moist = Lc_full / cpm
             t_inc(i,j,k) = t_inc(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
@@ -660,8 +674,9 @@ do k = 1, bl_levels-1
             q_work(i,j,k)   = q_work(i,j,k)   - qcl_mpt(i,j,k)
             Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
             cpm = cpd + cpv_cpm * q_work(i,j,k)                                &
-                      + cl_cpm * qcl_work(i,j,k)                               &
-                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k))
+                      + cl_cpm * (qcl_work(i,j,k) + qrain(i,j,k))              &
+                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k)           &
+                                  + qgraupel(i,j,k))
             lcrcp_moist  = Lc_full / cpm
             t_work(i,j,k) = t_work(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 

@@ -1,0 +1,71 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Compute the specific heat capacity of moist air at constant volume
+module compute_cv_alg_mod
+
+  use constants_mod,              only: r_def
+  use compute_cv_kernel_mod,      only: compute_cv_kernel_type
+  use driver_water_constants_mod, only: cpv => heat_capacity_h2o_vapour,       &
+                                        cl  => heat_capacity_h2o,              &
+                                        ci  => heat_capacity_ice,              &
+                                        Rv => gas_constant_h2o
+  use field_mod,                  only: field_type
+  use formulation_config_mod,     only: gungho_cp, gungho_cp_none,             &
+                                        gungho_cp_dry, gungho_cp_moist
+  use planet_constants_mod,       only: cvd => cv
+
+  implicit none
+
+  private
+  public :: compute_cv_alg
+
+contains
+
+  !> @details Compute the specific heat capacity of moist air at constant volume
+  !> @param[in,out] cv_tot  Heat capacity of moist air at constant volume
+  !> @param[in]     mr_vap  Mixing ratio of water vapour
+  !> @param[in]     mr_liq  Mixing ratio of liquid water
+  !> @param[in]     mr_ice  Mixing ratio of ice
+  subroutine compute_cv_alg(cv_tot, mr_vap, mr_liq, mr_ice)
+
+    use compute_cv_kernel_mod, only: compute_cv_kernel_type
+
+    implicit none
+
+    type(field_type), intent(inout) :: cv_tot
+    type(field_type), intent(in)    :: mr_vap
+    type(field_type), intent(in)    :: mr_liq
+    type(field_type), intent(in)    :: mr_ice
+
+    real(kind=r_def) :: cvd_rdef, cvv_local, cl_local, ci_local
+
+    select case(gungho_cp)
+    case(gungho_cp_none)
+      cvv_local = 0.0_r_def
+      cl_local = 0.0_r_def
+      ci_local = 0.0_r_def
+    case(gungho_cp_dry)
+      cvv_local = cvd
+      cl_local = cvd
+      ci_local = cvd
+    case(gungho_cp_moist)
+      cvv_local = cpv
+      cl_local = cl
+      ci_local = ci
+    end select
+
+    cvd_rdef = REAL(cvd, kind=r_def)
+
+    call invoke(                                                               &
+        compute_cv_kernel_type(                                                &
+            cv_tot, mr_vap, mr_liq, mr_ice,                                    &
+            cvd_rdef, cvv_local, cl_local, ci_local                            &
+        )                                                                      &
+    )
+
+  end subroutine compute_cv_alg
+
+end module compute_cv_alg_mod

@@ -1150,14 +1150,6 @@ contains
           case(i_pc2_erosion_numerics_analytic)
             i_pc2_erosion_numerics = i_pc2_erosion_analytic
         end select
-        select case (lsc_cp_in)
-          case (lsc_cp_none)
-            lsc_cp = lsc_cp_none
-          case (lsc_cp_dry)
-            lsc_cp = lsc_cp_dry
-          case (lsc_cp_moist)
-            lsc_cp = lsc_cp_moist
-        end select
 
       case(scheme_bimodal)
         i_cld_vn   = i_cld_bimodal
@@ -1169,6 +1161,15 @@ contains
              'Invalid cloud scheme option, stopping', scheme
         call log_event( log_scratch_space, LOG_LEVEL_ERROR )
 
+      end select
+
+      select case (lsc_cp_in)
+        case (lsc_cp_none)
+          lsc_cp = lsc_cp_none
+        case (lsc_cp_dry)
+          lsc_cp = lsc_cp_dry
+        case (lsc_cp_moist)
+          lsc_cp = lsc_cp_moist
       end select
 
       ! Check the contents of the cloud parameters module

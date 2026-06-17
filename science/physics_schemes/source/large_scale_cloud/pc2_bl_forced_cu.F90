@@ -148,7 +148,7 @@ real(kind=jprb)               :: zhook_handle
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !----------------------------------------------------------------------
 
-!$OMP PARALLEL do SCHEDULE(DYNAMIC) DEFAULT(none)                              &
+!$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( tdims, zhnl, dzh, zlcl, bl_type_3, z_theta,                      &
 !$OMP         cfl_latest, qcl_inv_top, cf_latest, qcl_latest,                  &
 !$OMP         qrain_latest, qcf_latest, qgraupel_latest, q_latest,             &
@@ -160,6 +160,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 Lc_full = 0.0
 cpm = 0.0
 lcrcp_moist = 0.0
+!$OMP DO SCHEDULE(DYNAMIC)
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
     zc_depth = zhnl(i,j)+dzh(i,j)-zlcl(i,j)
@@ -258,12 +259,13 @@ do j = tdims%j_start, tdims%j_end
     end if  ! test on zc_depth and bl_type3
   end do
 end do
-!$OMP end PARALLEL do
+!$OMP END DO
+!$OMP END PARALLEL
 
 if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
                        .or. forced_cu == forced_cu_cca ) ) then
 
-!$OMP PARALLEL do SCHEDULE(STATIC) DEFAULT(none)                               &
+!$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( tdims, zhnl, zlcl, bl_type_6, z_theta, cfl_latest,               &
 !$OMP         qcl_inv_top, forced_cu_fac, qcl_latest, qrain_latest,            &
 !$OMP         qcf_latest, qgraupel_latest, q_latest, t_latest, cf_latest,      &
@@ -271,9 +273,10 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 !$OMP         wtrac_pc2, cpd, cpv_cpm, cl_cpm, ci_cpm )                        &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &
 !$OMP          qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
-  Lc_full = 0.0
-  cpm = 0.0
-  lcrcp_moist = 0.0
+Lc_full = 0.0
+cpm = 0.0
+lcrcp_moist = 0.0
+!$OMP DO SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       zc_depth = zhnl(i,j)-zlcl(i,j)
@@ -376,7 +379,8 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
       end if  ! test on zc_depth and bltype6
     end do
   end do
-!$OMP end PARALLEL do
+!$OMP END DO
+!$OMP END PARALLEL
 
 end if  ! test on forced_cu eq cbl_and_cu
 
