@@ -32,6 +32,10 @@ use missing_data_mod, only: rmdi, imdi
 use yomhook,  only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 use errormessagelength_mod, only: errormessagelength
+use convection_config_mod, only: conv_cp_none,                                 &
+                                 conv_cp_dry,                                  &
+                                 conv_cp_moist
+use conv_cpm_mod,     only: set_conv_cp_coeffs
 
 use um_types, only: real_umphys
 
@@ -507,6 +511,13 @@ integer :: pr_melt_frz_opt = imdi  ! Options for the treatment of phase
                                    !     depends on the temperature and
                                    !     t_melt_snow as for option 1.
 
+integer :: conv_cp = imdi          ! Moist heat capacity treatment mode:
+                                   ! conv_cp_none : no moist contribution to cp
+                                   ! conv_cp_dry  : use dry-air approximation
+                                   ! conv_cp_moist: use moist heat capacities
+                                   !                and temperature-dependent
+                                   !                latent heats
+
 !===========================================================================
 ! Real values set from GUI
 !===========================================================================
@@ -766,6 +777,7 @@ ent_dp_power,         ent_md_power,           efrac,                           &
 max_pert_scale,       thpixs_mid,mdet_opt_dp,            mdet_opt_md,          &
 bl_cnv_mix,                                                                    &
 mid_cnv_pmin,         amdet_fac,              orig_mdet_fac,                   &
+conv_cp,                                                                       &
 ccw_for_precip_opt,                                                            &
 cnv_wat_load_opt,     tv1_sd_opt,             limit_pert_opt,                  &
 cnv_cold_pools,       midtrig_opt,                                             &
@@ -911,6 +923,10 @@ if (l_param_conv) then
     ! to 4
     mymessage='Calling convection more than 4 times per timestep is not allowed'
     call chk_var(n_conv_calls,'n_conv_calls','[1:4]', cmessage=mymessage)
+
+    ! Check and set the moist heat capacity coefficients based on the input
+    call chk_var(conv_cp,'conv_cp',[conv_cp_none, conv_cp_dry, conv_cp_moist])
+    call set_conv_cp_coeffs(conv_cp)
 
     ! Values only applying to 6A scheme
     if (i_convection_vn == i_convection_vn_6a) then
@@ -1281,6 +1297,7 @@ subroutine print_nlist_run_convection()
 use umPrintMgr, only: umPrint
 implicit none
 character(len=50000) :: lineBuffer
+character(len=24)    :: conv_cp_label
 real(kind=jprb) :: zhook_handle
 
 character(len=*), parameter :: RoutineName='PRINT_NLIST_RUN_CONVECTION'
@@ -1564,6 +1581,20 @@ write(lineBuffer,'(A,F13.1)')' llcs_timescale = ',llcs_timescale
 call umPrint(lineBuffer,src='cv_run_mod')
 write(lineBuffer,'(A,F13.1)')' llcs_rain_frac = ',llcs_rain_frac
 call umPrint(lineBuffer,src='cv_run_mod')
+
+write(lineBuffer,'(A,I0)')' conv_cp = ',conv_cp
+call umPrint(lineBuffer,src='cv_run_mod')
+select case (conv_cp)
+case (conv_cp_none)
+  conv_cp_label = 'conv_cp_none'
+case (conv_cp_dry)
+  conv_cp_label = 'conv_cp_dry'
+case (conv_cp_moist)
+  conv_cp_label = 'conv_cp_moist'
+case default
+  conv_cp_label = 'invalid'
+end select
+write(lineBuffer,'(A,A)')' conv_cp_mode = ',trim(conv_cp_label)
 
 call umPrint('- - - - - - end of namelist - - - - - -',                        &
     src='cv_run_mod')
