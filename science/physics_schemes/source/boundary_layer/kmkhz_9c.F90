@@ -73,7 +73,7 @@ use s_scmop_mod,  only: default_streams,                                       &
      t_avg, d_bl, d_sl, scmdiag_bl
 use timestep_mod, only: timestep
 use water_constants_mod, only: tm => tm_bl, lc_bl, lf
-use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
+use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl, bl_mload_switch
 
 use qsat_mod, only: qsat, qsat_mix, qsat_wat, qsat_wat_mix
 
@@ -1102,8 +1102,8 @@ do k = 1, bl_levels
     do i = pdims%i_start, pdims%i_end
       cpm_dag = cp_bl + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))            &
                       + cl_cpm_bl*qrain(i,j,k) + ci_cpm_bl*qgraupel(i,j,k)
-      grcp_moist = g*(one + q(i,j,k)+qcl(i,j,k)+qcf(i,j,k)                     &
-                          + qrain(i,j,k)+qgraupel(i,j,k)) / cpm_dag
+      grcp_moist = g * (one + bl_mload_switch*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k)  &
+                                 + qrain(i,j,k)+qgraupel(i,j,k))) / cpm_dag
       sl(i,j,k)  = tl(i,j,k) + grcp_moist * z_tq(i,j,k)
       svl(i,j,k) = sl(i,j,k) * ( one + c_virtual*qw(i,j,k) )
     end do
@@ -1518,8 +1518,9 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                           + (qcf(i,j,k)+qgraupel(i,j,k))*ci_cpm_bl
               cpm_dag = cp_bl + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))    &
                               + cl_cpm_bl*qrain(i,j,k) + ci_cpm_bl*qgraupel(i,j,k)
-              grcp_moist = g*(one + q(i,j,k)+qcl(i,j,k)+qcf(i,j,k)             &
-                                  + qrain(i,j,k)+qgraupel(i,j,k)) / cpm_dag
+              grcp_moist = g * (one + bl_mload_switch*(q(i,j,k)+ qcl(i,j,k)    &
+                               + qcf(i,j,k)+ qrain(i,j,k)                      &
+                               + qgraupel(i,j,k))) / cpm_dag
               ! ------------------------------------------------------------
               ! calculate parcel water by linearising qsat about the
               ! environmental temperature.
@@ -1563,16 +1564,18 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                          (one+c_virtual*q(i,j,k)-qcl(i,j,k)-qcf(i,j,k))
               ! find vertical gradients in parcel and environment SVL
               ! (using values from level below (K-1))
-              grcp_moist = g*(one + q(i,j,k-1)+qcl(i,j,k-1)+qcf(i,j,k-1)       &
-                                  + qrain(i,j,k-1)+qgraupel(i,j,k-1))          &
+              grcp_moist = g * (one + bl_mload_switch*(q(i,j,k-1)              &
+                               + qcl(i,j,k-1) + qcf(i,j,k-1) + qrain(i,j,k-1)  &
+                               + qgraupel(i,j,k-1)))                           &
                          / (cp_bl + cpv_cpm_bl*(q(i,j,k-1)+qcl(i,j,k-1)        &
                                               +qcf(i,j,k-1))                   &
                                   + cl_cpm_bl*qrain(i,j,k-1)                   &
                                   + ci_cpm_bl*qgraupel(i,j,k-1))
               env_svl_km1(i,j) = t(i,j,k-1) * ( one+c_virtual*q(i,j,k-1)       &
                    -qcl(i,j,k-1)-qcf(i,j,k-1) ) + grcp_moist*z_tq(i,j,k-1)
-              grcp_moist = g*(one + q(i,j,k)+qcl(i,j,k)+qcf(i,j,k)             &
-                                  + qrain(i,j,k)+qgraupel(i,j,k)) / cpm_dag
+              grcp_moist = g * (one + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)   &
+                               + qcf(i,j,k) + qrain(i,j,k)                     &
+                               + qgraupel(i,j,k))) / cpm_dag
               dpar_bydz=(t_dens_parc+grcp_moist*z_tq(i,j,k)-                   &
                           env_svl_km1(i,j)) /                                  &
                       (z_tq(i,j,k)-z_tq(i,j,k-1))
@@ -2716,8 +2719,8 @@ do k = 1, bl_levels
     do i = pdims%i_start, pdims%i_end
       cpm_dag = cp_bl + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))            &
                       + cl_cpm_bl*qrain(i,j,k) + ci_cpm_bl*qgraupel(i,j,k)
-      grcp_moist = g*(one + q(i,j,k)+qcl(i,j,k)+qcf(i,j,k)                     &
-                          + qrain(i,j,k)+qgraupel(i,j,k)) / cpm_dag
+      grcp_moist = g * (one + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)           &
+                        + qcf(i,j,k) + qrain(i,j,k) + qgraupel(i,j,k))) / cpm_dag
       if (k  <=  ntml_prev(i,j)) then
         dsldz(i) = -grcp_moist + grad_t_adj(i,j)
       else

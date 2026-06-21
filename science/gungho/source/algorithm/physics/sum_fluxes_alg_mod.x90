@@ -74,7 +74,7 @@ contains
       ci_local = ci
     end select
 
-    Lvr = Lv0 + (cl - cpv_local)*Tm
+    Lvr = Lv0 + (cl_local - cpv_local)*Tm
     Lsr = Lvr + Lf0 + (ci_local - cl_local)*Tm
 
     call turbulence_fields%get_field('heat_flux_bl', heat_flux_bl)

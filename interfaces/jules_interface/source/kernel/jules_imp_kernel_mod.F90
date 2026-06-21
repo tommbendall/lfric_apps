@@ -25,7 +25,8 @@ module jules_imp_kernel_mod
   use fs_continuity_mod,         only : W3, Wtheta
   use kernel_mod,                only : kernel_type
   use timestepping_config_mod,   only : outer_iterations
-  use water_constants_mod,       only : tfs, lc, lf
+  use water_constants_mod,       only : tfs, lc, lf, tm
+  use jules_cpm_mod,             only : cpv_cpm, cl_cpm, ci_cpm
 
   implicit none
 
@@ -602,6 +603,9 @@ contains
 
     ! fields on all points
     real(r_um), dimension(:,:), allocatable :: t1p5m_land_loc, q1p5m_land_loc
+
+    ! Temperature-dependent latent heats
+    real(r_um) :: Lc_full, Lf_full
 
     ! parameters for new BL solver
     real(r_um) :: pnonl,p1,p2
@@ -1585,9 +1589,14 @@ contains
             end do
           end do
           do n = first_sea_ice_tile, first_sea_ice_tile + n_sea_ice_tile - 1
+            i_sice = n - first_sea_ice_tile + 1
             do i = 1, seg_len
               if (tile_fraction(map_tile(1,i)+n-1) > 0.0_r_def) then
-                latent_heat(map_tile(1,i)+n-1) = (lc + lf) *                  &
+                Lc_full = lc - (cl_cpm - cpv_cpm) *                            &
+                     (coast%tstar_sice_sicat(i, 1, i_sice) - tm)
+                Lf_full = lf - (ci_cpm - cl_cpm) *                             &
+                     (coast%tstar_sice_sicat(i, 1, i_sice) - tm)
+                latent_heat(map_tile(1,i)+n-1) = (Lc_full + Lf_full) *         &
                      tile_moisture_flux(map_tile(1,i)+n-1)
               end if
             end do
@@ -1734,7 +1743,9 @@ contains
         if (.not. associated(latent_heat, empty_real_data) ) then
           do i = 1, seg_len
             if (tile_fraction(map_tile(1,i)+first_sea_tile-1) > 0.0_r_def) then
-              latent_heat(map_tile(1,i)+first_sea_tile-1) = lc *              &
+              Lc_full = lc - (cl_cpm - cpv_cpm) *                              &
+                   (coast%tstar_sea_ij(i, 1) - tm)
+              latent_heat(map_tile(1,i)+first_sea_tile-1) = Lc_full *          &
                    tile_moisture_flux(map_tile(1,i)+first_sea_tile-1)
             end if
           end do

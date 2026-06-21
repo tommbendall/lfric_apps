@@ -98,7 +98,7 @@ use pc2_constants_mod, only: rhcpt_tke_based, i_cld_bimodal, i_cld_pc2,        &
                              pc2init_bimodal, bm_negative_init, bm_tiny
 use planet_constants_mod, only: vkman => vkman_bl, grcp => grcp_bl,            &
      pref => pref_bl, kappa => kappa_bl, g => g_bl, cpd => cp_bl
-use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
+use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl, bl_mload_switch
 use s_scmop_mod,   only: default_streams,                                      &
                          t_inst, t_avg, d_bl, d_sl, d_point, scmdiag_bl
 use science_fixes_mod, only: l_fix_dyndiag, l_fix_zh
@@ -940,8 +940,9 @@ end do
 do k = 2, bl_levels
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
-      grcp_moist = g * ( 1.0_r_bl + q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)         &
-                                  + qrain(i,j,k) + qgraupel(i,j,k) )           &
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
+                                   + qcf(i,j,k) + qrain(i,j,k)                 &
+                                   + qgraupel(i,j,k)))                         &
                 / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k))                     &
                         + cl_cpm_bl*qrain(i,j,k)                               &
                         + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k)) )
@@ -1004,8 +1005,9 @@ else ! l_use_surf_in_ri = true
 !$OMP do SCHEDULE(STATIC)
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
-      grcp_moist = g * ( 1.0_r_bl + q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)         &
-                                  + qrain(i,j,k) + qgraupel(i,j,k) )           &
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
+                                   + qcf(i,j,k) + qrain(i,j,k)                 &
+                                   + qgraupel(i,j,k)))                         &
                 / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k))                     &
                         + cl_cpm_bl*qrain(i,j,k)                               &
                         + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k)) )

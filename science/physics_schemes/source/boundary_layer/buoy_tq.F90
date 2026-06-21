@@ -42,7 +42,7 @@ use bl_option_mod, only: l_noice_in_turb
 use gen_phys_inputs_mod, only: l_mr_physics
 use planet_constants_mod, only: r, repsilon, c_virtual, etar, cpd => cp
 use water_constants_mod, only: lc, lf, tm
-use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
+use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm, bl_mload_switch
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 use qsat_mod, only: qsat, qsat_mix, qsat_wat, qsat_wat_mix
@@ -72,7 +72,7 @@ use planet_constants_mod, only: r => r_32b, repsilon => repsilon_32b,          &
      c_virtual => c_virtual_32b, etar => etar_32b, cpd => cp
 use water_constants_mod, only: lc => lc_32b, lf, tm => tm_32b
 use bl_cpm_mod, only: cpv_cpm => cpv_cpm_32b, cl_cpm => cl_cpm_32b,       &
-     ci_cpm => ci_cpm_32b
+     ci_cpm => ci_cpm_32b, bl_mload_switch
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 use qsat_mod, only: qsat, qsat_mix, qsat_wat, qsat_wat_mix

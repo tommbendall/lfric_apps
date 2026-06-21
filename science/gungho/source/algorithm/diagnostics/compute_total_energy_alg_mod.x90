@@ -206,7 +206,7 @@ contains
     case( integral_method_fd )
       area = 4.0_r_def * pi * planet_radius ** 2_i_def
 
-      Lvr = Lv0 + (cl - (cvv_local + Rv_local))*Tm
+      Lvr = Lv0 + (cl_local - (cvv_local + Rv_local))*Tm
       Lsr = Lvr + Lf0 + (ci_local - cl_local)*Tm
       Lcf = Lv0 + Lf0
 

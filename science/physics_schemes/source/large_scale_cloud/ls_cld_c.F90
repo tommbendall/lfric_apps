@@ -312,12 +312,16 @@ do i = 1, points
   ! 3.3 Calculate 1st approx. to temperature, adjusting for latent heating
   ! ----------------------------------------------------------------------
 
-  ! Don't use definition of liquid temperature here
-  cpm = cpd + q_f(ii,ij)*cpv_cpm                                               &
+  ! Recover T from TL using the exact moist formula:
+  ! T = (cpm_dag/cpm)*TL + (lrv0/cpm)*qcl
+  ! cpm_dag treats qcl as vapour (dag world, constant for this point)
+  cpm_dag = cpd + q_f(ii,ij)*cpv_cpm                                           &
+                + qrain_f(ii,ij)*cl_cpm                                        &
+                + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+  cpm = cpd + q(i)*cpv_cpm                                                     &
             + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                           &
             + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
-  lcrcp_moist = Lc_full / cpm
-  t(i) = t_f(ii,ij) + lcrcp_moist * qcl_f(ii,ij)
+  t(i) = (cpm_dag/cpm)*t_f(ii,ij) + (lrv0/cpm)*qcl_f(ii,ij)
 end do ! Points_do1
 
 ! ----------------------------------------------------------------------
@@ -381,12 +385,16 @@ if (its  >=  2) then
         ! 4.3 Calculate Nth approx. to temperature, adjusting for latent heating
         ! ----------------------------------------------------------------------
 
-        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+        ! Recover T from TL using the exact moist formula:
+        ! T = (cpm_dag/cpm)*TL + (lrv0/cpm)*qcl
+        ! cpm_dag = cpm with qcl treated as vapour; constant for this point
+        cpm_dag = cpd + q_f(ii,ij)*cpv_cpm                                     &
+                      + qrain_f(ii,ij)*cl_cpm                                  &
+                      + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
         cpm = cpd + q(i)*cpv_cpm                                               &
                   + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                     &
                   + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
-        lcrcp_moist = Lc_full / cpm
-        t(i) = t_f(ii,ij) + lcrcp_moist * qcl_f(ii,ij)
+        t(i) = (cpm_dag/cpm)*t_f(ii,ij) + (lrv0/cpm)*qcl_f(ii,ij)
       end if ! T_if
     end do ! Points_do2
   end do ! Its_do

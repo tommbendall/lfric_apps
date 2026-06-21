@@ -384,7 +384,8 @@ contains
     use nlsizes_namelist_mod, only: bl_levels
     use planet_constants_mod, only: p_zero, kappa, planet_radius, cp_bl
     use water_constants_mod,  only: lc, lf, tm
-    use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
+    use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl,            &
+                                    bl_mload_switch
     use timestep_mod, only: timestep
 
     use free_tracers_inputs_mod,    only: n_wtrac
@@ -805,7 +806,7 @@ contains
                   - (lrv0/cpm_dag)*qcl(i,1,k)                                  &
                   - (lrs0/cpm_dag)*qcf(i,1,k)
         qw(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)                         &
-                  + qrain(i,1,k) + qgraupel(i,1,k)
+                  + bl_mload_switch*(qrain(i,1,k) + qgraupel(i,1,k))
       end do
     end do
 

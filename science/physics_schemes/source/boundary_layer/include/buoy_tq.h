@@ -166,7 +166,7 @@ do k = 1, bl_levels
       bt(i,j,k) = 1.0_prec/t(i,j,k)
       bq(i,j,k) =                                                              &
         c_virtual/(1.0_prec+c_virtual*q(i,j,k)-qcl(i,j,k)-qcf(i,j,k)           &
-                           -qrain(i,j,k)-qgraupel(i,j,k))
+                   -bl_mload_switch*(qrain(i,j,k)+qgraupel(i,j,k)))
 
 
       dqsdt(i,j,k) = (repsilon * tmp1(i) * qs(i,j))                            &

@@ -143,7 +143,11 @@ module um_physics_init_mod
                                      par_gen_rhpert_in => par_gen_rhpert,     &
                                      par_radius_ppn_max_in => par_radius_ppn_max, &
                                      resdep_precipramp, dx_ref_in => dx_ref,   &
-                                     l_cvdiag_ctop_qmax_in => l_cvdiag_ctop_qmax
+                                     l_cvdiag_ctop_qmax_in => l_cvdiag_ctop_qmax, &
+                                     conv_cp_in => conv_cp,                    &
+                                     conv_cp_none,                             &
+                                     conv_cp_dry,                              &
+                                     conv_cp_moist
 
 
   use extrusion_config_mod,      only : domain_height, number_of_layers
@@ -415,7 +419,7 @@ contains
          tau_conv_prog_precip, tau_conv_prog_dtheta, tau_conv_prog_dq,     &
          prog_ent_grad, prog_ent_int, prog_ent_max, prog_ent_min,          &
          ent_fac_sh, c_mass_sh, orig_mdet_fac, i_cv_comorph,               &
-         l_cvdiag_ctop_qmax
+         l_cvdiag_ctop_qmax, conv_cp
     use cv_param_mod, only: mtrig_ntml, md_pert_efrac
     use cv_stash_flg_mod, only: set_convection_output_flags
     use cv_set_dependent_switches_mod, only: cv_set_dependent_switches
@@ -1015,6 +1019,16 @@ contains
       ! Need to set the version of the convection diagnosis that we want to use
       i_convection_vn = i_convection_vn_6a
     end if
+
+    ! Transfer the LFRic conv_cp namelist value to the UM cv_run_mod variable
+    select case (conv_cp_in)
+      case (conv_cp_none)
+        conv_cp = conv_cp_none
+      case (conv_cp_dry)
+        conv_cp = conv_cp_dry
+      case (conv_cp_moist)
+        conv_cp = conv_cp_moist
+    end select
 
     ! Derived switches and parameters are set here based on the options
     ! above

@@ -37,7 +37,7 @@ subroutine ex_flux_tq (                                                        &
 use atm_fields_bounds_mod, only: pdims, tdims, scmrowlen, scmrow
 use bl_option_mod, only: flux_grad, LockWhelan2006, zero
 use planet_constants_mod, only: cpd => cp_bl, g => g_bl
-use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
+use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl, bl_mload_switch
 use bl_diags_mod, only: strnewbldiag
 use s_scmop_mod,   only: default_streams,                                      &
     t_avg, d_bl, scmdiag_bl
@@ -295,8 +295,9 @@ do k = 2, bl_levels
       cpm = cpd + cpv_cpm_bl*q(i,j,k)                                          &
                 + cl_cpm_bl*(qcl(i,j,k)+qrain(i,j,k))                          &
                 + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k))
-      grcp_moist = g * ( 1.0_r_bl + q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)         &
-                                  + qrain(i,j,k) + qgraupel(i,j,k) )           &
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
+                                   + qcf(i,j,k) + qrain(i,j,k)                 &
+                                   + qgraupel(i,j,k)))                         &
                 / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k))                     &
                         + cl_cpm_bl*qrain(i,j,k)                               &
                         + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k)) )
