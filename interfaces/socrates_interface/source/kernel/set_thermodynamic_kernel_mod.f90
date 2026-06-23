@@ -22,7 +22,7 @@ module set_thermodynamic_kernel_mod
 
   type, public, extends(kernel_type) :: set_thermodynamic_kernel_type
     private
-    type(arg_type) :: meta_args(14) = (/ &
+    type(arg_type) :: meta_args(15) = (/ &
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  W3                       ), & ! exner
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! exner_in_wth
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! theta_in_wth
@@ -30,6 +30,7 @@ module set_thermodynamic_kernel_mod
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! rho_in_wth
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! dz_in_wth
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! temperature_wth
+      arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! moist_mass_fac
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! cpm
       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, Wtheta                   ), & ! d_mass
       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, Wtheta                   ), & ! layer_heat_capacity
@@ -54,6 +55,7 @@ contains
   !> @param[in]    rho_wtheta                 Density field in potential temperature space
   !> @param[in]    dz_wtheta                  Depth of temperature space levels
   !> @param[in]    temperature_wth            Temperature in Wtheta space
+  !> @param[in]    moist_mass_fac             1 + total water content
   !> @param[in]    cpm                        Moist heat capacity
   !> @param[inout] d_mass_wtheta              Mass per square metre of Socrates layers
   !> @param[inout] layer_heat_capacity_wtheta Heat capacity of Socrates layers
@@ -78,6 +80,7 @@ contains
                                      rho_wtheta, &
                                      dz_wtheta, &
                                      temperature_wth, &
+                                     moist_mass_fac, &
                                      cpm, &
                                      d_mass_wtheta, &
                                      layer_heat_capacity_wtheta, &
@@ -115,6 +118,7 @@ contains
     real(r_def),    intent(in),    dimension(undf_wtheta) :: rho_wtheta
     real(r_def),    intent(in),    dimension(undf_wtheta) :: dz_wtheta
     real(r_def),    intent(in),    dimension(undf_wtheta) :: temperature_wth
+    real(r_def),    intent(in),    dimension(undf_wtheta) :: moist_mass_fac
     real(r_def),    intent(in),    dimension(undf_wtheta) :: cpm
     real(r_def),    intent(inout), dimension(undf_wtheta) :: d_mass_wtheta
     real(r_def),    intent(inout), dimension(undf_wtheta) :: layer_heat_capacity_wtheta
@@ -142,7 +146,7 @@ contains
     ! Heat capacity of layers
     do k = 1,nlayers
       layer_heat_capacity_wtheta(map_wtheta(1) + k) = &
-       d_mass_wtheta(map_wtheta(1) + k) * cpm(map_wtheta(1) + k)
+       d_mass_wtheta(map_wtheta(1) + k) * cpm(map_wtheta(1) + k) * moist_mass_fac(map_wtheta(1) + k)
     end do
 
     ! Calculate temperature at layer boundaries

@@ -108,7 +108,7 @@ lf_local  = real(lf, prec)
 !$OMP SHARED(bl_levels, p, t, q, qcf, qcl, qrain, qgraupel, cf_bulk, bt, bq,   &
 !$OMP        bt_cld, bq_cld, bt_gb, bq_gb, a_qs, a_dqsdt, dqsdt, tdims,        &
 !$OMP        l_mr_physics, r, repsilon, c_virtual, etar, l_noice_in_turb,      &
-!$OMP        cpd_local, lf_local, cpv_cpm, cl_cpm, ci_cpm)
+!$OMP        cpd_local, lf_local, cpv_cpm, cl_cpm, ci_cpm, bl_mload_switch)
 
 do k = 1, bl_levels
 

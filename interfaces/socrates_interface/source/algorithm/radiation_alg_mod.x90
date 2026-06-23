@@ -29,6 +29,7 @@ use lw_mts_kernel_mod,       only: lw_mts_kernel_type
 use timing_mod,              only: start_timing, stop_timing, tik, LPROF
 use log_mod,                 only: log_event, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO
 use log_field_alg_mod,       only: log_field_alg
+use sci_field_minmax_alg_mod, only: log_field_minmax
 use lfric_xios_write_mod,    only: write_field_generic
 use mesh_mod,                only: mesh_type
 use field_parent_mod,        only: write_interface
@@ -498,7 +499,7 @@ subroutine radiation_alg(dtheta_rad, theta, exner, mr, moist_dyn,             &
 
     call invoke( set_thermodynamic_kernel_type( &
                    exner, exner_in_wth, theta, theta_in_w3, rho_in_wth, &
-                   dz_in_wth, temperature_in_wth, cpm, &
+                   dz_in_wth, temperature_in_wth, moist_dyn(total_mass), cpm, &
                    d_mass, layer_heat_capacity, &
                    t_layer_boundaries, p_zero, kappa, gravity ), &
                  name="set_thermodynamics_fields" )
@@ -728,10 +729,13 @@ subroutine radiation_alg(dtheta_rad, theta, exner, mr, moist_dyn,             &
 
   ! first calculate the total temperature increment
   dt_again=dt
+  call log_field_minmax(LOG_LEVEL_DEBUG, 'rad: sw_heating_rate', sw_heating_rate)
+  call log_field_minmax(LOG_LEVEL_DEBUG, 'rad: lw_heating_rate', lw_heating_rate)
   call invoke(aX_plus_bY(dtheta_rad, dt,       sw_heating_rate,  &
                                      dt_again, lw_heating_rate), &
   ! then convert it to a theta increment
               inc_X_divideby_Y(dtheta_rad, exner_in_wth) )
+  call log_field_minmax(LOG_LEVEL_DEBUG, 'rad: dtheta_rad', dtheta_rad)
 
   ! ------------------
   ! Output diagnostics

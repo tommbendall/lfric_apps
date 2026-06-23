@@ -39,7 +39,8 @@ use um_types, only: real_umphys
 use microphysics_config_mod, only: lsp_cp_none,                    &
                                    lsp_cp_dry,                     &
                                    lsp_cp_moist
-use lsp_cpm_mod,            only: set_lsp_cp_coeffs
+use lsp_cpm_mod,             only: set_lsp_cp_coeffs, cpv_cpm, cl_cpm, ci_cpm
+use casim_cpm_mod,           only: set_casim_cp_coeffs
 
 implicit none
 
@@ -597,6 +598,10 @@ character(len=*), parameter :: RoutineName='CHECK_RUN_PRECIP'
 character(len=errormessagelength) :: comments
 character(len=100) :: ChkStr
 
+real(kind=real_umphys) :: cpv_um
+real(kind=real_umphys) :: cl_um
+real(kind=real_umphys) :: ci_um
+
 integer :: ErrorStatus
 
 real(kind=jprb) :: zhook_handle
@@ -887,6 +892,13 @@ call chk_var(lsp_cp,'lsp_cp',                          &
      [lsp_cp_none, lsp_cp_dry,                         &
       lsp_cp_moist])
 call set_lsp_cp_coeffs(lsp_cp)
+
+if (l_casim) then
+  cpv_um = real(cpv_cpm, kind=real_umphys)
+  cl_um = real(cl_cpm, kind=real_umphys)
+  ci_um = real(ci_cpm, kind=real_umphys)
+  call set_casim_cp_coeffs(cpv_um, cl_um, ci_um)
+end if
 
 def_src = ''
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
