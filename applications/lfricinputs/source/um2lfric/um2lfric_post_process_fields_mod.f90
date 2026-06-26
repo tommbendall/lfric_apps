@@ -30,11 +30,14 @@ use lfricinp_um_grid_mod,            only: um_grid
 ! lfricinputs modules
 use lfricinp_stashmaster_mod,        only: stashcode_area_cf,    &
                                            stashcode_v,          &
+                                           stashcode_exner,      &
+                                           stashcode_p,          &
                                            get_stashmaster_item, &
                                            pseudL,               &
                                            snow_layers_and_tiles
 use lfricinp_reorder_snow_field_mod, only: lfricinp_reorder_snow_field
 use lfricinp_add_bottom_level_mod,   only: lfricinp_add_bottom_level
+use lfricinp_remove_top_level_mod,   only: lfricinp_remove_top_level
 use lfricinp_regrid_options_mod,     only: winds_on_w3
 use lfricinp_um_parameters_mod,      only: um_rmdi
 
@@ -52,6 +55,12 @@ case (stashcode_area_cf)
        stashcode
   call log_event(log_scratch_space, LOG_LEVEL_INFO)
   call lfricinp_add_bottom_level(field)
+
+case (stashcode_exner, stashcode_p)
+  write(log_scratch_space, '(A,I0)') "Removing top level for stashcode: ",     &
+       stashcode
+  call log_event(log_scratch_space, LOG_LEVEL_INFO)
+  call lfricinp_remove_top_level(field)
 
 case (stashcode_v)
   if (.not. winds_on_w3) then
