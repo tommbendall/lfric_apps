@@ -39,7 +39,7 @@ module jules_imp_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_imp_kernel_type
     private
-    type(arg_type) :: meta_args(87) = (/                                          &
+    type(arg_type) :: meta_args(88) = (/                                          &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! outer
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! wetrho_in_w3
@@ -74,6 +74,7 @@ module jules_imp_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_2),&! canopy_evap (kg m-2 s-1)
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_5),&! water_extraction (kg m-2 s-1)
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_2),&! snowice_melt (kg m-2 s-1)
+         arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_2),&! snowinc (kg m-2)
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g
@@ -179,6 +180,7 @@ contains
   !> @param[in,out] canopy_evap          Canopy evaporation from land tiles
   !> @param[in,out] water_extraction     Extraction of water from each soil layer
   !> @param[in,out] snowice_melt         Surface, canopy and sea ice, snow and ice melt rate
+  !> @param[in,out] snowinc              Snow increment
   !> @param[in]     m_cf                 Cloud frozen mixing ratio after advection
   !> @param[in]     m_r                  Rain mixing ratio after advection
   !> @param[in]     m_g                  Graupel mixing ratio after advection
@@ -286,6 +288,7 @@ contains
                             canopy_evap,                        &
                             water_extraction,                   &
                             snowice_melt,                       &
+                            snowinc,                            &
                             m_cf,                               &
                             m_r,                                &
                             m_g,                                &
@@ -485,6 +488,7 @@ contains
     real(kind=r_def), intent(inout)   :: surf_heat_flux(undf_tile)
     real(kind=r_def), intent(inout)   :: canopy_evap(undf_tile)
     real(kind=r_def), intent(inout)   :: snowice_melt(undf_tile)
+    real(kind=r_def), intent(inout)   :: snowinc(undf_tile)
 
     real(kind=r_def), intent(in)    :: sea_ice_thickness(undf_sice)
     real(kind=r_def), intent(inout) :: sea_ice_temperature(undf_sice)
@@ -1326,6 +1330,8 @@ contains
                  real(fluxes%ecan_surft(l, n), r_def)
             snowice_melt(map_tile(1,ainfo%land_index(l))+n-1) = &
                  real(fluxes%melt_surft(l, n), r_def)
+            snowinc(map_tile(1,ainfo%land_index(l))+n-1) = &
+                 real(fluxes%snowinc_surft(l, n), r_def)
           end do
         end do
 
