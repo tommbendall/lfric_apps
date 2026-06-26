@@ -28,4 +28,3 @@ class vn31_t348(MacroUpgrade):
         # Use PMSL halo calculations by default
         self.add_setting(config, ["namelist:physics","pmsl_halo_calcs"],".true.")
         return config, self.reports
-
