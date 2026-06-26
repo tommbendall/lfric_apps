@@ -261,7 +261,7 @@ class(lfricinp_regrid_weights_type) :: self
 
 if( num_points_src /= self%num_points_src) then
   write(log_scratch_space, '(2(A,I0))') &
-       "Size mismatch between weights file and " // &
+       "validate_src(): Size mismatch between weights file and " // &
        "code grid definition source grid sizes. Num points weights file: ", &
        self%num_points_src, " Num points grid definition: ", num_points_src
   call log_event(log_scratch_space, LOG_LEVEL_ERROR)
@@ -281,7 +281,7 @@ class(lfricinp_regrid_weights_type) :: self
 
 if( num_points_dst /= self%num_points_dst) then
   write(log_scratch_space, '(2(A,I0))') &
-       "Size mismatch between weights file and " // &
+       "validate_dst(): Size mismatch between weights file and " // &
        "code grid definition source grid sizes. Num points weights file: ", &
        self%num_points_dst, " Num points grid definition: ", num_points_dst
   call log_event(log_scratch_space, LOG_LEVEL_ERROR)

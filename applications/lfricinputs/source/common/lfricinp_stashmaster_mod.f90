@@ -480,6 +480,10 @@ integer(kind=int64), public, parameter :: stashcode_wealth_index_ancil= 628
 integer(kind=int64), public, parameter :: stashcode_sthu_irr          = 630
 integer(kind=int64), public, parameter :: stashcode_frac_irr          = 631
 
+integer(kind=int64), public, parameter :: stashcode_tmheight          = 3304
+integer(kind=int64), public, parameter :: stashcode_dth_conv_noshal   = 5187
+integer(kind=int64), public, parameter :: stashcode_dmv_conv_noshal   = 5188
+integer(kind=int64), public, parameter :: stashcode_udmf              = 5246
 ! New
 integer(kind=int64), public, parameter :: stashcode_qt                = 16207
 

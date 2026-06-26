@@ -21,7 +21,7 @@ use lfric2um_conv_exner_mod,      only: lfric2um_conv_p_exner,            &
 
 ! lfricinp modules
 use lfricinp_stashmaster_mod,          only: get_stashmaster_item, levelt,     &
-                                             rho_levels, single_level,         &
+                                             rho_levels, single_level, datat,  &
                                              stashcode_exner, stashcode_p,     &
                                              stashcode_q, stashcode_theta,     &
                                              theta_levels
@@ -51,7 +51,9 @@ subroutine lfric2um_main_loop()
 implicit none
 
 integer(kind=int64) :: i_stash, level, i_field
-integer(kind=int64) :: stashcode, num_levels
+integer(kind=int64) :: stashcode, num_levels, field_data_type
+integer(kind=int64) :: ii, jj, num_levels_lfric, level_lfric
+integer(kind=int64) :: level_code
 character(len=*), parameter :: routinename='lfric2um_main_loop'
 type(field_type), pointer :: lfric_field
 type(lfricinp_regrid_weights_type), pointer :: weights
@@ -59,6 +61,7 @@ real(kind=real64), allocatable :: global_field_array(:)
 real(kind=real64), allocatable :: q_top_buffer(:,:)      ! Buffer arrays for
 real(kind=real64), allocatable :: theta_top_buffer(:,:)  ! computing Exner pressure
 real(kind=real64), allocatable :: exner_top_buffer(:,:)  ! above the top level
+real(kind=real64), allocatable :: real_field_buffer(:,:)
 logical :: l_conv_p_exner
 
 if (local_rank == 0) then
@@ -91,12 +94,25 @@ do i_stash = 1, lfric2um_config%num_fields
 
   l_conv_p_exner = .false.
 
+  ! Skip first level for these stashcodes
+  num_levels_lfric = num_levels
+  level_code = get_stashmaster_item(stashcode, levelt)
+  if ( stashcode >= 1000 .and. level_code == theta_levels ) then
+    num_levels_lfric = num_levels + 1
+  end if
+
   ! Loop over number of levels in field
   do level = 1, num_levels
     global_field_array(:) = 0.0_real64
+    ! Be careful with the fields where the number of levels in LFRic 
+    ! differ with respect to the number of levels in th UM
+    level_lfric = level
+    if ( stashcode >= 1000 .and. level_code == theta_levels ) then
+      level_lfric = level + 1
+    end if
     ! Gather local lfric fields into global array on base rank
     call lfricinp_gather_lfric_field( lfric_field, global_field_array, comm, &
-         num_levels, level, twod_mesh )
+         num_levels, level_lfric, twod_mesh )
     if (local_rank == 0 ) then
       ! Create UM field in output file
       call lfricinp_add_um_field_to_file(um_output_file, stashcode, &
@@ -105,10 +121,27 @@ do i_stash = 1, lfric2um_config%num_fields
       ! Adding a 2D UM field to the file increments num_fields by 1 each time
       ! Get the index of the last field added, which is just num_fields
       i_field = um_output_file%num_fields
-      call weights%validate_dst(size(um_output_file%fields(i_field)%rdata))
-      ! Perform the regridding from lfric to um
-      call weights%regrid_src_1d_dst_2d(global_field_array(:), &
-           um_output_file%fields(i_field)%rdata(:,:))
+
+      field_data_type = get_stashmaster_item(stashcode, datat) ! Which datatype?
+      if (field_data_type == 1) then      ! real data
+        call weights%validate_dst(size(um_output_file%fields(i_field)%rdata))
+        ! Perform the regridding from lfric to um
+        call weights%regrid_src_1d_dst_2d(global_field_array(:), &
+             um_output_file%fields(i_field)%rdata(:,:))
+      else if (field_data_type == 2) then ! integer data
+        allocate(real_field_buffer(size(um_output_file%fields(i_field)%idata, 1), &
+                                   size(um_output_file%fields(i_field)%idata, 2)))
+        do ii = 1, size(real_field_buffer, 1)
+          do jj = 1, size(real_field_buffer, 2)
+            real_field_buffer(ii,jj) = &
+              real(um_output_file%fields(i_field)%idata(ii,jj), kind=real64)
+          end do
+        end do
+        call weights%regrid_src_1d_dst_2d(global_field_array(:), &
+             real_field_buffer(:,:))
+        um_output_file%fields(i_field)%idata(:,:) = ceiling(real_field_buffer(:,:))
+        deallocate(real_field_buffer)
+      end if
 
       ! Copy the pointers for the top-level fields needed to compute the
       ! Exner pressure at the half level immediately above the model top

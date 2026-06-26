@@ -33,6 +33,8 @@ type :: config
   integer(kind=int64), allocatable :: lbproc_list(:)
   integer(kind=int64) :: um_version_int = um_imdi
   integer(kind=int64) :: dump_validity_time(6) = um_imdi
+  integer(kind=int64) :: dump_data_time(6) = um_imdi
+  integer(kIND=int64) :: dataset_type = 1
   integer :: num_fields
 
   integer :: status = -1
@@ -105,6 +107,8 @@ integer(kind=int64) :: lbtim_list(max_stash_list)
 integer(kind=int64) :: lbproc_list(max_stash_list)
 integer(kind=int64) :: um_version_int = um_imdi
 integer(kind=int64) :: dump_validity_time(6) = um_imdi
+integer(kind=int64) :: dump_data_time(6) = um_imdi
+integer(kind=int64) :: dataset_type = 1
 
 namelist /configure_lfric2um/ output_filename,                                 &
                               target_grid_namelist,                            &
@@ -117,7 +121,9 @@ namelist /configure_lfric2um/ output_filename,                                 &
                               lbtim_list,                                      &
                               lbproc_list,                                     &
                               um_version_int,                                  &
-                              dump_validity_time
+                              dump_validity_time,                              &
+                              dump_data_time,                                  &
+                              dataset_type
 
 stash_list(:) = um_imdi
 lbtim_list(:) = um_imdi
@@ -202,6 +208,8 @@ self%weights_file_face_centre_to_v_bilinear =                                  &
                                  weights_file_face_centre_to_v_bilinear
 self%um_version_int = um_version_int
 self%dump_validity_time(:) = dump_validity_time(:)
+self%dump_data_time(:) = dump_data_time(:)
+self%dataset_type = dataset_type
 
 self%num_fields=0
 ! Count how many fields have been requested
