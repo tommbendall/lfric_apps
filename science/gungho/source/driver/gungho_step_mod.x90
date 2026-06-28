@@ -110,8 +110,8 @@ module gungho_step_mod
     type( field_type), pointer :: dA => null()  ! Areas of faces
     type( field_type), pointer :: accumulated_fluxes => null()
 
-    type( field_type ) :: mr_sum, mr_liq, mr_ice
-    type( field_type ) :: mr_sum_w3, mr_vap_w3, mr_liq_w3, mr_ice_w3
+    type( field_type ) :: mr_liq, mr_ice
+    type( field_type ) :: mr_vap_w3, mr_liq_w3, mr_ice_w3
     type( field_type ) :: cv_rho
 
     type( io_value_type ), pointer :: temp_corr_io_value
@@ -200,16 +200,12 @@ module gungho_step_mod
 
         ! Compute sum of moisture mixing ratios
         call invoke(                                                           &
-            setval_X(mr_sum, mr(imr_v)),                                       &
             setval_X(mr_liq, mr(imr_cl)),                                      &
             inc_X_plus_Y(mr_liq, mr(imr_r)),                                   &
             setval_X(mr_ice, mr(imr_ci)),                                      &
             inc_X_plus_Y(mr_ice, mr(imr_s)),                                   &
             inc_X_plus_Y(mr_ice, mr(imr_g)),                                   &
-            inc_X_plus_Y(mr_sum, mr_liq),                                      &
-            inc_X_plus_Y(mr_sum, mr_ice)                                       &
         )
-        call map_physics_scalars(mr_sum_w3, mr_sum)
         call map_physics_scalars(mr_vap_w3, mr(imr_v))
         call map_physics_scalars(mr_liq_w3, mr_liq)
         call map_physics_scalars(mr_ice_w3, mr_ice)
@@ -222,7 +218,7 @@ module gungho_step_mod
         call compute_total_mass_alg( total_cv_mass, cv_rho, mesh )
         call compute_total_mass_alg( total_dry_mass, rho, mesh )
         call compute_total_energy_alg( total_energy,                      &
-                                       derived_fields, &
+                                       derived_fields,                    &
                                        u, theta, exner, rho, mr,          &
                                        mesh, twod_mesh )
 
