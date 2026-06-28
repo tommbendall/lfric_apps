@@ -881,10 +881,10 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  cpm_dag = cpd + cpv_cpm*(q_earliest(i,1,k)+qcl_earliest(i,1,k)) &
-                               + cl_cpm*qrain(i,1,k)                          &
-                               + ci_cpm*(qcf_total(i,1,k)+qgraupel(i,1,k))
-                  t_inc_pc2(i,1,k)   =  (-lrv0/cpm_dag) * qcl_earliest(i,1,k)
+                  cpm = cpd + q_earliest(i,1,k)*cpv_cpm                        &
+                           + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm         &
+                           + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
+                  t_inc_pc2(i,1,k)   =  (-lrv0/cpm) * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
                   qcl_inc_pc2(i,1,k) =  (-qcl_earliest(i,1,k))
                   cfl_inc_pc2(i,1,k) =  (-cfl_earliest(i,1,k))
@@ -915,10 +915,19 @@ contains
 
           do k = 1, nlayers
             do i = 1, seg_len
+              ! Recompute heat capacities for T_liq-to-T conversion
+              cpm = cpd + q_earliest(i,1,k)*cpv_cpm                            &
+                       + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm             &
+                       + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
+              cpm_dag = cpd + cpv_cpm*(q_earliest(i,1,k)+qcl_earliest(i,1,k))  &
+                           + cl_cpm*qrain(i,1,k)                               &
+                           + ci_cpm*(qcf_total(i,1,k)+qgraupel(i,1,k))
               ! Update working version of temperature, moisture and cloud
               ! fields with increments from the PC2 homogeneous response.
-              t_latest(i,1,k)   = t_earliest(i,1,k) + tl_force(i,1,k)          &
-                   + t_inc_pc2(i,1,k)
+              ! tl_force is a T_liq increment; scale by cpm_dag/cpm to
+              ! convert to a T increment.
+              t_latest(i,1,k)   = t_earliest(i,1,k)                            &
+                   + (cpm_dag/cpm)*tl_force(i,1,k) + t_inc_pc2(i,1,k)
               q_latest(i,1,k)   = q_earliest(i,1,k) + qt_force(i,1,k)          &
                    + q_inc_pc2(i,1,k)
               qcl_latest(i,1,k) = qcl_earliest(i,1,k)                          &
