@@ -298,9 +298,9 @@ do k = 2, bl_levels
       grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
                                    + qcf(i,j,k) + qrain(i,j,k)                 &
                                    + qgraupel(i,j,k)))                         &
-                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k))                     &
+                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))         &
                         + cl_cpm_bl*qrain(i,j,k)                               &
-                        + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k)) )
+                        + ci_cpm_bl*qgraupel(i,j,k) )
       grad_ftl = - rhokh(i,j,k) *                                              &
         ( ( ( tl(i,j,k) - tl(i,j,k-1) ) * rdz(i,j,k) ) + grcp_moist )
       grad_fqw = - rhokh(i,j,k) *                                              &

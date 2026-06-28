@@ -943,9 +943,9 @@ do k = 2, bl_levels
       grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
                                    + qcf(i,j,k) + qrain(i,j,k)                 &
                                    + qgraupel(i,j,k)))                         &
-                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k))                     &
+                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))          &
                         + cl_cpm_bl*qrain(i,j,k)                               &
-                        + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k)) )
+                        + ci_cpm_bl*qgraupel(i,j,k) )
       dsldz(i,j,k)    = ( tl(i,j,k) - tl(i,j,k-1) )                            &
                               *rdz_charney_grid(i,j,k) + grcp_moist
       dsldz_ga(i,j,k) = dsldz(i,j,k)
@@ -1008,9 +1008,9 @@ else ! l_use_surf_in_ri = true
       grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
                                    + qcf(i,j,k) + qrain(i,j,k)                 &
                                    + qgraupel(i,j,k)))                         &
-                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k))                     &
+                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))          &
                         + cl_cpm_bl*qrain(i,j,k)                               &
-                        + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k)) )
+                        + ci_cpm_bl*qgraupel(i,j,k) )
       dsldz(i,j,k)    = ( tl(i,j,k) - tstar(i,j) )                             &
                               *rdz_charney_grid(i,j,k) + grcp_moist
       dsldz_ga(i,j,k) = dsldz(i,j,k) ! no GA below level 1

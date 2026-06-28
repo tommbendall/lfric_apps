@@ -52,7 +52,7 @@ contains
       cl_local = cvd
       ci_local = cvd
     case(gungho_cp_moist)
-      cvv_local = cpv
+      cvv_local = cpv - Rv
       cl_local = cl
       ci_local = ci
     end select

@@ -11,6 +11,7 @@
 
 module gungho_step_mod
 
+  use compute_cv_alg_mod,             only : compute_cv_alg
   use conservation_algorithm_mod,     only : conservation_algorithm
   use constants_mod,                  only : i_def, r_def, l_def
   use energy_correction_config_mod,   only : encorr_usage,      &
@@ -19,6 +20,9 @@ module gungho_step_mod
   use field_array_mod,                only : field_array_type
   use field_collection_mod,           only : field_collection_type
   use field_mod,                      only : field_type
+  use fs_continuity_mod,              only : W3, Wtheta
+  use function_space_collection_mod,  only : function_space_collection
+  use function_space_mod,             only : function_space_type
   use io_value_mod,                   only : io_value_type, &
                                              get_io_value
   use formulation_config_mod,         only : use_physics,             &
@@ -38,11 +42,13 @@ module gungho_step_mod
   use mesh_mod,                       only : mesh_type
   use minmax_tseries_mod,             only : minmax_tseries
   use model_clock_mod,                only : model_clock_type
-  use mr_indices_mod,                 only : nummr
+  use mr_indices_mod,                 only : nummr, imr_cl, imr_ci, imr_r,      &
+                                             imr_v, imr_s, imr_g
   use section_choice_config_mod,      only : cloud, cloud_um
   use sum_fluxes_alg_mod,             only : sum_fluxes_alg
   use moisture_conservation_alg_mod,  only : moisture_conservation_alg
   use moisture_fluxes_alg_mod,        only : moisture_fluxes_alg
+  use physics_mappings_alg_mod,       only : map_physics_scalars
   use timestep_method_mod,        only : timestep_method_type, &
                                          get_timestep_method_from_collection
   use rk_alg_timestep_mod,        only : rk_timestep_type
@@ -94,6 +100,9 @@ module gungho_step_mod
     type( field_collection_type ), pointer :: turbulence_fields
     type( field_collection_type ), pointer :: convection_fields
 
+    type( function_space_type ), pointer  :: w3_fs
+    type( function_space_type ), pointer  :: wt_fs
+
     type( field_type), pointer :: theta => null()
     type( field_type), pointer :: u => null()
     type( field_type), pointer :: rho => null()
@@ -101,12 +110,17 @@ module gungho_step_mod
     type( field_type), pointer :: dA => null()  ! Areas of faces
     type( field_type), pointer :: accumulated_fluxes => null()
 
+    type( field_type ) :: mr_sum, mr_liq, mr_ice
+    type( field_type ) :: mr_sum_w3, mr_vap_w3, mr_liq_w3, mr_ice_w3
+    type( field_type ) :: cv_rho
+
     type( io_value_type ), pointer :: temp_corr_io_value
 
 
     class(timestep_method_type), pointer :: timestep_method => null()
 
     real(r_def), pointer :: total_dry_mass
+    real(r_def), pointer :: total_cv_mass
     real(r_def), pointer :: total_energy
     real(r_def), pointer :: total_energy_previous
 
@@ -172,6 +186,40 @@ module gungho_step_mod
       if ( mod( nint( dt * model_clock%get_step() ), &
                 3600_i_def * reset_hours ) == 0 ) then
 
+        ! Compute integral of cv*rho -------------------------------------------
+        ! TODO: some of this calculation is repeated in compute_total_energy_alg
+        w3_fs => function_space_collection%get_fs( mesh, 0, 0, W3 )
+        wt_fs => function_space_collection%get_fs( mesh, 0, 0, Wtheta )
+
+        call mr_liq%initialise(wt_fs)
+        call mr_ice%initialise(wt_fs)
+        call mr_vap_w3%initialise(w3_fs)
+        call mr_liq_w3%initialise(w3_fs)
+        call mr_ice_w3%initialise(w3_fs)
+        call cv_rho%initialise(w3_fs)
+
+        ! Compute sum of moisture mixing ratios
+        call invoke(                                                           &
+            setval_X(mr_sum, mr(imr_v)),                                       &
+            setval_X(mr_liq, mr(imr_cl)),                                      &
+            inc_X_plus_Y(mr_liq, mr(imr_r)),                                   &
+            setval_X(mr_ice, mr(imr_ci)),                                      &
+            inc_X_plus_Y(mr_ice, mr(imr_s)),                                   &
+            inc_X_plus_Y(mr_ice, mr(imr_g)),                                   &
+            inc_X_plus_Y(mr_sum, mr_liq),                                      &
+            inc_X_plus_Y(mr_sum, mr_ice)                                       &
+        )
+        call map_physics_scalars(mr_sum_w3, mr_sum)
+        call map_physics_scalars(mr_vap_w3, mr(imr_v))
+        call map_physics_scalars(mr_liq_w3, mr_liq)
+        call map_physics_scalars(mr_ice_w3, mr_ice)
+
+        ! Compute heat capacity of moist air
+        call compute_cv_alg(cv_rho, mr_vap_w3, mr_liq_w3, mr_ice_w3)
+
+        call invoke( inc_X_times_Y(cv_rho, rho) )
+
+        call compute_total_mass_alg( total_cv_mass, cv_rho, mesh )
         call compute_total_mass_alg( total_dry_mass, rho, mesh )
         call compute_total_energy_alg( total_energy,                      &
                                        derived_fields, &
@@ -181,7 +229,7 @@ module gungho_step_mod
         call update_energy_correction_alg(                  &
                                temp_corr_io_value%data(1),  &
                                accumulated_fluxes,          &
-                               total_dry_mass, dt,          &
+                               total_cv_mass, dt,           &
                                mesh, twod_mesh,             &
                                total_energy,                &
                                total_energy_previous )

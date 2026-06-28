@@ -85,10 +85,11 @@ lrs0 = (lc + lf) + (ci_cpm - cpv_cpm) * tm
 do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      ! Compute cpm BEFORE phase change for ice-liquid temperature
-      cpm = cpd + cpv_cpm*(q(i,j,k) - qcl(i,j,k) - qcf(i,j,k))                 &
-                + cl_cpm*(qcl(i,j,k) + qrain(i,j,k))                           &
-                + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
+      ! Compute cpm_dag_TL BEFORE removing ice from q.
+      ! q here = QW = qv + qcl + qcf, so cpv_cpm*q = cpv*(qv+qcl+qcf).
+      cpm = cpd + cpv_cpm*q(i,j,k)                                             &
+                + cl_cpm*qrain(i,j,k)                                          &
+                + ci_cpm*qgraupel(i,j,k)
       ! Convert Q (vapour+liquid+ice) to (vapour+liquid)
       q(i,j,k)=q(i,j,k)-qcf(i,j,k)
       ! Check that Q is not negative
@@ -99,9 +100,10 @@ do k = 1, bl_levels
         q(i,j,k)=q(i,j,k)+(qcf(i,j,k)-newqcf)
         qcf(i,j,k)=newqcf
       end if
-      ! Compute cpm_dag AFTER phase change for liquid temperature
-      cpm_dag = cpd + cpv_cpm*(q(i,j,k) - qcl(i,j,k))                          &
-                    + cl_cpm*(qcl(i,j,k) + qrain(i,j,k))                       &
+      ! Compute cpm_dag_liq AFTER removing ice from q.
+      ! q now = qv + qcl, so cpv_cpm*q = cpv*(qv+qcl).
+      cpm_dag = cpd + cpv_cpm*q(i,j,k)                                         &
+                    + cl_cpm*qrain(i,j,k)                                      &
                     + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
       ! Adjust T from T liquid ice to T liquid
       t(i,j,k) = (cpm/cpm_dag) * t(i,j,k) + (lrs0/cpm_dag)*qcf(i,j,k)
