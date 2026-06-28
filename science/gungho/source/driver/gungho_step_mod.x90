@@ -204,7 +204,7 @@ module gungho_step_mod
             inc_X_plus_Y(mr_liq, mr(imr_r)),                                   &
             setval_X(mr_ice, mr(imr_ci)),                                      &
             inc_X_plus_Y(mr_ice, mr(imr_s)),                                   &
-            inc_X_plus_Y(mr_ice, mr(imr_g)),                                   &
+            inc_X_plus_Y(mr_ice, mr(imr_g))                                    &
         )
         call map_physics_scalars(mr_vap_w3, mr(imr_v))
         call map_physics_scalars(mr_liq_w3, mr_liq)
