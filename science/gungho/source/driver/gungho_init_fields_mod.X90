@@ -10,7 +10,12 @@
 !>
 module gungho_init_fields_mod
 
-  use mr_indices_mod,                     only : nummr, mr_names
+  use compute_cv_alg_mod,                 only : compute_cv_alg
+  use fs_continuity_mod,                  only : W3, Wtheta
+  use function_space_collection_mod,      only : function_space_collection
+  use function_space_mod,                 only : function_space_type
+  use mr_indices_mod,                     only : nummr, imr_cl, imr_ci, imr_r, &
+                                                 imr_v, imr_s, imr_g, mr_names
   use moist_dyn_mod,                      only : num_moist_factors, moist_dyn_names
   use field_array_mod,                    only : field_array_type
   use field_mod,                          only : field_type
@@ -81,6 +86,7 @@ module gungho_init_fields_mod
   use create_physics_prognostics_mod,     only : create_physics_prognostics
   use field_mapper_mod,                   only : field_mapper_type
   use map_fd_to_prognostics_alg_mod,      only : map_fd_to_prognostics
+  use physics_mappings_alg_mod,           only : map_physics_scalars
   use gungho_init_prognostics_driver_mod, only : init_gungho_prognostics
   use init_gungho_lbcs_alg_mod,           only : init_lbcs_file_alg,    &
                                                  init_lbcs_analytic_alg
@@ -553,6 +559,7 @@ subroutine create_model_data( modeldb,      &
     type( field_type ), pointer :: exner => null()
     type( field_type ), pointer :: accumulated_fluxes    => null()
     type( field_type ), pointer :: ageofair => null()
+    type( field_type ), pointer :: mr(:)
 
     type( io_value_type ),               pointer :: temp_corr_io_value
     type( io_value_type ),               pointer :: random_seed_io_value
@@ -594,7 +601,14 @@ subroutine create_model_data( modeldb,      &
     type(gungho_time_axes_type), pointer :: model_axes
 
     real(r_def), pointer :: total_dry_mass
+    real(r_def), pointer :: total_cv_mass
     real(r_def), pointer :: total_energy_previous
+
+    type(function_space_type), pointer  :: w3_fs
+    type(function_space_type), pointer  :: wt_fs
+    type(field_type) :: mr_liq, mr_ice
+    type(field_type) :: mr_vap_w3, mr_liq_w3, mr_ice_w3
+    type(field_type) :: cv_rho
 
     type(field_collection_type), pointer :: moisture_fields => null()
     type(field_array_type), pointer      :: mr_array => null()
@@ -643,6 +657,7 @@ subroutine create_model_data( modeldb,      &
       random_seed_io_value => get_io_value( modeldb%values, 'random_seed_io_value' )
     end if
     call modeldb%values%get_value( 'total_dry_mass', total_dry_mass )
+    call modeldb%values%get_value( 'total_cv_mass', total_cv_mass )
     call modeldb%values%get_value( 'total_energy_previous', &
                                    total_energy_previous )
 
@@ -961,8 +976,37 @@ subroutine create_model_data( modeldb,      &
 
       ! Initialise energy correction
       if ( encorr_usage /= encorr_usage_none ) then
-        call compute_total_mass_alg( total_dry_mass, rho, mesh )
+        ! TODO: some of this calculation is repeated in compute_total_energy_alg
+        w3_fs => function_space_collection%get_fs( mesh, 0, 0, W3 )
+        wt_fs => function_space_collection%get_fs( mesh, 0, 0, Wtheta )
 
+        mr => mr_array%bundle
+        call mr_liq%initialise(wt_fs)
+        call mr_ice%initialise(wt_fs)
+        call mr_vap_w3%initialise(w3_fs)
+        call mr_liq_w3%initialise(w3_fs)
+        call mr_ice_w3%initialise(w3_fs)
+        call cv_rho%initialise(w3_fs)
+
+        ! Compute sum of moisture mixing ratios
+        call invoke(                                                           &
+            setval_X(mr_liq, mr(imr_cl)),                                      &
+            inc_X_plus_Y(mr_liq, mr(imr_r)),                                   &
+            setval_X(mr_ice, mr(imr_ci)),                                      &
+            inc_X_plus_Y(mr_ice, mr(imr_s)),                                   &
+            inc_X_plus_Y(mr_ice, mr(imr_g))                                    &
+        )
+        call map_physics_scalars(mr_vap_w3, mr(imr_v))
+        call map_physics_scalars(mr_liq_w3, mr_liq)
+        call map_physics_scalars(mr_ice_w3, mr_ice)
+
+        ! Compute heat capacity of moist air
+        call compute_cv_alg(cv_rho, mr_vap_w3, mr_liq_w3, mr_ice_w3)
+
+        call invoke( inc_X_times_Y(cv_rho, rho) )
+
+        call compute_total_mass_alg( total_dry_mass, rho, mesh )
+        call compute_total_mass_alg( total_cv_mass, rho, mesh )
         call compute_total_energy_alg( total_energy_previous,                 &
                                        derived_fields,                        &
                                        u, theta, exner, rho,                  &
