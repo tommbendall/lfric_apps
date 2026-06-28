@@ -48,7 +48,7 @@ use atm_fields_bounds_mod, only:                                               &
 use bl_option_mod, only: one
 use planet_constants_mod, only: cp_bl
 use water_constants_mod, only: lc, tm, lf
-use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl, bl_mload_switch
+use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
 use vectlib_mod, only: oneover_v => oneover_v_interface
 use model_domain_mod, only: model_type, mt_single_column
 use yomhook, only: lhook, dr_hook
@@ -376,7 +376,7 @@ tdims_seg_block = min(tdims_omp_block, tdims%i_len)
 !$OMP  qw,tl,r_theta_levels,r_theta_u,r_theta_v,r_rho_levels,fqw,              &
 !$OMP  dtrdz_charney_grid,gamma2,ct_ctq,dqw1,dtl1,ctctq1,model_type,           &
 !$OMP  cq_cm_u_1,cq_cm_v_1,du_1,dv_1,                                          &
-!$OMP  dqw1_1,dtl1_1,ctctq1_1,bl_mload_switch,                                 &
+!$OMP  dqw1_1,dtl1_1,ctctq1_1,                                                 &
 !$OMP  ct_prod, cu_prod, cv_prod,k_blend_tq,k_blend_u,k_blend_v,               &
 !$OMP  gamma_in,cq_cm_u,cq_cm_v,du_nt,dv_nt,rhokm_v,                           &
 !$OMP  cp_bl,cpv_cpm_bl,cl_cpm_bl,ci_cpm_bl,lc_bl,lf_bl,tm_bl,lrv0,lrs0)       &
@@ -393,10 +393,7 @@ if ( l_correct ) then
         ! Don't use QW, TL here as these are no longer at time level n
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
                       + qcf_latest(i,j,k)                                      &
-                      + bl_mload_switch*(qrain_latest(i,j,k)                   &
-                      + qgraupel_latest(i,j,k))                                &
-                      - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)                     &
-                      - bl_mload_switch*(qrain(i,j,k) + qgraupel(i,j,k))
+                      - q(i,j,k) - qcl(i,j,k) - qcf(i,j,k)
 
         ! Heat capacity at latest time level
         cpm = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                               &
@@ -450,8 +447,7 @@ else
   do k = 1, bl_levels
     do j = tdims%j_start, tdims%j_end
       do i = tdims%i_start, tdims%i_end
-        qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)                         &
-                  + bl_mload_switch*(qrain(i,j,k) + qgraupel(i,j,k))
+        qw(i,j,k) = q(i,j,k) + qcl(i,j,k) + qcf(i,j,k)
 
         ! Calculate heat capacities
         cpm = cp_bl + q(i,j,k)*cpv_cpm_bl                                      &
@@ -464,9 +460,7 @@ else
                   - (lrv0/cpm_dag)*qcl(i,j,k)                                  &
                   - (lrs0/cpm_dag)*qcf(i,j,k)
         dqw_nt(i,j,k) = q_latest(i,j,k) + qcl_latest(i,j,k)                    &
-                        + qcf_latest(i,j,k)                                    &
-                        + bl_mload_switch*(qrain_latest(i,j,k)                 &
-                        + qgraupel_latest(i,j,k)) - qw(i,j,k)
+                        + qcf_latest(i,j,k) - qw(i,j,k)
 
         ! Calculate heat capacities at latest time level
         cpm = cp_bl + q_latest(i,j,k)*cpv_cpm_bl                               &

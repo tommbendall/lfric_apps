@@ -172,6 +172,8 @@ contains
                                        temp_corr_io_value)
     ! Total mass of dry atmosphere used for energy correction
     call modeldb%values%add_key_value( 'total_dry_mass', 0.0_r_def )
+    ! Total cv*mass of dry atmosphere used for energy correction
+    call modeldb%values%add_key_value( 'total_cv_mass', 0.0_r_def )
     ! Total energy of moist atmosphere for calculating energy correction
     call modeldb%values%add_key_value( 'total_energy', 0.0_r_def )
     ! Total energy of moist atmosphere at previous energy correction step
