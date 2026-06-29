@@ -7,7 +7,8 @@
 !>        representation
 module sum_fluxes_alg_mod
 
-  use sci_multi_extract_kernel_mod, only: multi_extract_kernel_type
+  use moisture_energy_flux_kernel_mod, only: moisture_energy_flux_kernel_type
+  use sci_multi_extract_kernel_mod,    only: multi_extract_kernel_type
 
   implicit none
 
@@ -17,7 +18,8 @@ module sum_fluxes_alg_mod
 contains
 
   subroutine sum_fluxes_alg( accumulated_fluxes, radiation_fields, turbulence_fields, &
-                             convection_fields, microphysics_fields )
+                             convection_fields, microphysics_fields,                   &
+                             theta, derived_fields )
 
     use constants_mod,              only: r_def
     use driver_water_constants_mod, only: Lv0 => latent_heat_h2o_condensation, &
@@ -25,6 +27,7 @@ contains
                                           cpv => heat_capacity_h2o_vapour,     &
                                           cl  => heat_capacity_h2o,            &
                                           ci  => heat_capacity_ice,            &
+                                          Rv  => gas_constant_h2o,             &
                                           Tm => T_freeze_h2o
     use field_mod,                  only: field_type
     use field_collection_mod,       only: field_collection_type
@@ -40,9 +43,11 @@ contains
     type( field_collection_type ), intent(in) :: turbulence_fields
     type( field_collection_type ), intent(in) :: convection_fields
     type( field_collection_type ), intent(in) :: microphysics_fields
+    type( field_type ),            intent(in) :: theta
+    type( field_collection_type ), intent(in) :: derived_fields
 
-    real( kind=r_def ) :: Lvr, Lsr, graup_factor, surface_geopotential
-    real( kind=r_def ) :: cpv_local, cl_local, ci_local
+    real( kind=r_def ) :: Lvr, Lsr, graup_factor
+    real( kind=r_def ) :: cpv_local, cl_local, ci_local, Rv_local
 
     type( field_type ), pointer :: heat_flux_bl => null()
     type( field_type ), pointer :: moist_flux_bl => null()
@@ -58,8 +63,13 @@ contains
     type( field_type ), pointer :: ls_graup => null()
     type( field_type ), pointer :: conv_rain => null()
     type( field_type ), pointer :: conv_snow => null()
+    type( field_type ), pointer :: exner_in_wth => null()
+    type( field_type ), pointer :: u_in_w3 => null()
+    type( field_type ), pointer :: v_in_w3 => null()
 
-    type( field_type )          :: heat_flux_surf, fqw_total
+    type( field_type )          :: heat_flux_surf
+    type( field_type )          :: vap_in_total, liq_out_total, ice_out_total
+    type( field_type )          :: theta_surf, exner_surf, u_surf, v_surf
 
     ! Set heat capacities and latent heats
     select case(gungho_cp)
@@ -67,19 +77,19 @@ contains
       cpv_local = 0.0_r_def
       cl_local = 0.0_r_def
       ci_local = 0.0_r_def
-      surface_geopotential = 0.0_r_def   ! Ensures old behaviour retained
+      Rv_local = 0.0_r_def
       graup_factor = 0.0_r_def           ! Ensures old behaviour retained
     case(gungho_cp_dry)
       cpv_local = cpd
       cl_local = cpd
       ci_local = cpd
-      surface_geopotential = planet_radius*gravity
+      Rv_local = 0.0_r_def
       graup_factor = 0.0_r_def
     case(gungho_cp_moist)
       cpv_local = cpv
       cl_local = cl
       ci_local = ci
-      surface_geopotential = planet_radius*gravity
+      Rv_local = Rv
       graup_factor = 1.0_r_def
     end select
 
@@ -103,10 +113,12 @@ contains
     call convection_fields%get_field('conv_snow', conv_snow)
 
     call ls_rain%copy_field_properties(heat_flux_surf)
-    call ls_rain%copy_field_properties(fqw_total)
+    call ls_rain%copy_field_properties(vap_in_total)
+    call ls_rain%copy_field_properties(liq_out_total)
+    call ls_rain%copy_field_properties(ice_out_total)
 
     call invoke( multi_extract_kernel_type(heat_flux_surf, heat_flux_bl, 1, 1), &
-                 multi_extract_kernel_type(fqw_total, moist_flux_bl, 1, 1),     &
+                 multi_extract_kernel_type(vap_in_total, moist_flux_bl, 1, 1),  &
                  inc_X_plus_Y(accumulated_fluxes, heat_flux_surf),              &
                  inc_X_plus_Y(accumulated_fluxes, sw_direct_toa_rts),           &
                  inc_X_minus_Y(accumulated_fluxes, sw_up_toa_rts),              &
@@ -120,11 +132,50 @@ contains
                  inc_X_plus_bY(accumulated_fluxes, Lvr, conv_rain),             &
                  inc_X_plus_bY(accumulated_fluxes, Lsr, conv_snow),             &
                  inc_X_plus_bY(accumulated_fluxes, graup_factor, ls_graup),     &
-                 inc_X_plus_bY(accumulated_fluxes, surface_geopotential, fqw_total) )
+                 X_plus_Y(liq_out_total, ls_rain, conv_rain),                   &
+                 X_plus_Y(ice_out_total, ls_snow, conv_snow),                   &
+                 inc_X_plus_bY(ice_out_total, graup_factor, ls_graup)           &
+    )
 
     nullify(heat_flux_bl, sw_direct_toa_rts, sw_up_toa_rts, lw_up_toa_rts)
     nullify(sw_down_surf_rts, sw_up_surf_rts, lw_down_surf_rts)
     nullify(lw_up_surf_rts, ls_rain, ls_snow, conv_rain, conv_snow)
+
+    ! -------------------------------------------------------------------------
+    ! Energy flux from moisture entering/leaving the atmosphere.
+    ! This accounts for the kinetic energy (horizontal only) and internal
+    ! energy carried by moisture at the surface level.
+    !
+    ! Only needed when moist/dry energy formulation includes (1+mt)*KE and
+    ! moisture-dependent cv_tot.
+    ! -------------------------------------------------------------------------
+    if ( gungho_cp /= gungho_cp_none ) then
+      call derived_fields%get_field('exner_in_wth', exner_in_wth)
+      call derived_fields%get_field('u_in_w3', u_in_w3)
+      call derived_fields%get_field('v_in_w3', v_in_w3)
+
+      call ls_rain%copy_field_properties(theta_surf)
+      call ls_rain%copy_field_properties(exner_surf)
+      call ls_rain%copy_field_properties(u_surf)
+      call ls_rain%copy_field_properties(v_surf)
+
+      ! Extract surface values from 3D fields
+      call invoke( multi_extract_kernel_type(theta_surf, theta, 1, 1),         &
+                   multi_extract_kernel_type(exner_surf, exner_in_wth, 1, 1),  &
+                   multi_extract_kernel_type(u_surf, u_in_w3, 1, 1),           &
+                   multi_extract_kernel_type(v_surf, v_in_w3, 1, 1) )
+
+      ! Compute energy flux from moisture exchange at the surface.
+      ! SIMPLIFICATION: The temperature used for the heat capacity with
+      ! precipitation is the surface temperature, not the temperature at
+      ! which the precipitation "vanished" from the model grid.
+      call invoke( moisture_energy_flux_kernel_type( accumulated_fluxes,       &
+                       theta_surf, exner_surf, u_surf, v_surf,                 &
+                       vap_in_total, liq_out_total, ice_out_total,             &
+                       cpv_local, cl_local, ci_local, Rv_local ) )
+
+      nullify(exner_in_wth, u_in_w3, v_in_w3)
+    end if
 
   end subroutine sum_fluxes_alg
 

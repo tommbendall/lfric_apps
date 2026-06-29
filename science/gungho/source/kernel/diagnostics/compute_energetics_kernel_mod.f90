@@ -219,7 +219,8 @@ subroutine compute_energetics_code(                                           &
   real(kind=r_def) :: exner_at_quad, rho_at_quad, theta_at_quad, &
                       mr_l_at_quad, mr_i_at_quad, mr_v_at_quad
   real(kind=r_def) :: temperature_term, weight,            &
-                      ke_uv_term, ke_w_term, moisture_term, cv_tot
+                      ke_uv_term, ke_w_term, moisture_term, cv_tot, &
+                      one_plus_mt
 
   ipanel = int(panel_id(map_pid(1)), i_def)
   uv_at_quad(:) = 0.0_r_def
@@ -313,11 +314,12 @@ subroutine compute_energetics_code(                                           &
                                            matmul(jac(:,:,qp1,qp2),uv_at_quad))/(dj(qp1,qp2)**2)
         ke_w_term = 0.5_r_def*dot_product(matmul(jac(:,:,qp1,qp2),w_at_quad), &
                                            matmul(jac(:,:,qp1,qp2),w_at_quad))/(dj(qp1,qp2)**2)
+        one_plus_mt = 1.0_r_def + mr_v_at_quad + mr_l_at_quad + mr_i_at_quad
         do df = 1, ndf_w3
           weight = wqp_h(qp1)*wqp_v(qp2)*rho_at_quad*dj(qp1,qp2)
-          kinetic_uv_e(df) = kinetic_uv_e(df) + weight*ke_uv_term
-          kinetic_w_e(df)  = kinetic_w_e(df) + weight*ke_w_term
-          potential_e(df)  = potential_e(df) + weight*phi_at_quad
+          kinetic_uv_e(df) = kinetic_uv_e(df) + weight*ke_uv_term*one_plus_mt
+          kinetic_w_e(df)  = kinetic_w_e(df) + weight*ke_w_term*one_plus_mt
+          potential_e(df)  = potential_e(df) + weight*phi_at_quad*one_plus_mt
           internal_e(df)   = internal_e(df) + weight*temperature_term
           moist_e(df)      = moist_e(df) + weight*moisture_term
         end do
