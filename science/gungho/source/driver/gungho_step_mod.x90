@@ -183,7 +183,8 @@ module gungho_step_mod
                            radiation_fields,   &
                            turbulence_fields,  &
                            convection_fields,  &
-                           microphysics_fields )
+                           microphysics_fields, &
+                           theta, derived_fields )
       if ( mod( nint( dt * model_clock%get_step() ), &
                 3600_i_def * reset_hours ) == 0 ) then
 

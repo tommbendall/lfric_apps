@@ -21,7 +21,8 @@ module compute_total_energy_alg_mod
                                            Tm => T_freeze_h2o
   use energy_correction_config_mod,  only: integral_method,    &
                                            integral_method_fd, &
-                                           integral_method_fe
+                                           integral_method_fe, &
+                                           new_calculation
   use extrusion_config_mod,          only: planet_radius
   use field_mod,                     only: field_type
   use field_collection_mod,          only: field_collection_type
@@ -229,8 +230,7 @@ contains
       call tot_col_energy%initialise(w3_2d_fs)
 
       ! Compute total energy ---------------------------------------------------
-      select case(gungho_cp)
-      case(gungho_cp_none)
+      if (.not. new_calculation) then
         call mr_w3%initialise(w3_fs)
         ! Legacy calculation ---------------------------------------------------
         call invoke( setval_c(energy_field, 0.0_r_def),                   &
@@ -269,7 +269,7 @@ contains
                      inc_X_times_Y( tot_col_energy, dA ),                             &
                      sum_X( total_energy, tot_col_energy ) )
 
-      case(gungho_cp_dry, gungho_cp_moist)
+      else
         ! Calculation that allows for different heat capacities ----------------
         call mr_liq%initialise(wt_fs)
         call mr_ice%initialise(wt_fs)
@@ -314,9 +314,8 @@ contains
             inc_X_plus_Y(energy_field, energy_term),                           &
             inc_a_times_X(0.5_r_def, energy_field),                            &
             inc_X_times_Y(energy_field, one_plus_mr_t),                        &
-            ! Potential energy: (phi + phi_s)*(1 + m_t)
-            a_plus_X(energy_term, surface_geopotential, geopotential),         &
-            inc_X_times_Y(energy_term, one_plus_mr_t),                         &
+            ! Potential energy: phi*(1 + m_t)
+            X_times_Y(energy_term, one_plus_mr_t, geopotential),               &
             inc_X_plus_Y(energy_field, energy_term),                           &
             ! Internal energy: cv_tot*theta*pi
             X_times_Y(energy_term, theta_in_w3, exner),                        &
@@ -338,7 +337,7 @@ contains
             sum_X(total_energy, tot_col_energy)                                &
         )
 
-      end select
+      end if
 
     case default
       write( log_scratch_space, '(''Unknown integral_method = '', i0, &
