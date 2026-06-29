@@ -9,6 +9,7 @@ module sum_fluxes_alg_mod
 
   use moisture_energy_flux_kernel_mod, only: moisture_energy_flux_kernel_type
   use sci_multi_extract_kernel_mod,    only: multi_extract_kernel_type
+  use energy_correction_config_mod,    only: new_calculation
 
   implicit none
 
@@ -78,24 +79,28 @@ contains
       cl_local = 0.0_r_def
       ci_local = 0.0_r_def
       Rv_local = 0.0_r_def
-      graup_factor = 0.0_r_def           ! Ensures old behaviour retained
     case(gungho_cp_dry)
       cpv_local = cpd
       cl_local = cpd
       ci_local = cpd
       Rv_local = 0.0_r_def
-      graup_factor = 0.0_r_def
     case(gungho_cp_moist)
       cpv_local = cpv
       cl_local = cl
       ci_local = ci
       Rv_local = Rv
-      graup_factor = 1.0_r_def
     end select
 
     Lvr = Lv0 + (cl_local - cpv_local)*Tm
     Lsr = Lvr + Lf0 + (ci_local - cl_local)*Tm
-    graup_factor = graup_factor * Lsr
+
+    ! Set graup_factor AFTER Lsr is computed
+    select case(gungho_cp)
+    case(gungho_cp_moist)
+      graup_factor = Lsr
+    case default
+      graup_factor = 0.0_r_def
+    end select
 
     call turbulence_fields%get_field('heat_flux_bl', heat_flux_bl)
     call turbulence_fields%get_field('moist_flux_bl', moist_flux_bl)
@@ -134,12 +139,8 @@ contains
                  inc_X_plus_bY(accumulated_fluxes, graup_factor, ls_graup),     &
                  X_plus_Y(liq_out_total, ls_rain, conv_rain),                   &
                  X_plus_Y(ice_out_total, ls_snow, conv_snow),                   &
-                 inc_X_plus_bY(ice_out_total, graup_factor, ls_graup)           &
+                 inc_X_plus_Y(ice_out_total, ls_graup)                          &
     )
-
-    nullify(heat_flux_bl, sw_direct_toa_rts, sw_up_toa_rts, lw_up_toa_rts)
-    nullify(sw_down_surf_rts, sw_up_surf_rts, lw_down_surf_rts)
-    nullify(lw_up_surf_rts, ls_rain, ls_snow, conv_rain, conv_snow)
 
     ! -------------------------------------------------------------------------
     ! Energy flux from moisture entering/leaving the atmosphere.
@@ -149,15 +150,15 @@ contains
     ! Only needed when moist/dry energy formulation includes (1+mt)*KE and
     ! moisture-dependent cv_tot.
     ! -------------------------------------------------------------------------
-    if ( gungho_cp /= gungho_cp_none ) then
+    if ( new_calculation ) then
       call derived_fields%get_field('exner_in_wth', exner_in_wth)
       call derived_fields%get_field('u_in_w3', u_in_w3)
       call derived_fields%get_field('v_in_w3', v_in_w3)
 
-      call ls_rain%copy_field_properties(theta_surf)
-      call ls_rain%copy_field_properties(exner_surf)
-      call ls_rain%copy_field_properties(u_surf)
-      call ls_rain%copy_field_properties(v_surf)
+      call accumulated_fluxes%copy_field_properties(theta_surf)
+      call accumulated_fluxes%copy_field_properties(exner_surf)
+      call accumulated_fluxes%copy_field_properties(u_surf)
+      call accumulated_fluxes%copy_field_properties(v_surf)
 
       ! Extract surface values from 3D fields
       call invoke( multi_extract_kernel_type(theta_surf, theta, 1, 1),         &
@@ -174,7 +175,6 @@ contains
                        vap_in_total, liq_out_total, ice_out_total,             &
                        cpv_local, cl_local, ci_local, Rv_local ) )
 
-      nullify(exner_in_wth, u_in_w3, v_in_w3)
     end if
 
   end subroutine sum_fluxes_alg
