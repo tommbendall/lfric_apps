@@ -1008,7 +1008,7 @@ subroutine create_model_data( modeldb,      &
         call invoke( inc_X_times_Y(cv_rho, rho) )
 
         call compute_total_mass_alg( total_dry_mass, rho, mesh )
-        call compute_total_mass_alg( total_cv_mass, rho, mesh )
+        call compute_total_mass_alg( total_cv_mass, cv_rho, mesh )
         call compute_total_energy_alg( total_energy_previous,                 &
                                        derived_fields,                        &
                                        u, theta, exner, rho,                  &
