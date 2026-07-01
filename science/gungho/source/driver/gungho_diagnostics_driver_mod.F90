@@ -199,7 +199,7 @@ contains
     end if
 
     ! Write out grid_cell area at initialisation only
-    if ( use_physics .and. use_xios_io .and. modeldb%clock%is_initialisation() &
+    if ( use_xios_io .and. modeldb%clock%is_initialisation() &
          .and. diagnostic_to_be_sampled("init_area_at_msl") ) then
       dA => get_da_msl_proj(twod_mesh%get_id())
       tmp_write_ptr => write_field_generic

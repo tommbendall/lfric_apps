@@ -22,6 +22,54 @@
         "plot_str": "cartesian_mountain_plot.py diagGungho $NODAL_DATA_DIR u 3  T000750 2 2 8 hmw zoom_1 lines $PLOT_DIR",
     }) %}
 
+{% elif task_ns.conf_name == "cell_area-C12" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cell_area", "no-timestep-method"],
+        "resolution": "C12",
+        "DT": 3600,
+        "threads": 1,
+        "mpi_parts": 6,
+        "tsteps": 12,
+        "kgo_checks": []
+    }) %}
+
+{% elif task_ns.conf_name == "cell_area-C24_MG" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cell_area", "no-timestep-method"],
+        "resolution": "C24_MG",
+        "DT": 3600,
+        "threads": 1,
+        "mpi_parts": 6,
+        "tsteps": 12,
+        "kgo_checks": []
+    }) %}
+
+{% elif task_ns.conf_name == "cell_area-C48_MG" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cell_area", "no-timestep-method"],
+        "resolution": "C48_MG",
+        "DT": 3600,
+        "threads": 1,
+        "mpi_parts": 6,
+        "tsteps": 12,
+        "kgo_checks": []
+    }) %}
+
+{% elif task_ns.conf_name == "cell_area-C192_MG" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cell_area", "no-timestep-method"],
+        "resolution": "C192_MG",
+        "DT": 3600,
+        "threads": 1,
+        "mpi_parts": 384,
+        "tsteps": 12,
+        "kgo_checks": []
+    }) %}
+
 {% elif task_ns.conf_name == "baroclinic-C24_MG" %}
 
     {% do task_dict.update({

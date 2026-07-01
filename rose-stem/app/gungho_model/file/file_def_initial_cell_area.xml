@@ -1,0 +1,9 @@
+<file_definition>
+
+  <file id="lfric_initial" name="lfric_initial" output_freq="1ts" convention="UGRID" enabled=".TRUE.">
+    <field_group id="initial_dynamics_fields" freq_op="1ts" operation="once" enabled=".TRUE." >
+      <field field_ref="init_area_at_msl" />
+    </field_group>
+  </file>
+
+</file_definition>

@@ -114,6 +114,12 @@
         "gungho_model_tidally-locked-earth-C24_MG_ex1a_gnu_fast-debug-64bit",
         "gungho_model_ex1a_canned",
     ],
+    "gungho_model_cell_area": [
+        "gungho_model_cell_area-C12_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cell_area-C24_MG_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cell_area-C48_MG_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cell_area-C192_MG_ex1a_gnu_fast-debug-64bit",
+    ],
     "gungho_model_ex1a_C256_performance_perftools": [
         "gungho_model_gh_profile_omp1_3nodes-C256_MG_ex1a_perftools-gnu_production-64bit",
         "gungho_model_gh_profile_omp1_6nodes-C256_MG_ex1a_perftools-gnu_production-64bit",
