@@ -10,7 +10,7 @@ module sum_fluxes_alg_mod
   use moisture_energy_flux_kernel_mod, only: moisture_energy_flux_kernel_type
   use sci_multi_extract_kernel_mod,    only: multi_extract_kernel_type
   use dycore_constants_mod,            only: get_geopotential
-  use energy_correction_config_mod,    only: new_calculation
+  use energy_correction_config_mod,    only: new_calculation, delta_T_liq
 
   implicit none
 
@@ -67,11 +67,12 @@ contains
     type( field_type ), pointer :: exner_in_wth => null()
     type( field_type ), pointer :: u_in_w3 => null()
     type( field_type ), pointer :: v_in_w3 => null()
+    type( field_type ), pointer :: w_in_w3 => null()
     type( field_type ), pointer :: geopotential => null()
 
     type( field_type )          :: heat_flux_surf
     type( field_type )          :: vap_in_total, liq_out_total, ice_out_total
-    type( field_type )          :: theta_surf, exner_surf, u_surf, v_surf
+    type( field_type )          :: theta_surf, exner_surf, u_surf, v_surf, w_surf
     type( field_type )          :: geopot_surf
 
     ! Set heat capacities and latent heats
@@ -145,6 +146,7 @@ contains
       call derived_fields%get_field('exner_in_wth', exner_in_wth)
       call derived_fields%get_field('u_in_w3', u_in_w3)
       call derived_fields%get_field('v_in_w3', v_in_w3)
+      call derived_fields%get_field('w_in_w3', w_in_w3)
 
       ! Geopotential (zero at the surface) for the potential-energy carried by
       ! moisture, consistent with the (1+mt)*geopotential term in the moist
@@ -155,6 +157,7 @@ contains
       call accumulated_fluxes%copy_field_properties(exner_surf)
       call accumulated_fluxes%copy_field_properties(u_surf)
       call accumulated_fluxes%copy_field_properties(v_surf)
+      call accumulated_fluxes%copy_field_properties(w_surf)
       call accumulated_fluxes%copy_field_properties(geopot_surf)
 
       ! Extract surface values from 3D fields
@@ -162,6 +165,7 @@ contains
                    multi_extract_kernel_type(exner_surf, exner_in_wth, 1, 1),  &
                    multi_extract_kernel_type(u_surf, u_in_w3, 1, 1),           &
                    multi_extract_kernel_type(v_surf, v_in_w3, 1, 1),           &
+                   multi_extract_kernel_type(w_surf, w_in_w3, 1, 1),           &
                    multi_extract_kernel_type(geopot_surf, geopotential, 1, 1) )
 
       ! Compute energy flux from moisture exchange at the surface.
@@ -169,10 +173,10 @@ contains
       ! precipitation is the surface temperature, not the temperature at
       ! which the precipitation "vanished" from the model grid.
       call invoke( moisture_energy_flux_kernel_type( accumulated_fluxes,       &
-                       theta_surf, exner_surf, u_surf, v_surf,                 &
+                       theta_surf, exner_surf, u_surf, v_surf, w_surf,         &
                        vap_in_total, liq_out_total, ice_out_total,             &
                        geopot_surf,                                            &
-                       cpv_local, cl_local, ci_local, Rv_local ) )
+                       cpv_local, cl_local, ci_local, Rv_local, delta_T_liq ) )
 
     end if
 
