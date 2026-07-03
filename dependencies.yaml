@@ -23,7 +23,7 @@ casim:
 
 jules:
     source: git@github.com:tommbendall/jules.git
-    ref: c0549588ed86f1282e8247a3608b887529ee7a01
+    ref: 14bba9e57b47a895bb831eb8656bb3de847aea02
 
 lfric_apps:
     source:
