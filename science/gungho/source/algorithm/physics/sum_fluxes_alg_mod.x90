@@ -176,7 +176,7 @@ contains
                        theta_surf, exner_surf, u_surf, v_surf, w_surf,         &
                        vap_in_total, liq_out_total, ice_out_total,             &
                        geopot_surf,                                            &
-                       cpv_local, cl_local, ci_local, Rv_local, delta_T_liq ) )
+                       cpv_local, cl_local, ci_local, delta_T_liq ) )
 
     end if
 
