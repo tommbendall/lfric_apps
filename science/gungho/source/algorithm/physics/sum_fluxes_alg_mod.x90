@@ -9,6 +9,7 @@ module sum_fluxes_alg_mod
 
   use moisture_energy_flux_kernel_mod, only: moisture_energy_flux_kernel_type
   use sci_multi_extract_kernel_mod,    only: multi_extract_kernel_type
+  use dycore_constants_mod,            only: get_geopotential
   use energy_correction_config_mod,    only: new_calculation
 
   implicit none
@@ -47,7 +48,7 @@ contains
     type( field_type ),            intent(in) :: theta
     type( field_collection_type ), intent(in) :: derived_fields
 
-    real( kind=r_def ) :: Lvr, Lsr, graup_factor
+    real( kind=r_def ) :: Lvr, Lsr
     real( kind=r_def ) :: cpv_local, cl_local, ci_local, Rv_local
 
     type( field_type ), pointer :: heat_flux_bl => null()
@@ -61,16 +62,17 @@ contains
     type( field_type ), pointer :: lw_up_surf_rts => null()
     type( field_type ), pointer :: ls_rain => null()
     type( field_type ), pointer :: ls_snow => null()
-    type( field_type ), pointer :: ls_graup => null()
     type( field_type ), pointer :: conv_rain => null()
     type( field_type ), pointer :: conv_snow => null()
     type( field_type ), pointer :: exner_in_wth => null()
     type( field_type ), pointer :: u_in_w3 => null()
     type( field_type ), pointer :: v_in_w3 => null()
+    type( field_type ), pointer :: geopotential => null()
 
     type( field_type )          :: heat_flux_surf
     type( field_type )          :: vap_in_total, liq_out_total, ice_out_total
     type( field_type )          :: theta_surf, exner_surf, u_surf, v_surf
+    type( field_type )          :: geopot_surf
 
     ! Set heat capacities and latent heats
     select case(gungho_cp)
@@ -94,14 +96,6 @@ contains
     Lvr = Lv0 + (cl_local - cpv_local)*Tm
     Lsr = Lvr + Lf0 + (ci_local - cl_local)*Tm
 
-    ! Set graup_factor AFTER Lsr is computed
-    select case(gungho_cp)
-    case(gungho_cp_moist)
-      graup_factor = Lsr
-    case default
-      graup_factor = 0.0_r_def
-    end select
-
     call turbulence_fields%get_field('heat_flux_bl', heat_flux_bl)
     call turbulence_fields%get_field('moist_flux_bl', moist_flux_bl)
     call radiation_fields%get_field('sw_direct_toa_rts', sw_direct_toa_rts)
@@ -113,7 +107,6 @@ contains
     call radiation_fields%get_field('lw_up_surf_rts', lw_up_surf_rts)
     call microphysics_fields%get_field('ls_rain', ls_rain)
     call microphysics_fields%get_field('ls_snow', ls_snow)
-    call microphysics_fields%get_field('ls_graup', ls_graup)
     call convection_fields%get_field('conv_rain', conv_rain)
     call convection_fields%get_field('conv_snow', conv_snow)
 
@@ -136,10 +129,8 @@ contains
                  inc_X_plus_bY(accumulated_fluxes, Lsr, ls_snow),               &
                  inc_X_plus_bY(accumulated_fluxes, Lvr, conv_rain),             &
                  inc_X_plus_bY(accumulated_fluxes, Lsr, conv_snow),             &
-                 inc_X_plus_bY(accumulated_fluxes, graup_factor, ls_graup),     &
                  X_plus_Y(liq_out_total, ls_rain, conv_rain),                   &
-                 X_plus_Y(ice_out_total, ls_snow, conv_snow),                   &
-                 inc_X_plus_Y(ice_out_total, ls_graup)                          &
+                 X_plus_Y(ice_out_total, ls_snow, conv_snow)                    &
     )
 
     ! -------------------------------------------------------------------------
@@ -155,16 +146,23 @@ contains
       call derived_fields%get_field('u_in_w3', u_in_w3)
       call derived_fields%get_field('v_in_w3', v_in_w3)
 
+      ! Geopotential (zero at the surface) for the potential-energy carried by
+      ! moisture, consistent with the (1+mt)*geopotential term in the moist
+      ! total-energy formulation.
+      geopotential => get_geopotential(theta%get_mesh_id())
+
       call accumulated_fluxes%copy_field_properties(theta_surf)
       call accumulated_fluxes%copy_field_properties(exner_surf)
       call accumulated_fluxes%copy_field_properties(u_surf)
       call accumulated_fluxes%copy_field_properties(v_surf)
+      call accumulated_fluxes%copy_field_properties(geopot_surf)
 
       ! Extract surface values from 3D fields
       call invoke( multi_extract_kernel_type(theta_surf, theta, 1, 1),         &
                    multi_extract_kernel_type(exner_surf, exner_in_wth, 1, 1),  &
                    multi_extract_kernel_type(u_surf, u_in_w3, 1, 1),           &
-                   multi_extract_kernel_type(v_surf, v_in_w3, 1, 1) )
+                   multi_extract_kernel_type(v_surf, v_in_w3, 1, 1),           &
+                   multi_extract_kernel_type(geopot_surf, geopotential, 1, 1) )
 
       ! Compute energy flux from moisture exchange at the surface.
       ! SIMPLIFICATION: The temperature used for the heat capacity with
@@ -173,6 +171,7 @@ contains
       call invoke( moisture_energy_flux_kernel_type( accumulated_fluxes,       &
                        theta_surf, exner_surf, u_surf, v_surf,                 &
                        vap_in_total, liq_out_total, ice_out_total,             &
+                       geopot_surf,                                            &
                        cpv_local, cl_local, ci_local, Rv_local ) )
 
     end if
