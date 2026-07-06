@@ -1750,7 +1750,7 @@ contains
           do i = 1, seg_len
             if (tile_fraction(map_tile(1,i)+first_sea_tile-1) > 0.0_r_def) then
               Lc_full = lc - (cl_cpm - cpv_cpm) *                              &
-                   (coast%tstar_sea_ij(i, 1) - tm)
+                   (tile_temperature(map_tile(1,i)+first_sea_tile-1) - tm)
               latent_heat(map_tile(1,i)+first_sea_tile-1) = Lc_full *          &
                    tile_moisture_flux(map_tile(1,i)+first_sea_tile-1)
             end if
