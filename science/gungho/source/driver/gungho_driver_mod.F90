@@ -300,6 +300,10 @@ contains
     type( field_collection_type ), pointer :: depository => null()
 #endif
 
+#ifdef COUPLED
+    integer(tik) :: cpl_id
+#endif
+
     type( field_collection_type ), pointer :: lbc_fields
 
     type(gungho_time_axes_type), pointer :: model_axes
@@ -373,11 +377,26 @@ contains
        call save_sea_ice_frac_previous(depository)
 
        ! Receive all incoming (ocean/seaice fields) from the coupler
+       if ( LPROF ) then
+          call start_timing(cpl_id, 'gungho_driver.coupler_receive')
+       end if
+
        call cpl_rcv( modeldb )
 
+       if ( LPROF ) then
+          call stop_timing(cpl_id, 'gungho_driver.coupler_receive')
+       end if
+
        ! Send all outgoing (ocean/seaice driving fields) to the coupler
+       if ( LPROF ) then
+          call start_timing(cpl_id, 'gungho_driver.coupler_send')
+       end if
+
        call cpl_snd( modeldb )
 
+       if ( LPROF ) then
+          call stop_timing(cpl_id, 'gungho_driver.coupler_send')
+       end if
     endif
 #endif
 
