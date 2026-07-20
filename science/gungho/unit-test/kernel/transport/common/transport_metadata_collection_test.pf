@@ -129,7 +129,8 @@ contains
       reversible = (/ .false., .false., .false. /),        &
       panel_edge_treatment = panel_edge_treatment_none,    &
       panel_edge_high_order = .false.,                     &
-      special_edges_monotone = (/ 0, 0, 0 /)               &
+      special_edges_monotone = (/ 0, 0, 0 /),              &
+      swift_peregrin = (/ .false., .false., .false. /)     &
     )
 
 
@@ -171,6 +172,7 @@ contains
     logical(kind=l_def),           parameter :: logspace = .true.
     logical(kind=l_def),           parameter :: reversible = .true.
     integer(kind=i_def),           parameter :: ffsl_vertical_order = 2
+    logical(kind=l_def),           parameter :: swift_peregrin = .false.
     type(transport_metadata_type), pointer   :: metadata_ptr
     type(transport_metadata_type)            :: metadata
     character(len=str_def)                   :: fname
@@ -192,7 +194,8 @@ contains
                                        no_logspace,                    &
                                        reversible,                     &
                                        ffsl_splitting_swift,           &
-                                       ffsl_vertical_order)
+                                       ffsl_vertical_order,            &
+                                       swift_peregrin)
 
     call transport_metadata_collection%set_transport_metadata(metadata)
 
@@ -212,7 +215,8 @@ contains
                                        no_logspace,                    &
                                        reversible,                     &
                                        ffsl_splitting_swift,           &
-                                       ffsl_vertical_order)
+                                       ffsl_vertical_order,            &
+                                       swift_peregrin)
 
     call transport_metadata_collection%set_transport_metadata(metadata)
 
@@ -232,7 +236,8 @@ contains
                                        logspace,                       &
                                        reversible,                     &
                                        ffsl_splitting_swift,           &
-                                       ffsl_vertical_order)
+                                       ffsl_vertical_order,            &
+                                       swift_peregrin)
 
     call transport_metadata_collection%set_transport_metadata(metadata)
 

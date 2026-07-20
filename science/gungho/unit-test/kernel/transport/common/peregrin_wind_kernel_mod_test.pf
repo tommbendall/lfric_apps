@@ -1,0 +1,301 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! GitHub Copilot.
+!-----------------------------------------------------------------------------
+!> Test the computation of the pure PEREGRIN wind at cubed-sphere panel edges
+module peregrin_wind_kernel_mod_test
+
+  use constants_mod, only: l_def, i_def, r_def, r_tran, pi
+  use funit
+
+  implicit none
+
+  private
+  public :: test_all
+
+  @TestCase
+  type, extends(TestCase), public :: peregrin_wind_test_type
+    private
+  contains
+    procedure setUp
+    procedure tearDown
+    procedure test_all
+  end type peregrin_wind_test_type
+
+contains
+
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine setUp( this )
+
+    use base_mesh_config_mod,      only : geometry_spherical,                  &
+                                          topology_fully_periodic
+    use sci_chi_transform_mod,     only : init_chi_transforms
+    use extrusion_config_mod,      only : method_uniform,                      &
+                                          stretching_method_linear
+    use finite_element_config_mod, only : cellshape_quadrilateral,             &
+                                          coord_system_native, coord_space_wchi
+    use feign_config_mod,          only : feign_finite_element_config,         &
+                                          feign_base_mesh_config,              &
+                                          feign_extrusion_config,              &
+                                          feign_planet_config
+
+    implicit none
+
+    class(peregrin_wind_test_type), intent(inout) :: this
+
+    call feign_base_mesh_config(                                               &
+        file_prefix='foo',                                                     &
+        prime_mesh_name='unit_test',                                           &
+        geometry=geometry_spherical,                                           &
+        prepartitioned=.false.,                                                &
+        topology=topology_fully_periodic,                                      &
+        fplane=.false., f_lat_deg=0.0_r_def                                    &
+    )
+    call feign_extrusion_config(                                               &
+        planet_radius=1.0_r_def,                                               &
+        domain_height=10.0_r_def,                                              &
+        method=method_uniform,                                                 &
+        number_of_layers=1_i_def,                                              &
+        stretching_method=stretching_method_linear,                            &
+        stretching_height=1.0_r_def,                                           &
+        eta_values=(/0.5_r_def/)                                               &
+    )
+    call feign_planet_config(                                                  &
+        gravity=9.98_r_def,                                                    &
+        omega=7.27E-5_r_def,                                                   &
+        rd=300.0_r_def,                                                        &
+        cp=1000.0_r_def,                                                       &
+        p_zero=100000.0_r_def,                                                 &
+        scaling_factor=1.0_r_def                                               &
+    )
+    call feign_finite_element_config(                                          &
+        cellshape=cellshape_quadrilateral,                                     &
+        coord_order=0_i_def,                                                   &
+        coord_order_nonprime=1_i_def,                                          &
+        coord_space=coord_space_wchi,                                          &
+        coord_system=coord_system_native,                                      &
+        element_order_h=0_i_def,                                               &
+        element_order_v=0_i_def,                                               &
+        rehabilitate=.true.,                                                   &
+        vorticity_in_w1=.false.                                                &
+    )
+
+    call init_chi_transforms(geometry_spherical, topology_fully_periodic)
+
+  end subroutine setUp
+
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine tearDown( this )
+
+    use config_loader_mod,     only: final_configuration
+    use sci_chi_transform_mod, only: final_chi_transforms
+
+    implicit none
+
+    class(peregrin_wind_test_type), intent(inout) :: this
+
+    call final_configuration()
+    call final_chi_transforms()
+
+  end subroutine tearDown
+
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !> @details Analytic test of the swept-volume walk for a cell one cell inside
+  !!          the east (x) panel edge of panel 1 (neighbour panel 2). The
+  !!          coordinate (Wchi) fields use 2 DoFs per cell, at the S and N
+  !!          faces, so that the coordinate at a face is shared exactly between
+  !!          the two cells either side of it. The owned cell's north face is at
+  !!          beta = 0.1 and the extended-mesh coordinate at that face is at
+  !!          beta = 0.25, giving a displacement of 0.15 -- one whole cell plus
+  !!          half of the next, over a row with uniform beta spacing (0.1) and
+  !!          uniform volume (2.0). The expected swept volume is therefore
+  !!          (1 + 0.5)*2.0 = 3.0, stored at the north W2H face. The y-direction
+  !!          (beta) wind is negative, so a positive stored value corresponds to
+  !!          a flow from north to south.
+  @Test
+  subroutine test_all( this )
+
+    use peregrin_wind_kernel_mod, only: peregrin_wind_code
+    use panel_edge_support_mod,   only: FAR_AWAY
+
+    implicit none
+
+    class(peregrin_wind_test_type), intent(inout) :: this
+
+    real(kind=r_tran),   parameter :: tol = 1.0e-5_r_tran
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ncells  = 4
+
+    ! Reference element face indices: W=1, S=2, E=3, N=4
+    integer(kind=i_def), parameter :: rW = 1, rS = 2, rE = 3, rN = 4
+
+    integer(kind=i_def), parameter :: ndf_w2h = 4
+    integer(kind=i_def), parameter :: undf_w2h = 4
+    integer(kind=i_def), parameter :: ndf_w3 = 1
+    integer(kind=i_def), parameter :: undf_w3 = ncells
+    ! Coordinate (Wchi) fields carry 2 DoFs per cell, at the S and N faces, so
+    ! a face coordinate is a single shared DoF between the cells either side
+    integer(kind=i_def), parameter :: ndf_wx = 2
+    integer(kind=i_def), parameter :: undf_wx = ncells + 1
+    ! The extended-mesh coordinate shares the same (2-DoF) function space; only
+    ! the owned cell's DoFs are needed here
+    integer(kind=i_def), parameter :: ndf_wx_2d = 2
+    integer(kind=i_def), parameter :: undf_wx_2d = 2
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = ncells
+    integer(kind=i_def), parameter :: max_length = 4
+
+    real(kind=r_def),    parameter :: delta_beta = 0.1_r_def
+    real(kind=r_def),    parameter :: cell_vol   = 2.0_r_def
+    ! Native cell alpha, just inside panel 1's east edge (alpha = +pi/4)
+    real(kind=r_def),    parameter :: alpha_c = 0.25_r_def*pi - 0.05_r_def
+    ! Extended beta at the owned cell's north face: 1.5 cells north of that
+    ! face (which itself sits one cell north of the S edge, at beta = 0.1)
+    real(kind=r_def),    parameter :: beta_ext_val = 2.5_r_def*delta_beta
+
+    integer(kind=i_def) :: map_w2h(ndf_w2h)
+    integer(kind=i_def) :: map_w3(ndf_w3)
+    integer(kind=i_def) :: map_wx(ndf_wx)
+    integer(kind=i_def) :: map_wx_2d(ndf_wx_2d)
+    integer(kind=i_def) :: map_pid(ndf_pid)
+
+    integer(kind=i_def) :: cv_stencil_size(4), chi_stencil_size(4)
+    integer(kind=i_def) :: pid_stencil_size(4)
+    integer(kind=i_def) :: cv_stencil_map(ndf_w3, max_length, 4)
+    integer(kind=i_def) :: chi_stencil_map(ndf_wx, max_length, 4)
+    integer(kind=i_def) :: pid_stencil_map(ndf_pid, max_length, 4)
+
+    real(kind=r_def)    :: basis_wx(1, ndf_wx, ndf_w2h)
+    real(kind=r_def)    :: basis_wx_2d(1, ndf_wx_2d, ndf_w2h)
+
+    real(kind=r_tran)   :: extended_panel_swept_volume(undf_w2h)
+    real(kind=r_tran)   :: cell_volume(undf_w3)
+    real(kind=r_def)    :: chi_1(undf_wx), chi_2(undf_wx), chi_3(undf_wx)
+    real(kind=r_def)    :: alpha_x(undf_wx_2d), beta_x(undf_wx_2d)
+    real(kind=r_def)    :: alpha_y(undf_wx_2d), beta_y(undf_wx_2d)
+    real(kind=r_def)    :: panel_id(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def) :: face_selector_ew(undf_pid)
+    integer(kind=i_def) :: face_selector_ns(undf_pid)
+
+    integer(kind=i_def) :: j
+
+    ! DoF maps: the owned cell is the first entry throughout
+    map_w2h = (/ 1, 2, 3, 4 /)
+    map_w3(1)    = 1
+    map_wx(1)    = 1
+    map_wx(2)    = 2
+    map_wx_2d(1) = 1
+    map_wx_2d(2) = 2
+    map_pid(1)   = 1
+
+    ! The row of cells runs northward from the owned cell: cells 1, 2, 3, 4.
+    ! Only the north (N) branch is populated; the walk uses this branch.
+    cv_stencil_size(:)  = 1
+    cv_stencil_size(rN) = ncells
+    chi_stencil_size(:) = cv_stencil_size(:)
+    pid_stencil_size(:) = cv_stencil_size(:)
+
+    cv_stencil_map(:,:,:)  = 0
+    chi_stencil_map(:,:,:) = 0
+    pid_stencil_map(:,:,:) = 0
+    cv_stencil_map(1,1,:)  = 1
+    pid_stencil_map(1,1,:) = 1
+    ! Owned cell's S (DoF 1) and N (DoF 2) face coordinate DoFs, used by the
+    ! short branches
+    chi_stencil_map(1,1,:) = 1
+    chi_stencil_map(2,1,:) = 2
+    ! North branch: cell j spans face DoFs j (south) and j+1 (north), so the
+    ! shared face between cells j and j+1 is the single DoF j+1
+    do j = 1, ncells
+      cv_stencil_map(1,j,rN)  = j
+      chi_stencil_map(1,j,rN) = j
+      chi_stencil_map(2,j,rN) = j + 1
+    end do
+
+    ! Linear (2-DoF) coordinate basis, nodal at the S and N faces: at the S
+    ! face node only the S DoF (1) is non-zero, and at the N face node only the
+    ! N DoF (2). At the W/E nodes the field takes its cell-centre value. The
+    ! extended coordinate shares the same function space.
+    basis_wx(:,:,:) = 0.0_r_def
+    basis_wx(1, 1, rS) = 1.0_r_def
+    basis_wx(1, 2, rN) = 1.0_r_def
+    basis_wx(1, 1, rW) = 0.5_r_def
+    basis_wx(1, 2, rW) = 0.5_r_def
+    basis_wx(1, 1, rE) = 0.5_r_def
+    basis_wx(1, 2, rE) = 0.5_r_def
+    basis_wx_2d(:,:,:) = basis_wx(:,:,:)
+
+    ! Uniform cell volumes
+    cell_volume(:) = real(cell_vol, r_tran)
+
+    ! Native coordinates: uniform alpha near the east edge; the face DoFs sit
+    ! at beta = (f-1)*delta_beta, so the owned cell's north face (DoF 2) is at
+    ! beta = 0.1
+    do j = 1, undf_wx
+      chi_1(j) = alpha_c
+      chi_2(j) = real(j - 1, r_def)*delta_beta
+    end do
+    chi_3(:) = 1.0_r_def
+
+    ! Extended-mesh coordinate at the owned cell's north face (DoF 2): a point
+    ! on panel 2's west edge (alpha = -pi/4), on the shared 1-2 edge, so its
+    ! beta is continuous onto panel 1 and equals beta_ext_val there.
+    alpha_x(:) = 0.0_r_def
+    beta_x(:)  = 0.0_r_def
+    alpha_x(2) = -0.25_r_def*pi
+    beta_x(2)  = beta_ext_val
+    alpha_y(:) = 0.0_r_def
+    beta_y(:)  = 0.0_r_def
+
+    ! Owned column is on panel 1, one cell inside its east (x) edge
+    panel_id(:) = 1.0_r_def
+    panel_edge_dist_W(:) = -FAR_AWAY
+    panel_edge_dist_E(:) = -FAR_AWAY
+    panel_edge_dist_S(:) = -FAR_AWAY
+    panel_edge_dist_N(:) = -FAR_AWAY
+    panel_edge_dist_E(1) = 1
+
+    ! Store at the north face only (local_dofs(2) for the beta wind)
+    face_selector_ew(:) = 0
+    face_selector_ns(:) = -1
+
+    extended_panel_swept_volume(:) = 0.0_r_tran
+
+    call peregrin_wind_code( nlayers,                                          &
+                             extended_panel_swept_volume,                      &
+                             cell_volume,                                      &
+                             cv_stencil_size, max_length, cv_stencil_map,      &
+                             chi_1, chi_2, chi_3,                              &
+                             chi_stencil_size, max_length, chi_stencil_map,    &
+                             alpha_x, beta_x, alpha_y, beta_y,                 &
+                             panel_id,                                         &
+                             pid_stencil_size, max_length, pid_stencil_map,    &
+                             panel_edge_dist_W, panel_edge_dist_E,             &
+                             panel_edge_dist_S, panel_edge_dist_N,             &
+                             face_selector_ew, face_selector_ns,               &
+                             ndf_w2h, undf_w2h, map_w2h,                       &
+                             ndf_w3, undf_w3, map_w3,                          &
+                             ndf_wx, undf_wx, map_wx, basis_wx,                &
+                             ndf_wx_2d, undf_wx_2d, map_wx_2d, basis_wx_2d,    &
+                             ndf_pid, undf_pid, map_pid                        &
+    )
+
+    ! North face: one whole cell (volume 2.0) plus half of the next (1.0),
+    ! signed positive (flow from north to south)
+    @assertEqual(3.0_r_tran, extended_panel_swept_volume(rN), tol)
+
+    ! The other faces are not selected and remain zero
+    @assertEqual(0.0_r_tran, extended_panel_swept_volume(rW), tol)
+    @assertEqual(0.0_r_tran, extended_panel_swept_volume(rS), tol)
+    @assertEqual(0.0_r_tran, extended_panel_swept_volume(rE), tol)
+
+  end subroutine test_all
+
+end module peregrin_wind_kernel_mod_test

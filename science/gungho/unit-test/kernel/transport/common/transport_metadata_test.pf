@@ -85,6 +85,7 @@ contains
     logical(kind=l_def)           :: reversible = .false.
     integer(kind=i_def)           :: ffsl_splitting = ffsl_splitting_swift
     integer(kind=i_def)           :: ffsl_vertical_order = 2
+    logical(kind=l_def)           :: swift_peregrin = .false.
     type(transport_metadata_type) :: our_metadata
 
 
@@ -104,7 +105,8 @@ contains
                                            logspace,                &
                                            reversible,              &
                                            ffsl_splitting,          &
-                                           ffsl_vertical_order)
+                                           ffsl_vertical_order,     &
+                                           swift_peregrin)
 
     ! Check all properties of metadata object
     @assertEqual(fname, our_metadata%get_name())
@@ -122,6 +124,7 @@ contains
     @assertEqual(logspace, our_metadata%get_log_space())
     @assertEqual(ffsl_splitting, our_metadata%get_ffsl_splitting())
     @assertEqual(ffsl_vertical_order, our_metadata%get_ffsl_vertical_order())
+    @assertEqual(swift_peregrin, our_metadata%get_swift_peregrin())
 
   end subroutine test_all
 

@@ -143,6 +143,7 @@ si_outer_transport='none',
 slice_order='cubic',
 splitting=9*2
 special_edges_monotone=9*1
+swift_peregrin=9*.false.
 substep_transport='off'
 theta_dispersion_correction=.false.
 theta_variable='dry'

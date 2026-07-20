@@ -2,6 +2,8 @@
 ! (C) Crown copyright 2024 Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! GitHub Copilot.
 !-----------------------------------------------------------------------------
 !
 !> @brief Provides various runtime-constants for transport schemes.
@@ -23,7 +25,9 @@ module transport_constants_mod
                                                 get_panel_id,                  &
                                                 get_extended_coordinates,      &
                                                 get_height_fv,                 &
-                                                get_dz_w3
+                                                get_dz_w3,                     &
+                                                get_face_selector_ew,          &
+                                                get_face_selector_ns
   use field_mod,                          only: field_type
   use fs_continuity_mod,                  only: W2, W2H, W2V, W3, Wtheta
   use function_space_collection_mod,      only: function_space_collection
@@ -122,6 +126,9 @@ module transport_constants_mod
   type(inventory_by_mesh_type) :: vert_w3_mol_coeffs_inventory
   type(inventory_by_mesh_type) :: rev_vert_w3_mol_coeffs_inventory
 
+  ! The extended-panel swept volume at cubed-sphere panel edges
+  type(inventory_by_mesh_type) :: extended_panel_swept_volume_inventory
+
   ! ========================================================================== !
   ! Public functions for accessing the module contents
   ! ========================================================================== !
@@ -142,6 +149,7 @@ module transport_constants_mod
   public :: get_panel_edge_dist
   public :: get_panel_edge_coords_x
   public :: get_panel_edge_coords_y
+  public :: get_extended_panel_swept_volume
   public :: get_panel_edge_weights_x
   public :: get_panel_edge_weights_y
   public :: get_panel_edge_indices_x
@@ -161,6 +169,7 @@ module transport_constants_mod
   private :: initialise_remap_on_extended_mesh
   private :: compute_panel_edge_dists
   private :: compute_panel_edge_coords
+  private :: compute_extended_panel_swept_volume
   private :: compute_panel_edge_weights
   private :: compute_halo_masks
   private :: compute_third_dl_dz
@@ -380,6 +389,96 @@ contains
     if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
 
   end subroutine compute_panel_edge_coords
+
+  !> @brief Computes the extended-panel swept volume at cubed-sphere panel edges
+  !> @details The extended-panel swept volume is the fixed-in-time, purely
+  !!          geometric swept volume (stored on W2H faces) that maps a native
+  !!          equiangular coordinate onto its corresponding extended-mesh
+  !!          coordinate across a cubed-sphere panel edge. It is zero away from
+  !!          panel edges, and identically zero on meshes with no panel edges.
+  !> @param[in] config Application namelist configuration object
+  !> @param[in] mesh   Mesh object to compute the swept volume for
+  subroutine compute_extended_panel_swept_volume(config, mesh)
+
+    use peregrin_wind_kernel_mod, only: peregrin_wind_kernel_type
+
+    implicit none
+
+    type(config_type),        intent(in) :: config
+    type(mesh_type), pointer, intent(in) :: mesh
+
+    integer(kind=i_def)                   :: mesh_id
+    integer(kind=i_def)                   :: halo_depth
+    integer(kind=i_def)                   :: stencil_extent
+    integer(kind=i_def)                   :: element_order_h, element_order_v
+    type(function_space_type),    pointer :: w2h_fs
+    type(r_tran_field_type),      pointer :: extended_panel_swept_volume
+    type(r_tran_field_type),      pointer :: cell_volume
+    type(field_type),             pointer :: chi(:)
+    type(field_type),             pointer :: panel_edge_coords_x(:)
+    type(field_type),             pointer :: panel_edge_coords_y(:)
+    type(field_type),             pointer :: panel_id
+    type(integer_field_type),     pointer :: panel_edge_dist(:)
+    type(integer_field_type),     pointer :: face_selector_ew
+    type(integer_field_type),     pointer :: face_selector_ns
+    integer(tik)                          :: id
+
+    if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
+
+    ! Initialise inventory if it hasn't already been
+    if (.not. extended_panel_swept_volume_inventory%is_initialised()) then
+      call extended_panel_swept_volume_inventory%initialise(                   &
+              name="extended_panel_swept_volume")
+    end if
+
+    mesh_id = mesh%get_id()
+    halo_depth = mesh%get_halo_depth()
+    element_order_h = get_element_order_h_transport()
+    element_order_v = get_element_order_v_transport()
+    w2h_fs => function_space_collection%get_fs(mesh, element_order_h,          &
+                                               element_order_v, W2H)
+
+    call extended_panel_swept_volume_inventory%add_field(                      &
+            extended_panel_swept_volume, w2h_fs, mesh, halo_depth=halo_depth   &
+    )
+
+    if (geometry == geometry_spherical .and.                                   &
+        topology == topology_fully_periodic) then
+
+      ! Gather the pre-computed geometric fields the kernel needs
+      cell_volume => get_detj_at_w3_r_tran(config, mesh)
+      chi => get_coordinates(mesh)
+      panel_edge_coords_x => get_panel_edge_coords_x(mesh_id)
+      panel_edge_coords_y => get_panel_edge_coords_y(mesh_id)
+      panel_id => get_panel_id(mesh)
+      panel_edge_dist => get_panel_edge_dist(mesh_id)
+      face_selector_ew => get_face_selector_ew(mesh)
+      face_selector_ns => get_face_selector_ns(mesh)
+
+      ! Use the full halo depth so the cross stencil always reaches the panel
+      ! edge that bounds the swept row of cells
+      stencil_extent = halo_depth
+
+      ! Zero the field first: the kernel only writes at panel-edge columns and
+      ! leaves the rest of the domain untouched
+      call invoke( setval_c(extended_panel_swept_volume, 0.0_r_tran) )
+
+      call invoke( peregrin_wind_kernel_type(                                 &
+                       extended_panel_swept_volume,                           &
+                       cell_volume, stencil_extent,                           &
+                       chi, stencil_extent,                                   &
+                       panel_edge_coords_x, panel_edge_coords_y,              &
+                       panel_id, stencil_extent,                              &
+                       panel_edge_dist,                                       &
+                       face_selector_ew, face_selector_ns ) )
+    else
+      ! No panel edges: the swept volume is zero everywhere
+      call invoke( setval_c(extended_panel_swept_volume, 0.0_r_tran) )
+    end if
+
+    if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
+
+  end subroutine compute_extended_panel_swept_volume
 
   !> @brief Compute weights and indices for remapping fields to neighbouring
   !!        panels at the edges of cubed-sphere mesh panels
@@ -1411,6 +1510,39 @@ contains
 
   end function get_panel_edge_coords_y
 
+  !> @brief Returns a pointer to the extended-panel swept volume at panel edges
+  !> @param[in] config Application namelist configuration object
+  !> @param[in] mesh   Mesh object to get the swept volume for
+  !> @return The extended-panel swept volume on W2H faces
+  function get_extended_panel_swept_volume(config, mesh) &
+                                          result(extended_panel_swept_volume)
+
+    implicit none
+
+    type(config_type),         intent(in)  :: config
+    type(mesh_type), pointer,  intent(in)  :: mesh
+    type(r_tran_field_type),      pointer  :: extended_panel_swept_volume
+    logical(kind=l_def)                    :: constant_exists
+
+    ! Initialise inventory if this is the first time getting this constant
+    if (.not. extended_panel_swept_volume_inventory%is_initialised()) then
+      call extended_panel_swept_volume_inventory%initialise(                   &
+              name="extended_panel_swept_volume")
+    end if
+
+    constant_exists =                                                          &
+      extended_panel_swept_volume_inventory%paired_object_exists(mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_extended_panel_swept_volume(config, mesh)
+    end if
+
+    ! Return existing constant
+    call extended_panel_swept_volume_inventory%get_field(                      &
+            mesh, extended_panel_swept_volume)
+
+  end function get_extended_panel_swept_volume
+
   !> @brief Returns a pointer to the weights for remapping fields near the
   !!        edges of cubed-sphere panels
   !> @param[in] mesh_id The ID of the mesh to get the object for
@@ -2364,6 +2496,7 @@ contains
     call panel_edge_dist_inventory%clear()
     call panel_edge_coords_x_inventory%clear()
     call panel_edge_coords_y_inventory%clear()
+    call extended_panel_swept_volume_inventory%clear()
     call panel_edge_weights_x_inventory%clear()
     call panel_edge_weights_y_inventory%clear()
     call panel_edge_indices_x_inventory%clear()

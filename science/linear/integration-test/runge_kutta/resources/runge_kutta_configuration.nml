@@ -274,6 +274,7 @@ vertical_sl_order='cubic',
 panel_edge_treatment='none'
 panel_edge_high_order=.false.
 special_edges_monotone=3*1,
+swift_peregrin=3*.false.,
 /
 &validity_test
 number_gamma_values=2,
