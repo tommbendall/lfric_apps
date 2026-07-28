@@ -1,0 +1,93 @@
+%% -----------------------------------------------------------------------------
+%%   (c) Crown copyright Met Office. All rights reserved.
+%%   The file LICENCE, distributed with this code, contains details of the terms
+%%   under which the code may be used.
+%% -----------------------------------------------------------------------------
+%%
+%% lfric_science.sty
+%%
+%% A LaTeX style file providing a "smart" branding layer for the PDF builds of
+%% the LFRic Apps Science Guide, produced by Sphinx's LaTeX/PDF builder.
+%%
+%% THIS IS A PROVISIONAL, NON-OFFICIAL TEMPLATE. It is intended to be replaced
+%% by an official Met Office LaTeX template once one becomes available. See
+%% README.md in this directory for instructions on how to swap templates.
+%%
+%% This file is loaded from documentation/source/conf.py via the
+%% 'science_latex_style' switch and the latex_elements 'preamble' key, so
+%% swapping the template only requires changing that one setting.
+%%
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{lfric_science}[2026/07/28 v0.1 LFRic Apps unofficial science documentation template]
+
+\RequirePackage{xcolor}
+\RequirePackage{titlesec}
+\RequirePackage{fancyhdr}
+\RequirePackage{graphicx}
+
+%% ------------------------------------------------------------------------- %
+%% Brand colours (matching the colours used in the web documentation theme,
+%% see documentation/source/_static/custom.css)
+%% ------------------------------------------------------------------------- %
+\definecolor{lfricPrimary}{HTML}{0F79BE}
+\definecolor{lfricAccent}{HTML}{E2A022}
+\definecolor{lfricInk}{HTML}{20232B}
+
+%% ------------------------------------------------------------------------- %
+%% Chapter, section and subsection styling
+%% ------------------------------------------------------------------------- %
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{lfricPrimary}}
+  {\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{0pt}{30pt}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{lfricPrimary}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{lfricAccent}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\itshape\color{lfricInk}}{\thesubsubsection}{1em}{}
+
+%% ------------------------------------------------------------------------- %
+%% Header and footer
+%% ------------------------------------------------------------------------- %
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE,RO]{\small\itshape\nouppercase{\leftmark}}
+\fancyhead[RE,LO]{\small LFRic Apps Science Guide}
+\fancyfoot[C]{\small\thepage}
+\fancyfoot[LE,RO]{\tiny\textcopyright\ Crown Copyright, Met Office}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.2pt}
+
+%% Pages that reset to the 'plain' style (e.g. chapter opening pages) should
+%% still show the footer branding.
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyfoot[C]{\small\thepage}
+  \fancyfoot[LE,RO]{\tiny\textcopyright\ Crown Copyright, Met Office}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0.2pt}
+}
+
+%% ------------------------------------------------------------------------- %
+%% Title page branding
+%% ------------------------------------------------------------------------- %
+%% Sphinx already provides a '\sphinxlogo' hook (populated automatically when
+%% the 'latex_logo' conf.py option is set) which is inserted into the title
+%% page of the 'manual' document class. Here we simply colour the title page
+%% text to match the brand, and provide a disclaimer that is inserted on the
+%% back of the title page via the 'maketitle' latex_elements key in conf.py.
+\newcommand{\lfricScienceDisclaimer}{%
+  \begin{center}
+  \small\itshape
+  This document was is not produced with a prototype documentation
+  template (\texttt{lfric\_science.sty})
+  \end{center}
+}
+
+\makeatletter
+\renewcommand{\py@HeaderFamily}{\color{lfricPrimary}\sffamily\bfseries}
+\makeatother
+
+\endinput
