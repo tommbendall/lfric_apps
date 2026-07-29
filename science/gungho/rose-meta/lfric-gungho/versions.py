@@ -40,7 +40,7 @@ class vn32_t670(MacroUpgrade):
         # Commands From: rose-meta/lfric-gungho
         # Add new nudging namelist options
         self.add_setting(
-            config, ["namelist:nudging", "nudge_method"], "'convolution'"
+            config, ["namelist:nudging", "nudging_method"], "'convolution'"
         )
         self.add_setting(
             config, ["namelist:nudging", "nudging_relax_time"], "3600.0"
@@ -58,5 +58,20 @@ class vn32_t670(MacroUpgrade):
         )
         # Remove retired setting
         self.remove_setting(config, ["namelist:nudging", "nudging_source"])
+        # If nudging_mesh_name is still the default '' value, set it to
+        # match dynamics_mesh_name
+        nudging_mesh_name = self.get_setting_value(
+            config, ["namelist:multires_coupling", "nudging_mesh_name"]
+        )
+        if nudging_mesh_name == "''":
+            dynamics_mesh_name = self.get_setting_value(
+                config, ["namelist:multires_coupling", "dynamics_mesh_name"]
+            )
+            if dynamics_mesh_name is not None:
+                self.change_setting_value(
+                    config,
+                    ["namelist:multires_coupling", "nudging_mesh_name"],
+                    dynamics_mesh_name,
+                )
 
         return config, self.reports
