@@ -37,20 +37,6 @@ horizontal wind components respectively:
 When nudging is enabled for at least one field, the ``namelist:nudging``
 namelist becomes active and must be configured as described below.
 
-.. attention::
-
-    In the current implementation, the nudging algorithm always reads
-    ``namelist:multires_coupling=nudging_mesh_name``, regardless of whether
-    coarse-mesh nudging (``coarse_nudging``) is actually being used. Since the
-    ``multires_coupling`` namelist is only present when
-    ``namelist:formulation=use_multires_coupling`` is set to ``.true.``,
-    this means that ``use_multires_coupling`` must currently be set to
-    ``.true.`` and ``nudging_mesh_name`` must be given a value whenever
-    nudging is enabled, even if ``coarse_nudging`` is ``.false.`` and
-    nudging is intended to run on the same mesh as the dynamical core.
-    Without this, the model will fail at run time when it attempts to use
-    nudging.
-
 Reference data files
 ---------------------
 
@@ -116,9 +102,13 @@ The behaviour of the nudging scheme is controlled by the
 Coarse-mesh nudging
 --------------------
 
-For efficiency, nudging may optionally be computed on a mesh coarser than
-the one used by the dynamical core. This is controlled from the
-``namelist:multires_coupling`` namelist:
+For efficiency, nudging may be computed on a mesh coarser than
+the one used by the dynamical core, with the resulting increment mapped
+back onto the dynamics mesh (see the :ref:`Science Guide
+<nudging_science_multiresolution>`).
+
+Coarse-mesh nudging is controlled from the ``namelist:multires_coupling``
+namelist:
 
 .. list-table::
     :header-rows: 1
@@ -128,8 +118,9 @@ the one used by the dynamical core. This is controlled from the
       - Description
     * - ``coarse_nudging``
       - If ``.true.``, nudging increments are computed on a coarser mesh and
-        then mapped back onto the dynamics mesh, rather than being computed
-        directly on the dynamics mesh.
+        then mapped back onto the dynamics mesh. If ``.false.`` (the
+        default), nudging is computed directly on the dynamics mesh and no
+        coarse mesh needs to be specified.
     * - ``nudging_mesh_name``
       - Tag-name of the coarser mesh to use when ``coarse_nudging`` is
         ``.true.``. This mesh must also be listed in

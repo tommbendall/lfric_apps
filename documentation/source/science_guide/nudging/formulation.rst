@@ -16,16 +16,15 @@ already been vertically interpolated onto the model's levels (see
 scheme, an increment :math:`\Delta X` is calculated and added to the
 model's tendency for :math:`X`.
 
-Two methods are available for calculating :math:`\Delta X`, selected via the
-``nudging_method`` configuration option.
+Two methods are available for calculating :math:`\Delta X`.
 
 .. _nudging_science_formulation_newtonian:
 
 Newtonian relaxation
 ---------------------
 
-When ``nudging_method='newtonian'``, the increment is simply proportional to
-the local difference between the field and its reference value:
+In Newtonian relaxation, the increment is simply proportional to the local
+difference between the field and its reference value:
 
 .. math:: :label: eq:nudging_newtonian
 
@@ -41,39 +40,20 @@ selectivity.
 Convolution
 -----------
 
-When ``nudging_method='convolution'``, the local difference between the
-field and its reference value is first filtered using a convolution in
-physical space, before being scaled by the same weight :math:`w`:
+In the convolution method, the local difference between the field and its
+reference value is first filtered so that only the large scales are
+retained, before being scaled by the same weight :math:`w`:
 
 .. math:: :label: eq:nudging_convolution
 
-   \Delta X = w \, \left( K * \left( X_{ref} - X \right) \right)
+   \Delta X = w \, \mathcal{L}\left[ X_{ref} - X \right]
 
-where :math:`K * (\cdot)` denotes convolution with a kernel :math:`K`,
-computed over a stencil of cells of extent ``spectral_stencil_extent``
-around each grid point (set wide enough to resolve the lowest retained
-wavenumber). The kernel is constructed to approximate an ideal spherical
-low-pass, or band-pass, filter retaining only total wavenumbers between
-``spectral_kmin`` and ``spectral_kmax``:
-
-.. math:: :label: eq:nudging_kernel
-
-   K(\gamma) \propto \sum_{l=k_{min}}^{k_{max}} \frac{2l+1}{4\pi} P_l(\cos \gamma)
-   \, \exp\left( -\frac{1}{2}\left(\frac{\gamma}{\sigma}\right)^2 \right)
-
-where :math:`\gamma` is the great-circle (central) angle between a grid
-point and a neighbouring point within the stencil, :math:`P_l` is the
-Legendre polynomial of degree :math:`l`, and
-:math:`\sigma = 2\pi / (1 + k_{max}/3)` is the width of a Gaussian envelope
-applied to the sum. The envelope ensures the kernel decays smoothly to zero
-at the edge of the stencil, avoiding sharp truncation which would otherwise
-spuriously amplify some retained wavenumbers. The weights are normalised so
-that they sum to one over the stencil, ensuring the convolution preserves
-the mean of the filtered field.
-
-This convolution acts only in the horizontal (it is a 2D operation applied
-independently on each model level), and is only implemented for
-lowest-order finite elements.
+where :math:`\mathcal{L}` is a scale-selective filter that removes the
+short wavelengths. Rather than performing this filtering with a global
+spectral transform, :math:`\mathcal{L}` is applied as a convolution in
+physical space. The motivation for this choice, and the derivation of the
+convolution kernel on the sphere, are described in
+:ref:`nudging_science_convolution`.
 
 .. _nudging_science_weights:
 
@@ -93,20 +73,19 @@ where:
 * :math:`w_{taper}` is a height-dependent factor, computed as described in
   :ref:`nudging_science_vertical_treatment`, that ramps the nudging on and
   off over a chosen range of vertical levels;
-* :math:`r_{spinup}` is a factor that ramps linearly from 0 to 1 over the
+* :math:`r_{spinup}` is a factor that ramps linearly from 0 to 1 over a
   configured spin-up period, described below;
-* :math:`\Delta t` is the model timestep and :math:`\tau` is the
-  configured relaxation timescale, ``nudging_relax_time``. If
-  ``nudging_relax_time`` is set to zero, this factor is instead set to 1
-  (the reference state is relaxed towards fully within a single timestep).
+* :math:`\Delta t` is the model timestep and :math:`\tau` is a configured
+  relaxation timescale. If :math:`\tau` is set to zero, this factor is
+  instead set to 1, so that the field is relaxed fully towards the
+  reference state within a single timestep.
 
 Spin-up ramp
 ~~~~~~~~~~~~
 
-To avoid introducing a shock into the model when nudging is first applied,
-the nudging weight is ramped up gradually over a configurable spin-up
-period, :math:`[t_{start}, t_{end}]`, set via ``nudging_spinup_start`` and
-``nudging_spinup_end``:
+The nudging weight can be ramped up gradually over a configurable spin-up
+period :math:`[t_{start}, t_{end}]`:, allowing forecasts over short time scales
+to be unperturbed.
 
 .. math:: :label: eq:nudging_spinup
 
@@ -118,5 +97,5 @@ period, :math:`[t_{start}, t_{end}]`, set via ``nudging_spinup_start`` and
    \end{cases}
 
 where :math:`t` is the elapsed model time since the start of the run. If
-``nudging_spinup_start`` and ``nudging_spinup_end`` are equal, the ramp is
-skipped and :math:`r_{spinup} = 1` once :math:`t` exceeds this value.
+:math:`t_{start}` and :math:`t_{end}` are equal, the ramp is skipped and
+:math:`r_{spinup} = 1` once :math:`t` exceeds this value.
