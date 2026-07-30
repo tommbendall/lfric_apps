@@ -54,6 +54,15 @@ class vn32_t670(MacroUpgrade):
         self.add_setting(
             config, ["namelist:nudging", "nudging_spinup_end"], "864000.0"
         )
+        self.add_setting(
+            config, ["namelist:nudging", "nudging_spinup_end"], "864000.0"
+        )
+        self.add_setting(
+            config, ["namelist:nudging", "nudging_level_taper_bottom"], "1"
+        )
+        self.add_setting(
+            config, ["namelist:nudging", "nudging_level_taper_top"], "54"
+        )
         self.add_setting(config, ["namelist:nudging", "spectral_kmax"], "20")
         self.add_setting(config, ["namelist:nudging", "spectral_kmin"], "2")
         self.add_setting(
@@ -64,6 +73,10 @@ class vn32_t670(MacroUpgrade):
         )
         # Remove retired setting
         self.remove_setting(config, ["namelist:nudging", "nudging_source"])
+        self.remove_setting(
+            config, ["namelist:nudging", "nudging_width_bottom"]
+        )
+        self.remove_setting(config, ["namelist:nudging", "nudging_width_top"])
         # If nudging_mesh_name is still the default '' value, set it to
         # match dynamics_mesh_name
         nudging_mesh_name = self.get_setting_value(
