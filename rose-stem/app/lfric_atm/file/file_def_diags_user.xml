@@ -1,0 +1,313 @@
+<file_definition>
+
+  <!-- Initial fields to actually output by default -->
+  <!-- This file will always be written out to CYLC_TASK_WORK_DIR as it is hardwired in the code -->
+  <file id="lfric_initial" name="lfric_initial" output_freq="1ts" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="once" freq_op="1ts" prec="4">
+      <field field_ref="init_area_at_msl" />
+    </field_group>
+  </file>
+
+  <!-- Diagnostic fields - Daily - mean/min/max -->
+
+  <file id="lfric_diagnostics" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_diagnostics" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="average" freq_op="1ts" prec="4">
+      <field field_ref="processed__pstar"/>
+      <field field_ref="processed__tot_col_dry_air_mass"/>
+      <field field_ref="processed__tot_col_wetplusdry_mass"/>
+      <field field_ref="processed__tot_col_m_v"/>
+      <field field_ref="processed__tot_col_m_cl"/>
+      <field field_ref="processed__tot_col_m_cf"/>
+      <field field_ref="processed__tot_col_m_r"/>
+      <field field_ref="processed__total_rain"/>
+      <field field_ref="processed__total_snow"/>
+      <field field_ref="processed__total_prec"/>
+      <field field_ref="microphysics__ls_rain"/>
+      <field field_ref="microphysics__ls_snow"/>
+      <field field_ref="microphysics__ls_prec"/>
+      <field field_ref="convection__conv_rain"/>
+      <field field_ref="convection__conv_snow"/>
+      <field field_ref="convection__conv_prec"/>
+      <field field_ref="turbulence__bl_type_ind"/>
+      <field field_ref="turbulence__zh"/>
+      <field field_ref="turbulence__zht"/>
+      <field field_ref="turbulence__rib"/>
+      <field field_ref="turbulence__cumulus"/>
+      <field field_ref="convection__pres_cv_base"/>
+      <field field_ref="convection__pres_cv_top"/>
+      <field field_ref="convection__mid_cfl_limited"/>
+      <field field_ref="convection__mid_prec"/>
+      <field field_ref="convection__mid_in_col"/>
+      <field field_ref="convection__shallow_prec"/>
+      <field field_ref="convection__shallow_in_col"/>
+      <field field_ref="soil__soil_moisture_content"/>
+      <field field_ref="soil__soil_moisture"/>
+      <field field_ref="soil__soil_temperature"/>
+      <field field_ref="soil__unfrozen_soil_moisture"/>
+      <field field_ref="soil__frozen_soil_moisture"/>
+      <field field_ref="soil__surface_runoff"/>
+      <field field_ref="soil__sub_surface_runoff"/>
+      <field field_ref="cloud__cloud_amount_rnd"/>
+      <field field_ref="cloud__cloud_amount_maxrnd"/>
+      <field field_ref="cloud__very_low_type_cloud_amount"/>
+      <field field_ref="cloud__low_type_cloud_amount"/>
+      <field field_ref="cloud__medium_type_cloud_amount"/>
+      <field field_ref="cloud__high_type_cloud_amount"/>
+      <field field_ref="cloud__very_high_type_cloud_amount"/>
+      <field field_ref="surface__grid_sensible_heat"/>
+      <field field_ref="surface__grid_moisture_flux"/>
+      <field field_ref="surface__surface_taux"/>
+      <field field_ref="surface__surface_tauy"/>
+      <field field_ref="surface__grid_latent_heat"/>
+      <field field_ref="surface__grid_canopy_water"/>
+      <field field_ref="surface__grid_surface_temperature"/>
+      <field field_ref="surface__u10m"/>
+      <field field_ref="surface__v10m"/>
+      <field field_ref="surface__wspd10m"/>
+      <field field_ref="surface__t1p5m"/>
+      <field field_ref="surface__q1p5m"/>
+      <field field_ref="surface__rh1p5m"/>
+      <field field_ref="surface__z0m"/>
+      <field field_ref="snow__grid_snow_mass"/>
+    </field_group>
+    <field_group operation="minimum" freq_op="1ts" prec="4">
+      <field field_ref="surface__t1p5m" name="t1p5m_minimum"/>
+      <field field_ref="surface__grid_surface_temperature" name="tstar_minimum"/>
+    </field_group>
+    <field_group operation="maximum" freq_op="1ts" prec="4">
+      <field field_ref="turbulence__zh" name="zh_maximum"/>
+      <field field_ref="surface__t1p5m" name="t1p5m_maximum"/>
+      <field field_ref="surface__grid_surface_temperature" name="tstar_maximum"/>
+    </field_group>
+    <!-- Model timestep radiation diagnostics ("corrected") -->
+    <field_group operation="average" freq_op="1ts" prec="4">
+      <field field_ref="radiation__lw_net_surf"/>
+      <field field_ref="radiation__lw_down_surf"/>
+      <field field_ref="radiation__lw_up_surf"/>
+      <field field_ref="radiation__lw_up_toa"/>
+      <field field_ref="radiation__sw_net_surf"/>
+      <field field_ref="radiation__sw_down_surf"/>
+      <field field_ref="radiation__sw_up_surf"/>
+      <field field_ref="radiation__sw_up_toa"/>
+      <field field_ref="radiation__sw_direct_toa"/>
+    </field_group>
+    <!-- Radiation timestep radiation diagnostics -->
+    <field_group operation="average" freq_op="1h" freq_offset="0ts" prec="4">
+      <field field_ref="radiation__cloud_cover_rts"/>
+      <field field_ref="radiation__lw_net_surf_rts"/>
+      <field field_ref="radiation__lw_down_surf_rts"/>
+      <field field_ref="radiation__lw_up_surf_rts"/>
+      <field field_ref="radiation__lw_up_toa_rts"/>
+      <field field_ref="radiation__sw_net_surf_rts"/>
+      <field field_ref="radiation__sw_down_surf_rts"/>
+      <field field_ref="radiation__sw_up_surf_rts"/>
+      <field field_ref="radiation__sw_up_toa_rts"/>
+      <field field_ref="radiation__sw_direct_toa_rts"/>
+      <field field_ref="radiation__lw_down_clear_surf_rts"/>
+      <field field_ref="radiation__lw_up_clear_surf_rts"/>
+      <field field_ref="radiation__lw_up_clear_toa_rts"/>
+      <field field_ref="radiation__sw_down_clear_surf_rts"/>
+      <field field_ref="radiation__sw_up_clear_surf_rts"/>
+      <field field_ref="radiation__sw_up_clear_toa_rts"/>
+      <field field_ref="radiation__warm_cloud_top_weight_rts"/>
+      <field field_ref="radiation__warm_cloud_top_re_microns_rts"/>
+      <field field_ref="processed__sw_aer_optical_depth_rts"/>
+      <field field_ref="processed__lw_aer_optical_depth_rts"/>
+      <field field_ref="aerosol__aod_ukca_acc_ins"/>
+      <field field_ref="aerosol__aod_ukca_cor_ins"/>
+    </field_group>
+    <!-- full model level diagnostics - not being interpolated to pressure levels -->
+    <field_group operation="average" freq_op="1ts" prec="4">
+      <field field_ref="processed__pressure_in_wth"/>
+      <field field_ref="theta"/>
+      <field field_ref="w_in_wth"/>
+      <field field_ref="m_v" long_name="vapour_mixing_ratio"/>
+      <field field_ref="m_cl" long_name="cloud_liquid_mixing_ratio"/>
+      <field field_ref="m_cf" long_name="cloud_frozen_mixing_ratio"/>
+      <field field_ref="m_r" long_name="rain_mixing_ratio"/>
+      <field field_ref="processed__temperature"/>
+      <field field_ref="cloud__frozen_fraction"/>
+      <field field_ref="cloud__liquid_fraction"/>
+      <field field_ref="cloud__bulk_fraction"/>
+      <field field_ref="cloud__area_fraction"/>
+      <field field_ref="convection__cca"/>
+      <field field_ref="convection__massflux_up"/>
+      <field field_ref="convection__massflux_down"/>
+      <field field_ref="orographic_drag__taux_orographic_drag"/>
+      <field field_ref="orographic_drag__tauy_orographic_drag"/>
+    </field_group>
+    <!-- half model level diagnostics - not being interpolated to pressure levels -->
+    <field_group operation="average" freq_op="1ts" prec="4">
+      <field field_ref="processed__pressure_in_w3"/>
+      <field field_ref="u_in_w3"/>
+      <field field_ref="v_in_w3"/>
+      <field field_ref="rho"/>
+      <field field_ref="orographic_drag__dudt_orographic_drag"/>
+      <field field_ref="orographic_drag__dvdt_orographic_drag"/>
+    </field_group>
+    <field_group operation="average" freq_op="1h" freq_offset="0ts" prec="4">
+      <field field_ref="radiation__liq_cloud_mmr_rts"/>
+      <field field_ref="radiation__ice_cloud_mmr_rts"/>
+      <field field_ref="radiation__liq_cloud_frac_rts"/>
+      <field field_ref="radiation__ice_cloud_frac_rts"/>
+    </field_group>
+    <!-- For UM comparison? -->
+    <field_group operation="average" freq_op="1ts" prec="4">
+      <field field_ref="processed__qv"/>
+      <field field_ref="processed__qcl"/>
+      <field field_ref="processed__qcf"/>
+    </field_group>
+  </file>
+
+  <!--
+  <file id="lfric_theta_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_theta_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__dtheta_tot"/>
+      <field field_ref="radiation__dtheta_rad"/>
+      <field field_ref="microphysics__dtheta_mphys"/>
+      <field field_ref="spectral_gwd__dtheta_spectral_gwd"/>
+      <field field_ref="orographic_drag__dtheta_orographic_drag"/>
+      <field field_ref="turbulence__dtheta_bl"/>
+      <field field_ref="stochastic__dtheta_spt"/>
+      <field field_ref="cloud__dtheta_pc2_rad"/>
+      <field field_ref="cloud__dtheta_pc2_checks"/>
+      <field field_ref="cloud__dtheta_pc2_pressure_change"/>
+      <field field_ref="cloud__dtheta_pc2_conv_coupling"/>
+      <field field_ref="cloud__dtheta_pc2_initiation"/>
+      <field field_ref="solver__dtheta_solv"/>
+      <field field_ref="advection__dtheta_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_temp_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_temp_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="radiation__sw_temperature_incr"/>
+      <field field_ref="radiation__lw_temperature_incr"/>
+      <field field_ref="microphysics__dt_mphys"/>
+      <field field_ref="spectral_gwd__dtemp_spectral_gwd"/>
+      <field field_ref="orographic_drag__dtemp_orographic_drag"/>
+      <field field_ref="convection__dt_conv"/>
+      <field field_ref="turbulence__dt_bl"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_mv_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_mv_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__dmv_tot"/>
+      <field field_ref="processed__dmv_methox"/>
+      <field field_ref="microphysics__dmv_mphys"/>
+      <field field_ref="turbulence__dmv_bl"/>
+      <field field_ref="convection__dmv_conv"/>
+      <field field_ref="stochastic__dmv_spt"/>
+      <field field_ref="cloud__dmv_pc2_rad"/>
+      <field field_ref="cloud__dmv_pc2_checks"/>
+      <field field_ref="cloud__dmv_pc2_pressure_change"/>
+      <field field_ref="cloud__dmv_pc2_conv_coupling"/>
+      <field field_ref="cloud__dmv_pc2_initiation"/>
+      <field field_ref="advection__dmv_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_mcl_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_mcl_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__dmcl_tot"/>
+      <field field_ref="microphysics__dmcl_mphys"/>
+      <field field_ref="turbulence__dmcl_bl"/>
+      <field field_ref="convection__dmcl_conv"/>
+      <field field_ref="cloud__dmcl_pc2_rad"/>
+      <field field_ref="cloud__dmcl_pc2_checks"/>
+      <field field_ref="cloud__dmcl_pc2_pressure_change"/>
+      <field field_ref="cloud__dmcl_pc2_conv_coupling"/>
+      <field field_ref="cloud__dmcl_pc2_initiation"/>
+      <field field_ref="advection__dmcl_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_ms_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_ms_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__dms_tot"/>
+      <field field_ref="microphysics__dms_mphys"/>
+      <field field_ref="turbulence__dms_bl"/>
+      <field field_ref="convection__dms_conv"/>
+      <field field_ref="cloud__dms_pc2_checks"/>
+      <field field_ref="cloud__dms_pc2_conv_coupling"/>
+      <field field_ref="cloud__dms_pc2_initiation"/>
+      <field field_ref="advection__dms_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_bcf_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_bcf_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="microphysics__dbcf_mphys"/>
+      <field field_ref="turbulence__dbcf_bl"/>
+      <field field_ref="convection__dbcf_conv"/>
+      <field field_ref="cloud__dbcf_pc2_rad"/>
+      <field field_ref="cloud__dbcf_pc2_checks"/>
+      <field field_ref="cloud__dbcf_pc2_pressure_change"/>
+      <field field_ref="cloud__dbcf_pc2_conv_coupling"/>
+      <field field_ref="cloud__dbcf_pc2_initiation"/>
+      <field field_ref="advection__dbcf_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_cfl_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_cfl_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="microphysics__dcfl_mphys"/>
+      <field field_ref="turbulence__dcfl_bl"/>
+      <field field_ref="convection__dcfl_conv"/>
+      <field field_ref="cloud__dcfl_pc2_rad"/>
+      <field field_ref="cloud__dcfl_pc2_checks"/>
+      <field field_ref="cloud__dcfl_pc2_pressure_change"/>
+      <field field_ref="cloud__dcfl_pc2_conv_coupling"/>
+      <field field_ref="cloud__dcfl_pc2_initiation"/>
+      <field field_ref="advection__dcfl_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_cff_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_cff_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="microphysics__dcff_mphys"/>
+      <field field_ref="turbulence__dcff_bl"/>
+      <field field_ref="convection__dcff_conv"/>
+      <field field_ref="cloud__dcff_pc2_checks"/>
+      <field field_ref="cloud__dcff_pc2_conv_coupling"/>
+      <field field_ref="cloud__dcff_pc2_initiation"/>
+      <field field_ref="advection__dcff_adv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_u_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_u_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__du_tot"/>
+      <field field_ref="spectral_gwd__du_spectral_gwd"/>
+      <field field_ref="orographic_drag__du_orographic_drag"/>
+      <field field_ref="convection__du_conv"/>
+      <field field_ref="turbulence__du_bl"/>
+      <field field_ref="advection__du_adv"/>
+      <field field_ref="solver__du_solv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_v_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_v_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__dv_tot"/>
+      <field field_ref="spectral_gwd__dv_spectral_gwd"/>
+      <field field_ref="orographic_drag__dv_orographic_drag"/>
+      <field field_ref="convection__dv_conv"/>
+      <field field_ref="turbulence__dv_bl"/>
+      <field field_ref="advection__dv_adv"/>
+      <field field_ref="solver__dv_solv"/>
+    </field_group>
+  </file>
+
+  <file id="lfric_w_incs" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_w_incs" output_freq="1d" convention="UGRID" enabled=".TRUE.">
+    <field_group operation="accumulate" freq_op="1ts" prec="4">
+      <field field_ref="processed__dw_tot"/>
+      <field field_ref="turbulence__dw_bl"/>
+      <field field_ref="advection__dw_adv"/>
+      <field field_ref="solver__dw_solv"/>
+    </field_group>
+  </file>
+  -->
+
+</file_definition>

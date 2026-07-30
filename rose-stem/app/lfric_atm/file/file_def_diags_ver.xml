@@ -1,7 +1,8 @@
-<file_definition>
+<file_definition type="one_file" par_access="collective" time_counter="none">
 
   <!-- T+0ish fields -->
-  <file id="lfric_ver_tp0" name="results/lfric_ver_tp0" output_freq="1ts" convention="UGRID" enabled=".TRUE.">
+
+  <file id="lfric_ver_tp0" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_ver_tp0" output_freq="1ts" convention="UGRID" enabled=".TRUE.">
     <field_group operation="once" freq_op="1ts" prec="4">
       <field field_ref="orography"/>
       <field field_ref="processed__pmsl"/>
@@ -26,7 +27,7 @@
       <field field_ref="plev__temp"/>
       <field field_ref="plev__rh_ice"/>
       <field field_ref="plev__rh_water"/>
-      <field field_ref="plev__geopot"/>
+      <field field_ref="plev__geopot" unit="m"/>
       <field field_ref="plev__u"/>
       <field field_ref="plev__v"/>
       <field field_ref="plev__w"/>
@@ -35,7 +36,8 @@
   </file>
 
   <!-- Verification fields - 6 hourly - instant (can be used for diagnostics) -->
-  <file id="lfric_ver" name="results/lfric_ver" output_freq="6h" convention="UGRID" enabled=".TRUE.">
+
+  <file id="lfric_ver" name="/home/users/thomas.bendall/cylc-run/u-eb092/run1/share/cycle/20240418T0000Z/lfric_ver" output_freq="6h" convention="UGRID" enabled=".TRUE.">
     <field_group operation="instant" freq_op="6h" prec="4">
       <field field_ref="orography"/>
       <field field_ref="processed__pmsl"/>
@@ -60,13 +62,13 @@
       <field field_ref="plev__temp"/>
       <field field_ref="plev__rh_ice"/>
       <field field_ref="plev__rh_water"/>
-      <field field_ref="plev__geopot"/>
+      <field field_ref="plev__geopot" unit="m"/>
       <field field_ref="plev__u"/>
       <field field_ref="plev__v"/>
       <field field_ref="plev__w"/>
       <field field_ref="plev__xi3"/>
     </field_group>
-    <!-- Is cumulative accumulation a thing? -->
+    <!-- Is cumulative accumulation a thing? Being done after the fact -->
     <field_group operation="accumulate" freq_op="1ts" prec="4">
       <field field_ref="processed__total_prec_acc"/>
       <field field_ref="microphysics__ls_rain_acc"/>

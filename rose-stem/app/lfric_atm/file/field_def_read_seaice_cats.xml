@@ -1,0 +1,7 @@
+<!-- UM based sea-ice fields for multi-category ice (coupled model) -->
+<field_group id="ice_cat_fields" >
+      <field id="read_tstar_sea_ice" name="ice_surf_temp_cat" long_name="ice_surf_temp_cat" standard_name="ice_surf_temp_cat" unit="K" domain_ref="face" axis_ref="sea_ice_categories"/>
+      <field id="read_sea_ice_temperature" name="ice_temp_cat" long_name="ice_temp_cat" unit="K" domain_ref="face" axis_ref="sea_ice_categories"/>
+      <field id="read_sea_ice_fraction" name="ice_conc_cat" long_name="ice_conc_cat" unit="1" domain_ref="face" axis_ref="sea_ice_categories"/>
+      <field id="read_sea_ice_thickness" name="ice_thick_cat" long_name="ice_thick_cat" unit="m" domain_ref="face" axis_ref="sea_ice_categories"/>
+</field_group>

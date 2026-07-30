@@ -1,0 +1,5 @@
+<!-- UM based sea-ice fields for single category ice -->
+<field_group id="ice_cat_fields" >
+      <field id="read_tstar_sea_ice" name="tstar_sea_ice" long_name="sea_ice_surface_temperature" standard_name="surface_temperature" unit="K" domain_ref="face"/>
+      <field id="read_sea_ice_temperature" name="sea_ice_temperature" long_name="sea_ice_temperature" unit="K" domain_ref="face"/>
+</field_def>
