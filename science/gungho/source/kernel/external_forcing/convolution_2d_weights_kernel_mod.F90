@@ -7,6 +7,10 @@
 !> @details This kernel computes weights for performing a convolution that is
 !!          used for nudging the spectrum of a field towards the spectrum of
 !!          a reference field.
+!!          The filter takes the form of a sum of Legendre polynomials which
+!!          help select certain wavenumbers to be nudged. The filter is
+!!          enveloped by a Gaussian function to ensure that the weights go
+!!          smoothly to zero.
 !!          Only implemented for the lowest-order elements
 module convolution_2d_weights_kernel_mod
 
@@ -36,7 +40,7 @@ module convolution_2d_weights_kernel_mod
   !> Contains the metadata needed by the Psy layer
   type, public, extends(kernel_type) :: convolution_2d_weights_kernel_type
     private
-    type(arg_type) :: meta_args(9) = (/                                        &
+    type(arg_type) :: meta_args(10) = (/                                       &
         arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_9), &
         arg_type(GH_FIELD*3, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_7,  &
                                                             STENCIL(REGION)),  &
@@ -44,6 +48,7 @@ module convolution_2d_weights_kernel_mod
                                                             STENCIL(REGION)),  &
         arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             &
         arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             &
+        arg_type(GH_SCALAR,  GH_REAL,    GH_READ),                             &
         arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             &
         arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             &
         arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             &
@@ -78,6 +83,7 @@ contains
 !> @param[in]     stencil_map_pid   Stencil map for the panel ID field
 !> @param[in]     kmax              Maximum wavenumber in filter
 !> @param[in]     kmin              Minimum wavenumber in filter
+!> @param[in]     sigma             Width of the Gaussian envelope to filter
 !> @param[in]     geometry          Geometry of the mesh
 !> @param[in]     topology          Topology of the mesh
 !> @param[in]     coord_system      System used by coordinate fields
@@ -104,6 +110,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
                                        stencil_map_pid,                        &
                                        kmax,                                   &
                                        kmin,                                   &
+                                       sigma,                                  &
                                        geometry,                               &
                                        topology,                               &
                                        coord_system,                           &
@@ -133,6 +140,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
   integer(kind=i_def), intent(in)    :: stencil_map_pid(ndf_pid, stencil_size_pid)
   real(kind=r_def),    intent(in)    :: basis_chi(1, ndf_chi, ndf_2d)
   integer(kind=i_def), intent(in)    :: kmax, kmin
+  real(kind=r_def),    intent(in)    :: sigma
   integer(kind=i_def), intent(in)    :: geometry, topology, coord_system
   real(kind=r_def),    intent(in)    :: scaled_radius
   real(kind=r_def),    intent(in)    :: panel_id(undf_pid)
@@ -148,7 +156,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
   real(kind=r_def)    :: chi1_i, chi2_i, chi3_i
   real(kind=r_def)    :: lon_c, lat_c, lon_i, lat_i
   real(kind=r_def)    :: radius
-  real(kind=r_def)    :: dist, sum_weights
+  real(kind=r_def)    :: dist, cos_dist, sum_weights
   real(kind=r_def)    :: P_0, P_1, P_l, P_lm1, P_lm2, l_real
 
   ! Convolution is a 2D operation, so we can just act in the lowest layer
@@ -200,7 +208,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
     end if
 
     ! Convert distance to cos(dist) for use in spherical harmonics
-    dist = COS(dist)
+    cos_dist = COS(dist)
 
     ! Set weight for this cell in the stencil
     idx_w = map_2d(1) + i - 1  ! Multidata index
@@ -210,7 +218,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
 
     ! First Legendre polynomials
     P_0 = 1.0_r_def
-    P_1 = dist
+    P_1 = cos_dist
 
     if (kmin == 0) then
       weights(idx_w) = weights(idx_w) + 1.0_r_def/(4.0_r_def*PI) * P_0
@@ -227,7 +235,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
         l_real = REAL(l, r_def)
         ! Determine next Legendre polynomial P_l
         P_l = (                                                                &
-            (2.0_r_def*l_real - 1.0_r_def) * dist * P_lm1                      &
+            (2.0_r_def*l_real - 1.0_r_def) * cos_dist * P_lm1                  &
             - (l_real - 1.0_r_def) * P_lm2                                     &
         ) / l_real
         ! Update convolution weight based on Legendre polynomial:
@@ -243,11 +251,7 @@ subroutine convolution_2d_weights_code(nlayers,                                &
 
     ! Apply envelope to weights, to ensure they go smoothly to zero at the
     ! edge of the stencil, which can help avoid amplifying some wavenumbers
-    weights(idx_w) = weights(idx_w) * EXP(                                     &
-      -0.5_r_def * (dist / (                                                   &
-        2.0_r_def*PI/(1.0_r_def + REAL(kmax, r_def)/3.0_r_def)                 &
-      ))**2                                                                    &
-    )
+    weights(idx_w) = weights(idx_w) * EXP(-0.5_r_def * (dist / sigma)**2)
   end do
 
   ! Normalise the weights
