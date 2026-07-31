@@ -83,30 +83,33 @@ Vertical tapering
 
 To allow nudging to be targeted at a chosen range of vertical levels, a
 height-dependent weight, :math:`w_{taper}` (introduced in
-:eq:`eq:nudging_weight`), is computed separately for each set of model
-levels (those holding pressure and those holding potential temperature).
-This weight ramps linearly from 0 to 1 across a configurable band of levels
-at the bottom of the nudging region, remains at 1 throughout the region,
-and ramps back down to 0 across a configurable band at the top:
+:eq:`eq:nudging_weight`), is computed for each function space
+(:math:`\mathbb{W}_3` and :math:`\mathbb{W}_\theta`). The weight ramps
+linearly from 0 to 1 between a lower taper level and a lower full-strength
+level, remains at 1 between the full-strength levels, and ramps back down
+to 0 between an upper full-strength level and an upper taper level:
 
 .. math:: :label: eq:nudging_vertical_taper
 
-   w_{taper}(k) =
+   w_{taper}(\tilde{k}) =
    \begin{cases}
      0 &
-       k < k_{bot} - w_{bot} \\
-     \dfrac{k - (k_{bot} - w_{bot})}{2 \, w_{bot}} &
-       k_{bot} - w_{bot} \le k \le k_{bot} + w_{bot} \\
+       \tilde{k} \le k_{taper,bot} \\
+     \dfrac{\tilde{k} - k_{taper,bot}}{k_{bot} - k_{taper,bot}} &
+       k_{taper,bot} < \tilde{k} < k_{bot} \\
      1 &
-       k_{bot} + w_{bot} < k < k_{top} - w_{top} \\
-     1 - \dfrac{k - (k_{top} - w_{top})}{2 \, w_{top}} &
-       k_{top} - w_{top} \le k \le k_{top} + w_{top} \\
+       k_{bot} \le \tilde{k} \le k_{top} \\
+     1 - \dfrac{\tilde{k} - k_{top}}{k_{taper,top} - k_{top}} &
+       k_{top} < \tilde{k} < k_{taper,top} \\
      0 &
-       k > k_{top} + w_{top}
+       \tilde{k} \ge k_{taper,top}
    \end{cases}
 
-where :math:`k` is the model-level index, :math:`k_{bot}` and
-:math:`k_{top}` are the model levels marking the bottom and top of the
-nudging region, and :math:`w_{bot}` and :math:`w_{top}` are the number of
-levels over which the weight is tapered at the bottom and top of the region
-respectively.
+where :math:`k_{bot}` and :math:`k_{top}` are the model levels marking the
+bottom and top of the region over which nudging is applied at full
+strength, and :math:`k_{taper,bot}` and :math:`k_{taper,top}` are the
+levels below and above which nudging is zero. The quantity
+:math:`\tilde{k}` is the :math:`\mathbb{W}_\theta` level index starting from 0,
+while :math:`\mathbb{W}_3` points are offset by half a level. Using this common
+coordinate ensures that both sets of levels see a consistent, vertically-aligned
+taper profile.

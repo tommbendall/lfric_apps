@@ -11,10 +11,7 @@ Overview
 Spectral nudging relaxes the potential temperature, :math:`\theta`, and the
 horizontal wind components, :math:`(u,v)`, towards reference fields derived
 from an external dataset (for example a reanalysis, or the driving model in
-a regional or limited-area configuration). Unlike simple pointwise nudging
-towards an external state, spectral nudging can be configured to only affect
-a chosen range of horizontal scales, and/or a chosen range of vertical
-levels, leaving the model free to develop its own variability elsewhere.
+a regional or limited-area configuration).
 
 At each application of the scheme, an increment is calculated for a given
 field :math:`X \in \{\theta, u, v\}` and added to the model's prognostic

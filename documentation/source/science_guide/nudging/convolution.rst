@@ -25,16 +25,11 @@ where :math:`\mathcal{F}` denotes a transform to spectral space, the filter
 
    \mathcal{L}[f] = \mathcal{F}^{-1}\left[ \ell \; \mathcal{F}[f] \right] .
 
-Two properties of :math:`\ell` are desirable:
-
-#. it should have compact support, so that it is (close to) zero above the
-   range of wavenumbers that are to be nudged;
-#. the filter :math:`\mathcal{L}` should incur minimal mixing between
-   wavenumbers.
-
-It is not necessary for an analytic form of :math:`\ell` to be preserved
+It is vital that :math:`\ell` does not amplify any wavenumbers, which will
+cause the numerical model to go unstable. However, it is not always
+necessary for an analytic form of :math:`\ell` to be preserved
 exactly by the discretisation. For example, an idealised "top-hat" may be
-specified for :math:`\ell`, but it is acceptable for the discretisation to
+specified for :math:`\ell`, but it may be acceptable for the discretisation to
 only approximate this.
 
 Why a convolution?
@@ -45,7 +40,8 @@ transform :math:`f` to spectral space, multiply by :math:`\ell`, and
 transform back. However, for a parallel implementation in which :math:`f`
 is distributed geographically across many processors, this is very
 inefficient: the transform requires global gather and scatter
-communications, whose cost grows exponentially with the number of processors.
+communications and/or global summations, whose cost grows exponentially
+with the number of processors.
 
 An alternative is to note the convolution theorem: the spectrum of a
 convolved field is the product of the spectra of the field and of the
@@ -54,7 +50,7 @@ convolving function. Defining the convolution of :math:`f` with a function
 
 .. math:: :label: eq:nudging_convolution_def
 
-   \mathcal{C}[f, c] := \int_\Omega f(\bm{y}) \; c(\bm{y} - \bm{x}) \; \mathrm{d}\bm{y} ,
+   \mathcal{C}[f, c] := \int_\Omega f(\boldsymbol{y}) \; c(\boldsymbol{y} - \boldsymbol{x}) \; \mathrm{d}\boldsymbol{y} \equiv f \ast c ,
 
 the convolution theorem gives
 :math:`\mathcal{F}\!\left[\mathcal{C}[f, c]\right] = \mathcal{F}[f] \,
@@ -71,9 +67,9 @@ global communications demanded by a spectral transform.
 
 In practice the convolution is truncated by restricting it to a local
 stencil of finite extent. The truncated kernel is no longer exactly equal to
-:math:`\mathcal{F}^{-1}[\ell]`, but it remains a good approximation provided
-the truncation occurs where :math:`c` is already small. Since the nudging of
-the spectrum does not need to be exact, this is acceptable.
+:math:`\mathcal{F}^{-1}[\ell]`, but can remain a good approximation provided
+the truncation occurs where :math:`c` is already small. When the nudging of
+the spectrum does not need to be exact, this can be acceptable.
 
 The filter on the sphere
 ------------------------
@@ -81,7 +77,7 @@ The filter on the sphere
 To apply this approach on the cubed-sphere, the convolution kernel must be
 derived for the sphere. The cubed-sphere is non-orthogonal and has
 discontinuities at panel edges, which makes a separable
-longitude--latitude Fourier filter unsuitable. Instead, the field is
+longitude--latitude Fourier filter challenging. Instead, the field is
 expanded in spherical harmonics, which are appropriate for quasi-uniform
 meshes of the sphere. This use of a convolution for scale-selective
 filtering on a cubed-sphere follows the approach of Thatcher and McGregor
@@ -144,21 +140,23 @@ relation
 
 Equation :eq:`eq:nudging_kernel` is the kernel that corresponds exactly to
 the idealised top-hat spectral filter. It resembles a :math:`\mathrm{sinc}`
-function, decaying away from :math:`\gamma = 0`, and is evaluated at the
+function, (mainly!) decaying away from :math:`\gamma = 0`, and is evaluated at the
 points of the stencil surrounding each grid point to give the discrete
 convolution weights.
 
 Convolution Envelope
 --------------------
 
-In practice the series of Legendre polynomials does not have compact support
+However the series of Legendre polynomials does not strictly have compact support
 and extends over the whole sphere. An accurate convolution would therefore
 require a stencil covering the whole domain.
 
 Instead we truncate the filter to a local stencil. To avoid the spurious
 amplification of any wavenumbers, the filter is multiplied by a Gaussian
-envelope that decays to zero at the end of the stencil. The width of this
-envelope has been found empirically.
+envelope that decays to zero towards the edge of the stencil. The width of
+this envelope is a configurable parameter of the scheme, and must be chosen
+together with the stencil extent (see :ref:`nudging_user_index` for
+guidance).
 
 Thus the actual filter used is
 
@@ -169,19 +167,19 @@ Thus the actual filter used is
    \exp\left[ -\frac{1}{2} \left( \frac{\gamma}{\sigma} \right)^2 \right] ,
 
 where :math:`\gamma` is the great-circle angle from the central point and
-:math:`\sigma` is the width of the Gaussian envelope, chosen empirically as
-:math:`\sigma = 2\pi / (1 + k_{max}/3)`.
+:math:`\sigma` is the width of the Gaussian envelope.
 
 :numref:`fig_nudging_envelope` illustrates the effect of the envelope. The
 underlying Legendre filter :eq:`eq:nudging_kernel` oscillates and decays only
 slowly with distance, so that it does not have compact support. Multiplying
 by the Gaussian envelope gives the enveloped filter, which decays smoothly to
 zero well within the stencil, allowing the convolution to be truncated to a
-local region with minimal error.
+local region with minimal error, provided the stencil is wide enough for the
+envelope to have decayed sufficiently by its edge.
 
 .. _fig_nudging_envelope:
 
-.. figure:: legendre_envelope_convolution_filter.png
+.. figure:: legendre_envelope_convolution_filter.svg
    :width: 90%
    :align: center
 
