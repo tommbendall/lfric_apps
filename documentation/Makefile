@@ -24,13 +24,25 @@ clean:
 	@echo "***** Removing, $(BUILDDIR) directory *****"
 	@rm -rf $(BUILDDIR)
 
+# --------------------------------------------------------------------------
+# Standalone Science Guide PDF builds.
+#
+# The targets below are additive to the normal Sphinx HTML/PDF build system
+# (they don't change 'make html' etc.). They exist to build a single Science
+# Guide section as its own branded PDF (see conf.py's "Options for LaTeX/PDF
+# output" section for how the branding/per-section metadata is generated,
+# and 'source/_templates/latex/README.md' for the LaTeX template itself).
+# --------------------------------------------------------------------------
+
 # Build a single Science Guide section's standalone PDF, e.g.:
-#   make science SECTION=nudging
+#   make science_pdf SECTION=nudging
 # 'SECTION' must match a directory name under 'source/science_guide/' (and
 # thus a 'lfric_science_<SECTION>.tex'/.pdf jobname, per conf.py). This
 # still runs the full LaTeX build (all sections' .tex sources are generated
-# together), but then compiles only the requested section's PDF via
-# latexmk, rather than every section's PDF.
+# together, since Sphinx builds every document in 'latex_documents' in one
+# pass), but then compiles only the requested section's PDF via latexmk
+# (through the 'Makefile' Sphinx auto-generates in the LaTeX build
+# directory), rather than every section's PDF plus the combined "paper".
 .PHONY: science_pdf
 science_pdf:
 	@if [ -z "$(SECTION)" ]; then \

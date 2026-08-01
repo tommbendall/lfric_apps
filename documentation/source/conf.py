@@ -138,6 +138,26 @@ intersphinx_mapping = {
 }
 
 # -- Options for LaTeX/PDF output ---------------------------------------------
+#
+# Everything from here to the end of the file implements the standalone
+# Science Guide PDF builds: one branded, UMDP-style PDF per section under
+# 'science_guide/' (see '_science_guide_sections' below), plus one combined
+# "paper" containing all sections. This is a distinct, self-contained
+# feature layered on top of the normal Sphinx HTML build above it -- none
+# of it is required for (or affects) 'make html'.
+#
+# See 'source/_templates/latex/README.md' for how the branding template
+# ('lfric_science.sty') works and how to swap in a different one, and
+# 'documentation/Makefile's 'science_pdf' target for how to build a single
+# section's PDF on its own (rather than every section via 'make latexpdf').
+#
+# Key mechanism: Sphinx builds every document listed in 'latex_documents'
+# (all sections + the combined paper) in a single 'sphinx-build -b latex'
+# pass, sharing one 'latex_elements' preamble. Since each PDF needs
+# different title-page metadata (doc number, title, owner, etc.),
+# '_science_guide_titlepage_tex()' generates LaTeX that switches on
+# '\jobname' (which .tex file pdflatex is currently compiling) to select
+# the right values for each document -- see that function's docstring.
 
 latex_engine = 'pdflatex'
 

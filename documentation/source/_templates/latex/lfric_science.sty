@@ -31,6 +31,13 @@
 %% a more modern-looking (and freely available, pdflatex-compatible) pairing
 %% of a humanist serif body face (Pagella, a Palatino-alike) with a clean
 %% sans for headings (Heros, a Helvetica-alike).
+%%
+%% Note: tex-gyre packages take a 'scale=<factor>' option, not 'scaled=' (the
+%% latter is the older PSNFSS/helvet convention, and isn't a key tgheros.sty
+%% declares -- using it raises "Package keyval Error: scaled undefined").
+%% Also note conf.py sets 'fontpkg' to empty, since Sphinx's own default
+%% 'fontpkg' loads plain, unscaled 'tgheros' itself, and loading it twice
+%% with different options raises "Option clash for package tgheros".
 %% ------------------------------------------------------------------------- %
 \RequirePackage{tgpagella}
 \RequirePackage[scale=0.92]{tgheros}
@@ -42,7 +49,6 @@
 \definecolor{lfricPrimary}{HTML}{0F79BE}
 \definecolor{lfricDarkGrey}{HTML}{423A3A}
 \definecolor{lfricAccent}{HTML}{423A3A}
-\definecolor{lfricInk}{HTML}{423A3A}
 
 %% ------------------------------------------------------------------------- %
 %% Chapter, section and subsection styling
@@ -160,11 +166,6 @@
   \noindent\hspace*{-\lfricMargin}#1\par%
 }
 
-\newcommand{\lfricScienceDisclaimer}{%
-  This document was produced using a provisional, non-official
-  documentation template (\texttt{lfric\_science.sty}).
-}
-
 %% Font sizes used in the horizontal banner: the document title and the
 %% (much larger) document number. Explicit point sizes are used, rather
 %% than the standard \Large/\Huge steps, since the scalable TeX Gyre fonts
@@ -223,12 +224,9 @@
     \vspace{1.6cm}
 
     \begin{center}
-      \renewcommand{\arraystretch}{1.4}
-      \begin{tabular}{r@{\hspace{1em}}l}
-        \color{lfricPrimary}{\textbf{LFRic-Apps Version:}} & \color{black}{\lfricVersion} \\
-        \color{lfricPrimary}{\textbf{Last Updated:}}       & \color{black}{\lfricLastUpdated} \\
-        \color{lfricPrimary}{\textbf{Owner:}}              & \color{black}{\lfricOwner} \\
-      \end{tabular}
+      \color{lfricPrimary}\textbf{LFRic-Apps Version:} \color{black}\lfricVersion\\[0.5em]
+      \color{lfricPrimary}\textbf{Last Updated:} \color{black}\lfricLastUpdated\\[0.5em]
+      \color{lfricPrimary}\textbf{Owner:} \color{black}\lfricOwner
     \end{center}
 
     \vspace{1.2cm}
