@@ -3,6 +3,7 @@
 # -- imports -----------------------------------------------------------------
 import glob
 import os
+import subprocess
 
 import docutils
 
@@ -23,6 +24,9 @@ extensions = [
     'sphinx_design',
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
+    # Converts SVG figures to PDF (via Inkscape) for the LaTeX/PDF builder,
+    # since pdflatex cannot include SVGs directly.
+    'sphinx.ext.imgconverter',
 ]
 
 # Enable equation referencing and cross-referencing
@@ -146,27 +150,61 @@ science_latex_style = os.environ.get('LFRIC_SCIENCE_LATEX_STYLE', 'lfric_science
 # The Met Office logo used on the title page of the combined Science Guide PDF.
 latex_logo = '_static/MO_SQUARE_black_mono_for_light_backg_RBG.png'
 
+# The Momentum logo used alongside it on the title page.
+latex_momentum_logo = '_static/momentum_logo.png'
+
 # Files that need to be copied into the LaTeX build directory.
 latex_additional_files = [
     f"_templates/latex/{science_latex_style}.sty",
     latex_logo,
+    latex_momentum_logo,
 ]
 
-# Disable Sphinx's default fancy chapter styling (fncychap), since the
-# Science Guide template defines its own chapter/section styling.
-# Colours match those used in the web documentation theme (see
-# _static/custom.css), and the title page carries a disclaimer noting the
-# template is provisional (defined in the .sty file, inserted here via the
-# 'maketitle' key).
-latex_elements = {
-    'fncychap': '',
-    'preamble': r'\usepackage{%s}' % science_latex_style,
-    'sphinxsetup': ('TitleColor={HTML}{0F79BE}, '
-                    'InnerLinkColor={HTML}{0F79BE}, '
-                    'OuterLinkColor={HTML}{0F79BE}'),
-    'maketitle': (r'\newcommand\sphinxbackoftitlepage{\lfricScienceDisclaimer}'
-                  r'\sphinxmaketitle'),
-}
+
+def _git_describe():
+    '''Return a version string derived from the nearest git tag, used for the
+    'LFRic-Apps Version' field on each Science Guide PDF's title page.'''
+    try:
+        return subprocess.check_output(
+            ['git', 'describe', '--tags', '--always'],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return 'unknown'
+
+
+def _git_last_updated(path):
+    '''Return the date (YYYY-MM-DD) of the last commit that touched 'path',
+    used for the 'Last Updated' field on a Science Guide PDF's title page.'''
+    try:
+        date = subprocess.check_output(
+            ['git', 'log', '-1', '--format=%cd', '--date=short', '--', path],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return date or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+def _git_last_release():
+    '''Return the most recent official release tag (e.g. 'vn3.2'), used for
+    the 'LFRic-Apps Version' field on each Science Guide PDF's title page.
+    Unlike '_git_describe()', this omits the commit-count/hash suffix added
+    for commits after the tag, so it always shows the last official release
+    rather than the exact development commit.'''
+    try:
+        return subprocess.check_output(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return 'unknown'
+
+
+_lfric_apps_version = _git_last_release()
 
 # Build one standalone PDF per Science Guide section, plus one combined
 # "paper" containing all sections. New sections added under science_guide/
@@ -176,6 +214,96 @@ _science_guide_sections = sorted(
     os.path.basename(os.path.dirname(path))
     for path in glob.glob(os.path.join(_science_guide_dir, '*', 'index.rst'))
 )
+
+# UMDP-style document numbers shown on each section's title page. Sections
+# not listed here show 'TBD' until they are formally numbered.
+_science_guide_doc_numbers = {
+    'nudging': '083',
+}
+
+# Title-page owner/contributors for each section. Sections not listed default
+# to a placeholder owner with no additional named contributors.
+_science_guide_default_owner = 'TBD'
+_science_guide_owners = {
+    'nudging': 'Thomas Bendall',
+}
+_science_guide_contributors = {
+    'nudging': ['Thomas Bendall', 'Mohit Dalvi'],
+}
+
+
+def _science_guide_titlepage_tex():
+    '''Generate LaTeX that sets the title-page macros (doc number, title,
+    version, last-updated, owner, contributors) for each Science Guide PDF,
+    keyed on '\\jobname' (the name of the .tex file pdflatex is currently
+    compiling). This is needed because 'latex_elements' is shared across
+    every PDF built in a single `sphinx-build -b latex` run, so the same
+    preamble text must select different values depending on which document
+    is currently being built.
+    '''
+    blocks = []
+    for section in _science_guide_sections:
+        jobname = f"lfric_science_{section}"
+        title = section.replace('_', ' ').title()
+        number = _science_guide_doc_numbers.get(section, 'TBD')
+        last_updated = _git_last_updated(
+            os.path.join('science_guide', section))
+        owner = _science_guide_owners.get(section, _science_guide_default_owner)
+        contributors = _science_guide_contributors.get(section, [owner])
+        contributors_tex = ', '.join(contributors)
+        blocks.append(
+            r'\ifdefstring{\lfricJobName}{%s}{%%' % jobname + '\n'
+            r'\renewcommand{\lfricDocNumber}{%s}%%' % number + '\n'
+            r'\renewcommand{\lfricSectionTitle}{%s}%%' % title + '\n'
+            r'\renewcommand{\lfricVersion}{%s}%%' % _lfric_apps_version + '\n'
+            r'\renewcommand{\lfricLastUpdated}{%s}%%' % last_updated + '\n'
+            r'\renewcommand{\lfricOwner}{%s}%%' % owner + '\n'
+            r'\renewcommand{\lfricContributors}{%s}%%' % contributors_tex + '\n'
+            r'}{}'
+        )
+
+    # The combined "paper" document covering every section.
+    paper_last_updated = _git_last_updated('science_guide')
+    paper_owner = ', '.join(sorted(set(_science_guide_owners.values()))) \
+        or _science_guide_default_owner
+    paper_contributors = paper_owner
+    blocks.append(
+        r'\ifdefstring{\lfricJobName}{lfric_science_paper}{%' + '\n'
+        r'\renewcommand{\lfricDocNumber}{N/A}%' + '\n'
+        r'\renewcommand{\lfricSectionTitle}{LFRic Apps Science Guide}%' + '\n'
+        r'\renewcommand{\lfricVersion}{%s}%%' % _lfric_apps_version + '\n'
+        r'\renewcommand{\lfricLastUpdated}{%s}%%' % paper_last_updated + '\n'
+        r'\renewcommand{\lfricOwner}{%s}%%' % paper_owner + '\n'
+        r'\renewcommand{\lfricContributors}{%s}%%' % paper_contributors + '\n'
+        r'}{}'
+    )
+    return '\n'.join(blocks)
+
+
+# Disable Sphinx's default fancy chapter styling (fncychap), since the
+# Science Guide template defines its own chapter/section styling. Colours
+# match those used in the web documentation theme (see _static/custom.css).
+# The title page (defined in the .sty file) is fully custom-branded; the
+# per-document metadata it displays (doc number, version, last-updated,
+# owner, contributors) is set here via '_science_guide_titlepage_tex()'.
+latex_elements = {
+    'fncychap': '',
+    # Suppress Sphinx's own default font packages (which load plain,
+    # unscaled 'tgtermes'/'tgheros'). 'lfric_science.sty' loads its own
+    # TeX Gyre fonts ('tgpagella' body, 'tgheros' scaled for sans/headings);
+    # leaving Sphinx's default in place causes an "Option clash for
+    # package tgheros" error since it would be loaded twice with
+    # different options.
+    'fontpkg': '',
+    'preamble': (
+        r'\usepackage{%s}' % science_latex_style + '\n'
+        + _science_guide_titlepage_tex()
+    ),
+    'sphinxsetup': ('TitleColor={HTML}{0F79BE}, '
+                    'InnerLinkColor={HTML}{0F79BE}, '
+                    'OuterLinkColor={HTML}{0F79BE}'),
+    'maketitle': r'\sphinxmaketitle',
+}
 
 latex_documents = [
     (
