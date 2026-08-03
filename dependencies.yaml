@@ -19,36 +19,36 @@
 
 casim:
     source: git@github.com:tommbendall/casim.git
-    ref: be2094c88ecf3e2794a6db970f436f2ce57c6090
+    ref: 722250bff122455dc73b2312d8ba454e58507096
 
 jules:
     source: git@github.com:tommbendall/jules.git
-    ref: a40113593a27826c29ef7a54467a33d0f103b1f4
+    ref: e106ba62b7be75d5170e644f2d7850c899dc3869
 
 lfric_apps:
     source:
     ref:
 
 lfric_core:
-    source: git@github.com:MetOffice/lfric_core.git
-    ref: 2026.03.2
+   source: git@github.com:MetOffice/lfric_core.git
+   ref: 2026.07.1
 
 moci:
     source: git@github.com:MetOffice/moci.git
-    ref: 2026.03.2
+    ref: 2026.07.1
 
 SimSys_Scripts:
     source: git@github.com:MetOffice/SimSys_Scripts.git
-    ref: 2026.03.2
+    ref: 2026.07.1
 
 socrates:
     source: git@github.com:MetOffice/socrates.git
-    ref: 2026.03.2
+    ref: 2026.07.1
 
 socrates-spectral:
     source: git@github.com:MetOffice/socrates-spectral.git
-    ref: 2026.03.2
+    ref: 2026.07.1
 
 ukca:
     source: git@github.com:MetOffice/ukca.git
-    ref: 2026.03.2
+    ref: 2026.07.1

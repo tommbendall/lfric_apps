@@ -29,7 +29,7 @@ module bl_imp_kernel_mod
   !>
   type, public, extends(kernel_type) :: bl_imp_kernel_type
     private
-    type(arg_type) :: meta_args(34) = (/                                          &
+    type(arg_type) :: meta_args(33) = (/                                          &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! theta_in_wth
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! exner_in_wth
@@ -38,10 +38,9 @@ module bl_imp_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf_n
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r_n
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g_n
-         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! theta_star
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! theta_latest
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! height_w3
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! height_wth
-         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! dt_conv
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_v
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cl
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf
@@ -86,10 +85,9 @@ contains
   !> @param[in]     m_v_n                Vapour mixing ratio at time level n
   !> @param[in]     m_cl_n               Cloud liq mixing ratio at time level n
   !> @param[in]     m_cf_n               Cloud fro mixing ratio at time level n
-  !> @param[in]     theta_star           Potential temperature after advection
+  !> @param[in]     theta_latest         Current estimate of potential temp
   !> @param[in]     height_w3            Height of density space above surface
   !> @param[in]     height_wth           Height of theta space above surface
-  !> @param[in]     dt_conv              Convection temperature increment
   !> @param[in]     m_v                  Vapour mixing ration after advection
   !> @param[in]     m_cl                 Cloud liq mixing ratio after advection
   !> @param[in]     m_cf                 Cloud fro mixing ratio after advection
@@ -131,10 +129,9 @@ contains
                          m_cf_n,                             &
                          m_r_n,                              &
                          m_g_n,                              &
-                         theta_star,                         &
+                         theta_latest,                       &
                          height_w3,                          &
                          height_wth,                         &
-                         dt_conv,                            &
                          m_v,                                &
                          m_cl,                               &
                          m_cf,                               &
@@ -202,9 +199,8 @@ contains
                                                            m_v_n, m_cl_n,      &
                                                            m_cf_n,             &
                                                            m_r_n, m_g_n,       &
-                                                           theta_star,         &
+                                                           theta_latest,       &
                                                            height_wth,         &
-                                                           dt_conv,            &
                                                            dtrdz_tq_bl,        &
                                                            m_v, m_cl, m_cf,    &
                                                            m_r, m_g
@@ -233,25 +229,15 @@ contains
          dtrdz_charney_grid, rdz_charney_grid, qw, tl, dqw, dtl, ct_ctq, &
          dqw_nt, dtl_nt
 
-    ! profile fields on u/v points and all levels
-    real(r_bl), dimension(seg_len,1,nlayers) :: r_u, r_v
-
-    ! profile fields on u/v points and BL levels
-    real(r_bl), dimension(seg_len,1,bl_levels) :: taux, tauy, &
-         dtrdz_u, dtrdz_v, rhokm_u, rhokm_v, cq_cm_u, cq_cm_v
-
-    ! profile fields from level 2 upwards
-    real(r_bl), dimension(seg_len,1,2:bl_levels) :: rdz_u, rdz_v
-
     ! profile fields from level 0 upwards
     real(r_bl), dimension(seg_len,1,0:nlayers) :: q, qcl, qcf, qrain, qgraupel, r_theta_levels
 
     ! single level real fields
     real(r_bl), dimension(seg_len,1) :: gamma1, gamma2, ctctq1_1, &
-         dqw1_1, dtl1_1, cq_cm_u_1, du_1, cq_cm_v_1, dv_1
+         dqw1_1, dtl1_1
 
     ! single level integer fields
-    integer(i_um), dimension(seg_len,1) :: k_blend_tq, k_blend_uv
+    integer(i_um), dimension(seg_len,1) :: k_blend_tq
 
     ! parameters for new BL solver
     real(r_bl) :: pnonl,p1,p2
@@ -339,9 +325,8 @@ contains
     !-----------------------------------------------------------------------
     do i = 1, seg_len
       do k = 1, nlayers
-        t_latest(i,1,k) = theta_star(map_wth(1,i) + k) * &
-                          exner_in_wth(map_wth(1,i) + k) + &
-                          dt_conv(map_wth(1,i) + k)
+        t_latest(i,1,k) = theta_latest(map_wth(1,i) + k) * &
+                          exner_in_wth(map_wth(1,i) + k)
         q_latest(i,1,k)   = m_v(map_wth(1,i) + k)
         qcl_latest(i,1,k) = m_cl(map_wth(1,i) + k)
       end do
@@ -404,10 +389,9 @@ contains
          r_u, r_v, r_theta_levels, r_rho_levels, k_blend_tq,                 &
          k_blend_uv, k_blend_uv,                                             &
          ! INOUT fields
-         fqw, ftl, taux, tauy, r_u, r_v, dqw, dtl,                           &
+         fqw, ftl, dqw, dtl,                                                 &
          ! OUT fields
-         dqw_nt, dtl_nt, qw, tl, ct_ctq, cq_cm_u, cq_cm_v, cq_cm_u_1,        &
-         cq_cm_v_1, du_1, dv_1, dqw1_1,dtl1_1,ctctq1_1                       &
+         dqw_nt, dtl_nt, qw, tl, ct_ctq, dqw1_1, dtl1_1, ctctq1_1            &
          )
 
     do k = 1, bl_levels
