@@ -61,7 +61,7 @@ module adj_sci_psykal_builtin_light_mod
      ! Create a mesh object
      !
      mesh => fdest_64_proxy%vspace%get_mesh()
-     max_halo_depth_mesh = mesh%get_halo_depth()
+     max_halo_depth_mesh = mesh%get_halo_depth() - 1
      !
      ! Set-up all of the loop bounds
      !
@@ -135,7 +135,7 @@ module adj_sci_psykal_builtin_light_mod
      ! Create a mesh object
      !
      mesh => fdest_32_proxy%vspace%get_mesh()
-     max_halo_depth_mesh = mesh%get_halo_depth()
+     max_halo_depth_mesh = mesh%get_halo_depth() - 1
      !
      ! Set-up all of the loop bounds
      !
@@ -209,7 +209,7 @@ module adj_sci_psykal_builtin_light_mod
      ! Create a mesh object
      !
      mesh => fdest_64_proxy%vspace%get_mesh()
-     max_halo_depth_mesh = mesh%get_halo_depth()
+     max_halo_depth_mesh = mesh%get_halo_depth() - 1
      !
      ! Set-up all of the loop bounds
      !

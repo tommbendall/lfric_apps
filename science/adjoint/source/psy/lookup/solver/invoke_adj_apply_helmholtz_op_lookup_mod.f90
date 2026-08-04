@@ -91,7 +91,7 @@ module invoke_adj_a_h_o_lookup_kernel_mod
     ! Create a mesh object
     !
     mesh => vector_mx_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Look-up dofmaps for each function space
     !

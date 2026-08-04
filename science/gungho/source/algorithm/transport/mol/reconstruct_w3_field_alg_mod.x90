@@ -182,6 +182,7 @@ contains
     integer(kind=i_def) :: stencil_size
     logical(kind=l_def) :: monotone
     integer(kind=i_def) :: remap_depth
+    integer(kind=i_def) :: halo_depth
     integer(tik)        :: id
 
     if ( LPROF ) call start_timing( id, 'mol.w3_hori_recon' )
@@ -202,8 +203,9 @@ contains
     flux_coeffs => get_hori_w3_mol_coeffs(config, mesh)
 
     ! Copy field to a large halo version
+    halo_depth = mesh%get_halo_depth() - 1
     call field_old_big_halo%initialise( field_old%get_function_space(), &
-                                        halo_depth=mesh%get_halo_depth() )
+                                        halo_depth=halo_depth )
     call invoke( setval_X( field_old_big_halo, field_old ) )
 
     monotone = (transport_metadata%get_horizontal_monotone() == monotone_koren)

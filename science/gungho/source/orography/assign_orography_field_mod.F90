@@ -325,7 +325,7 @@ contains
       end do
 
       ! Ensure halo is clean
-      depth = sfc_alt_proxy%get_field_proxy_halo_depth()
+      depth = chi_proxy(1)%get_field_proxy_halo_depth()
       if (sfc_alt_proxy%is_dirty(depth=depth)) then
         call sfc_alt_proxy%halo_exchange(depth=depth)
       end if

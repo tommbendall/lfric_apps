@@ -65,7 +65,7 @@ contains
     type(integer_field_type),  pointer :: remap_indices
 
     integer(kind=i_def) :: ndata
-    integer(kind=i_def) :: depth
+    integer(kind=i_def) :: depth, halo_depth
     type(r_tran_field_type) :: field_to_remap
     integer(tik)            :: id
 
@@ -80,7 +80,8 @@ contains
     ndata = fs%get_ndata()
 
     ! Ensure remapping depth is not larger than the halo depth
-    depth = min( depth_in, mesh%get_halo_depth() )
+    depth = min( depth_in, mesh%get_halo_depth() - 1 )
+    halo_depth = mesh%get_halo_depth() - 1
     ! Both the field to be remapped and the remapped field need to be
     ! created with the full size halo. For the field to be remapped
     ! this is due to the interpolation parallel to a panel boundary
@@ -90,9 +91,9 @@ contains
     ! halo depth (than that expected by the depth_in arguement)
     ! in the computation of departure points for the consistent scheme.
     call remap_field%initialise( field%get_function_space(), &
-                                 halo_depth = mesh%get_halo_depth() )
+                                 halo_depth=halo_depth )
     call field_to_remap%initialise( field%get_function_space(), &
-                                    halo_depth = mesh%get_halo_depth() )
+                                    halo_depth=halo_depth )
     call invoke( setval_x( remap_field, field ), &
                  setval_x( field_to_remap, field) )
     call invoke_remap_on_extended_mesh_kernel_type(                 &

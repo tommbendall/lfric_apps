@@ -247,7 +247,7 @@ module horizontal_sl_advective_alg_mod
     end if
 
     ! Final advective step with cubic interpolation
-    stencil_extent = MIN(stencil_extent + 1, mesh%get_halo_depth())
+    stencil_extent = MIN(stencil_extent + 1, mesh%get_halo_depth()-1)
 
     ! If needed remap the field on an extended cubed sphere
     if ( panel_edge_treatment == panel_edge_treatment_extended_mesh ) then

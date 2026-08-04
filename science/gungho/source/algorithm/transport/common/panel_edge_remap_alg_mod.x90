@@ -113,7 +113,7 @@ contains
     !                     redundant computations, this is equal to the stencil
     !                     extent plus the number of data points used in the
     !                     remapping
-    max_halo_depth = mesh%get_halo_depth()
+    max_halo_depth = mesh%get_halo_depth() - 1
     remap_depth = MAX(ffsl_inner_order, ffsl_outer_order)
     if (panel_edge_high_order) then
       cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2

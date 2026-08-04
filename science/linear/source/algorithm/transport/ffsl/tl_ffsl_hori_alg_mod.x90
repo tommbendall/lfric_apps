@@ -414,6 +414,7 @@ contains
     integer(kind=i_def) :: stencil_extent
     integer(kind=i_def) :: extra_points
     integer(kind=i_def) :: ndep
+    integer(kind=i_def) :: halo_depth
     logical(kind=l_def) :: is_cubed_sphere
     integer(tik)        :: id
 
@@ -480,7 +481,7 @@ contains
 
     ! Set constant values
     extra_points = ffsl_extra_points(panel_edge_treatment, panel_edge_high_order)
-    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth())
+    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth()-1)
     ndep = ndepk_fs%get_ndata()
 
     ! remap the field on an extended cubed sphere, if required -----------------
@@ -492,9 +493,10 @@ contains
       call log_event( "tl_ffsl_hori_inner_alg: special edges or remapping not  &
                        available in the linear model", LOG_LEVEL_ERROR )
     end if
+    halo_depth = mesh%get_halo_depth() - 1
     call field_big_halo%initialise( field_n%get_function_space(), &
-                                      halo_depth=mesh%get_halo_depth() )
-    call ls_field_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+                                      halo_depth=halo_depth )
+    call ls_field_big_halo%initialise(field_fs, halo_depth=halo_depth)
     call invoke( setval_x(field_big_halo, field_n), &
                  setval_x(ls_field_big_halo, ls_field_n) )
     ! Copy required as PSyclone doesn't allow the same field to be
@@ -553,7 +555,7 @@ contains
 
     ! Copies of unity field as PSyclone doesn't allow the same
     ! field to be used as two kernel arguments
-    call ones_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call ones_big_halo%initialise(field_fs, halo_depth=halo_depth)
     call invoke( setval_x(ones_big_halo, ones) )
     ones_ptr_copy_1 => ones_big_halo
     ones_ptr_copy_2 => ones_big_halo
@@ -680,6 +682,7 @@ contains
     integer(kind=i_def) :: step
     integer(kind=i_def) :: stencil_extent
     integer(kind=i_def) :: ndep
+    integer(kind=i_def) :: halo_depth
     integer(tik)        :: id
 
     integer(kind=i_def) :: extra_points
@@ -743,7 +746,7 @@ contains
 
     ! Set constant values
     extra_points = ffsl_extra_points(panel_edge_treatment, panel_edge_high_order)
-    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth())
+    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth()-1)
     ndep = ndepk_fs%get_ndata()
 
     ! remap the field on an extended cubed sphere, if required -----------------
@@ -755,10 +758,11 @@ contains
       call log_event( "tl_ffsl_hori_inner_alg: special edges or remapping not  &
                        available in the linear model", LOG_LEVEL_ERROR )
     end if
-    call field_x_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
-    call field_y_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
-    call ls_field_x_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
-    call ls_field_y_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    halo_depth = mesh%get_halo_depth() - 1
+    call field_x_big_halo%initialise(field_fs, halo_depth=halo_depth)
+    call field_y_big_halo%initialise(field_fs, halo_depth=halo_depth)
+    call ls_field_x_big_halo%initialise(field_fs, halo_depth=halo_depth)
+    call ls_field_y_big_halo%initialise(field_fs, halo_depth=halo_depth)
     call invoke( setval_x(field_x_big_halo, field_x),                        &
                  setval_x(field_y_big_halo, field_y),                        &
                  setval_x(ls_field_x_big_halo, ls_field_x),                  &

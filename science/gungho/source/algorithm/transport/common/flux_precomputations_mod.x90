@@ -309,7 +309,7 @@ contains
       ! Each departure distance calculation will be done with an extent of
       ! dep_pt_stencil_extent, so set mass fields to have max possible depth
       self%max_stencil_extent = MIN(                                           &
-          prime_mesh%get_halo_depth(), dep_pt_stencil_extent                   &
+        prime_mesh%get_halo_depth()-1, dep_pt_stencil_extent                   &
       )
       self%max_stencil_extent_computed = .true.
 
@@ -317,7 +317,7 @@ contains
       ! An argument specifying the depth has been passed in, so it will not need
       ! an extra calculation
       self%max_stencil_extent = MIN(                                           &
-          prime_mesh%get_halo_depth(), dep_pt_stencil_extent, max_courant_num  &
+        prime_mesh%get_halo_depth()-1, dep_pt_stencil_extent, max_courant_num  &
       )
       self%max_stencil_extent_computed = .true.
 
@@ -415,7 +415,7 @@ contains
     first_hori_step = get_first_hori_step(splitting)
 
     if (first_hori_step == 1) then
-      halo_depth = prime_mesh%get_halo_depth()
+      halo_depth = prime_mesh%get_halo_depth() - 1
       call self%ref_field(1,1)%initialise(w3_fs, halo_depth=halo_depth)
       call self%ref_mass(1,1)%initialise(w3_fs, halo_depth=halo_depth)
 
@@ -973,7 +973,7 @@ contains
 
     if (.not. self%ref_field(mesh_idx, step)%is_initialised()) then
       mesh => mesh_collection%get_mesh(mesh_id)
-      halo_depth = mesh%get_halo_depth()
+      halo_depth = mesh%get_halo_depth() - 1
       detj_w3 => get_detj_at_w3_r_tran(self%config, mesh)
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
 
@@ -1079,7 +1079,7 @@ contains
 
     if (.not. self%ref_mass(mesh_idx, step)%is_initialised()) then
       mesh => mesh_collection%get_mesh(mesh_id)
-      halo_depth = mesh%get_halo_depth()
+      halo_depth = mesh%get_halo_depth() - 1
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
       detj_w3 => get_detj_at_w3_r_tran(self%config, mesh)
       call self%ref_mass(mesh_idx, step)%initialise(w3_fs, halo_depth=halo_depth)
@@ -1263,7 +1263,7 @@ contains
 
       ! Compute field from corresponding mass ----------------------------------
       mesh => mesh_collection%get_mesh(mesh_id)
-      halo_depth = mesh%get_halo_depth()
+      halo_depth = mesh%get_halo_depth() - 1
       ref_mass => self%get_ref_mass_x(mesh_id, step)
       detj_w3 => get_detj_at_w3_r_tran(self%config, mesh)
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
@@ -1328,7 +1328,7 @@ contains
 
       ! Compute field from corresponding mass ----------------------------------
       mesh => mesh_collection%get_mesh(mesh_id)
-      halo_depth = mesh%get_halo_depth()
+      halo_depth = mesh%get_halo_depth() - 1
       ref_mass => self%get_ref_mass_y(mesh_id, step)
       detj_w3 => get_detj_at_w3_r_tran(self%config, mesh)
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
@@ -1850,7 +1850,7 @@ contains
 
     ! Compute field from corresponding mass ----------------------------------
     mesh => mesh_collection%get_mesh(mesh_id)
-    halo_depth = mesh%get_halo_depth()
+    halo_depth = mesh%get_halo_depth() - 1
     if (self%reset_unity) then
       ref_mass_prev => get_detj_at_w3_r_tran(self%config, mesh)
     else
@@ -2275,7 +2275,7 @@ contains
       max_depth = self%max_stencil_extent
     else
       mesh => mesh_collection%get_mesh(self%get_prime_extrusion_mesh_id())
-      max_depth = MIN(mesh%get_halo_depth(), dep_pt_stencil_extent)
+      max_depth = MIN(mesh%get_halo_depth() - 1, dep_pt_stencil_extent)
     end if
 
   end function get_max_stencil_extent

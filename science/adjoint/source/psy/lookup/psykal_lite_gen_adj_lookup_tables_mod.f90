@@ -93,7 +93,7 @@ module psykal_lite_gen_lookup_tables_psy_mod
     ! Create a mesh object
     !
     mesh => tracer_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !
@@ -254,7 +254,7 @@ module psykal_lite_gen_lookup_tables_psy_mod
     ! Create a mesh object
     !
     mesh => tracer_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !
@@ -423,7 +423,7 @@ module psykal_lite_gen_lookup_tables_psy_mod
     ! Create a mesh object
     !
     mesh => advective_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !
@@ -602,7 +602,7 @@ lookup_field_dummy, set_counts_field_dummy, nsets_max, nindices, stencil_extent,
     ! Create a mesh object
     !
     mesh => advective_increment_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !
@@ -756,7 +756,7 @@ lookup_field_dummy, set_counts_field_dummy, nsets_max, nindices, stencil_extent,
     ! Create a mesh object
     !
     mesh => dummy_w3_big_halo_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !

@@ -24,8 +24,7 @@ contains
   !> @param[in]     surface_altitude_w3 Surface altitude on W3
   subroutine surface_altitude_alg(surface_altitude_w0, surface_altitude_w3)
 
-    use sci_average_w3_to_w0_kernel_mod, only : average_w3_to_w0_kernel_type
-    use sci_multiplicity_kernel_mod,    only : multiplicity_kernel_type
+    use psykal_lite_mod, only: invoke_surface_altitude_kernel_type
 
     implicit none
 
@@ -38,13 +37,9 @@ contains
     ! Create the multiplicity field from surface_altitude_w0 template
     call surface_altitude_w0%copy_field_properties(multiplicity_w0)
 
-    !Invoke kernels
-    call invoke(setval_c( surface_altitude_w0, 0.0_r_def ),               &
-                setval_c( multiplicity_w0, 0.0_r_def ),                   &
-                multiplicity_kernel_type( multiplicity_w0 ),              &
-                average_w3_to_w0_kernel_type( surface_altitude_w0,        &
-                                              surface_altitude_w3,        &
-                                              multiplicity_w0 ) )
+    call invoke_surface_altitude_kernel_type(surface_altitude_w0,              &
+                                             multiplicity_w0,                  &
+                                             surface_altitude_w3)
 
   end subroutine surface_altitude_alg
 

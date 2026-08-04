@@ -70,6 +70,7 @@ module init_altitude_mod
                                                       surface_order_h, &
                                                       surface_order_v, W3)
 
+    ! The only place that the we use the full mesh depth!
     call surface_altitude%initialise(vector_space, name=trim('surface_altitude'), &
                                      halo_depth = twod_mesh%get_halo_depth())
     call surface_altitude_tmp%initialise(vector_space, &
