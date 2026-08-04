@@ -133,7 +133,7 @@ contains
       ! Determine the maximum halo depth available if we are going to compute
       ! into it
       if (pmsl_halo_calcs) then
-        max_halo_depth = twod_mesh%get_halo_depth()
+        max_halo_depth = twod_mesh%get_halo_depth() - 1
       else
         max_halo_depth = 1
       end if

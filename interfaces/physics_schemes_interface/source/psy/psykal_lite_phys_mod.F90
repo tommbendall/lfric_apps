@@ -528,7 +528,7 @@ rhostar_proxy, recip_l_mo_sea_proxy, &
       ! Create a mesh object
       !
       mesh => theta_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Initialise stencil dofmaps
       !
@@ -769,7 +769,7 @@ z0h_eff_proxy%data, ocn_cpl_point_proxy%data, ndf_wtheta, &
       ! Create a mesh object
       !
       mesh => exner_wth_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Look-up dofmaps for each function space
       !
@@ -856,7 +856,7 @@ z0h_eff_proxy%data, ocn_cpl_point_proxy%data, ndf_wtheta, &
       ! Create a mesh object
       !
       mesh => temp_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Look-up dofmaps for each function space
       !
@@ -947,7 +947,7 @@ z0h_eff_proxy%data, ocn_cpl_point_proxy%data, ndf_wtheta, &
       ! Create a mesh object
       !
       mesh => u_in_w3_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Look-up dofmaps for each function space
       !
@@ -1038,7 +1038,7 @@ z0h_eff_proxy%data, ocn_cpl_point_proxy%data, ndf_wtheta, &
       ! Create a mesh object
       !
       mesh => height_w3_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Look-up dofmaps for each function space
       !
@@ -1123,7 +1123,7 @@ z0h_eff_proxy%data, ocn_cpl_point_proxy%data, ndf_wtheta, &
       ! Create a mesh object
       !
       mesh => plev_thetaw_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Look-up dofmaps for each function space
       !
