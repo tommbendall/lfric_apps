@@ -384,10 +384,9 @@ contains
          ! IN fields
          q, qcl, qcf, qrain, qgraupel, q_latest, qcl_latest, qcf_latest,     &
          qrain_latest, qgraupel_latest, t, t_latest,                         &
-         dtrdz_charney_grid, dtrdz_u, dtrdz_v, rhokh, rhokm_u, rhokm_v,      &
-         rdz_charney_grid, rdz_u, rdz_v, gamma1, gamma2, real(alpha_cd,r_bl),&
-         r_u, r_v, r_theta_levels, r_rho_levels, k_blend_tq,                 &
-         k_blend_uv, k_blend_uv,                                             &
+         dtrdz_charney_grid, rhokh,                                          &
+         rdz_charney_grid, gamma1, gamma2, real(alpha_cd,r_bl),              &
+         r_theta_levels, r_rho_levels, k_blend_tq,                           &
          ! INOUT fields
          fqw, ftl, dqw, dtl,                                                 &
          ! OUT fields

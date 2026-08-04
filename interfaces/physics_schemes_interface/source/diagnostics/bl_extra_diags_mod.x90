@@ -36,6 +36,9 @@ contains
   !> @param[in]     rho_in_w3                Density field in density space
   !> @param[in]     ms                       Cloud snow mixing ratio
   !> @param[in]     mr                       Rain mixing ratio
+  !> @param[in]     mv                       Water vapour mixing ratio
+  !> @param[in]     mcl                      Cloud liquid mixing ratio
+  !> @param[in]     mg                       Graupel mixing ratio
   !> @param[in]     t1p5m                    1.5m temperature
   !> @param[in]     q1p5m                    1.5m specific humidity
   !> @param[in]     qcl1p5m                  1.5m specific cloud water
@@ -49,6 +52,7 @@ contains
                                        surface_fields, microphysics_fields,    &
                                        convection_fields, aerosol_fields,      &
                                        ustar_implicit, rho_in_w3, ms, mr,      &
+                                       mv, mcl, mg,                            &
                                        t1p5m, q1p5m, qcl1p5m,                  &
                                        t1p5m_ssi, q1p5m_ssi, qcl1p5m_ssi,      &
                                        t1p5m_land, q1p5m_land, qcl1p5m_land)
@@ -65,6 +69,7 @@ contains
 
     ! Prognostic fields input, used in calculations
     type( field_type ), intent(in)    :: rho_in_w3, ustar_implicit, ms, mr
+    type( field_type ), intent(in)    :: mv, mcl, mg
 
     ! Diagnostics computed within the kernels
     type( field_type ), intent(in)    :: t1p5m, q1p5m, qcl1p5m
@@ -169,6 +174,7 @@ contains
       call invoke( bl_extra_diags_kernel_type( rho_in_w3, wetrho_in_w3,        &
                                                heat_flux_bl, moist_flux_bl,    &
                                                exner_in_wth, ms, mr,           &
+                                               mv, mcl, mg,                    &
                                                nr_mphys, ns_mphys, murk,       &
                                                zh, t1p5m, q1p5m, qcl1p5m,      &
                                                t1p5m_ssi, q1p5m_ssi,           &

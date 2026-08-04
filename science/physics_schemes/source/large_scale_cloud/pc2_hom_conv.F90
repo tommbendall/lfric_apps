@@ -509,7 +509,7 @@ do j = tdims%j_start, tdims%j_end
               w1 = 1.0 - w2
               ! Don't allow s1 > al qsat(T) (implies -ive q in the tail)
               qsl_new = qsl_tl + alpha*dtin(i,j) + alpha_p*dpdt(i,j)
-              alpha_lcrcp = alpha*lcrcp
+              alpha_lcrcp = alpha*lcrcp_moist  ! lcrcp_moist already calculated
               p2al = (pdf_power+2.0) / al
               if ( p2al * (w1*sde1 + w2*sde2) / (w1*cfc1 + w2*cfc2)            &
                  > qsl_new + alpha_lcrcp*(w1*qcl1 + w2*qcl2) ) then

@@ -254,6 +254,8 @@ real(kind=real_umphys) ::                                                      &
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
+
 !$OMP  PARALLEL DO DEFAULT(NONE) SCHEDULE(DYNAMIC) PRIVATE(k,                  &
 !$OMP  j, i, tl, qsl_t, qsl_tl, alpha, al,                                     &
 !$OMP  sd, cfl_to_m, sky_to_m, g_mqc, dqcdt, qc, dbsdtbs,                      &

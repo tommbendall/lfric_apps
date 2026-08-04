@@ -402,7 +402,8 @@ contains
                                          surface_fields, microphysics_fields, &
                                          convection_fields, aerosol_fields,   &
                                          ustar_implicit, rho, mr(imr_s),      &
-                                         mr(imr_r), t1p5m, q1p5m, qcl1p5m,    &
+                                         mr(imr_r), mr(imr_v), mr(imr_cl),    &
+                                         mr(imr_g), t1p5m, q1p5m, qcl1p5m,    &
                                          t1p5m_ssi, q1p5m_ssi, qcl1p5m_ssi,   &
                                          t1p5m_land, q1p5m_land, qcl1p5m_land)
         end if

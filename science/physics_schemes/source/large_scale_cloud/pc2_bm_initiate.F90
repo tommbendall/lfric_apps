@@ -468,7 +468,8 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 !$OMP PARALLEL DEFAULT(NONE)                                                   &
 !$OMP SHARED(nlevels,tdims,qt_in,tl_in,qt3d,tl3d,q,qcl,t,qcl3d,cfl3d,          &
-!$OMP qcf,qcf3d,cff3d,cf3d,cff,cfl_max,cpd,cl_cpm,cpv_cpm,ci_cpm,lrv0)         &
+!$OMP qcf,qcf3d,cff3d,cf3d,cff,cfl_max,cpd,cl_cpm,cpv_cpm,ci_cpm,lrv0,         &
+!$OMP qrain,qgraupel)                                                           &
 !$OMP PRIVATE(k,j,i,cpm,cpm_dag)
 !$OMP DO SCHEDULE(STATIC)
 do k = 1, nlevels
@@ -543,7 +544,7 @@ end select  ! ( i_bm_ez_opt )
 
 !$OMP  PARALLEL                                                                &
 !$OMP  DEFAULT(NONE)                                                           &
-!$OMP  SHARED(nlevels,tdims,repsilon,r,g,cpd,q,t,qt3d,tl3d,cfl3d,qcl3d,alphl,  &
+!$OMP  SHARED(nlevels,tdims,repsilon,r,g,cpd,q,t,qt3d,tl3d,cfl3d,qcl3d,        &
 !$OMP  lrv0,kappa,sskew,svar_turb,svar_bm,tl_in,qt_in,p_theta_levels,          &
 !$OMP  svar_ini,l_mixing_ratio,lqc_max,lqc_min,bl_w_var,                       &
 !$OMP  kez_top,kez_bottom,kez_inv,tau_dec_bm,tau_hom_bm,tau_mph_bm,            &

@@ -1117,9 +1117,9 @@ subroutine create_model_data( modeldb,           &
             inc_X_plus_Y(mr_ice, mr(imr_s)),                                   &
             inc_X_plus_Y(mr_ice, mr(imr_g))                                    &
         )
-        call map_physics_scalars(config, mr_vap_w3, mr(imr_v))
-        call map_physics_scalars(config, mr_liq_w3, mr_liq)
-        call map_physics_scalars(config, mr_ice_w3, mr_ice)
+        call map_physics_scalars(modeldb%config, mr_vap_w3, mr(imr_v))
+        call map_physics_scalars(modeldb%config, mr_liq_w3, mr_liq)
+        call map_physics_scalars(modeldb%config, mr_ice_w3, mr_ice)
 
         ! Compute heat capacity of moist air
         call compute_cv_alg(cv_rho, mr_vap_w3, mr_liq_w3, mr_ice_w3)

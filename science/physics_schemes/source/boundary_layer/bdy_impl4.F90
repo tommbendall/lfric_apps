@@ -305,15 +305,8 @@ if ( l_correct ) then
 
 !$OMP do SCHEDULE(STATIC)
   do k = 2, bl_levels
-<<<<<<< HEAD
-    do j = tdims%j_start, tdims%j_end
-      do i = tdims%i_start, tdims%i_end
-        ftl(i,j,k) = ftl(i,j,k)*cpm(i,j,k)
-      end do
-=======
     do i = tdims%i_start, tdims%i_end
-      ftl(i,j,k) = ftl(i,j,k)*cp
->>>>>>> stable
+      ftl(i,j,k) = ftl(i,j,k)*cpm(i,j,k)
     end do
   end do
 !$OMP end do NOWAIT
