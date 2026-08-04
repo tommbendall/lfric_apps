@@ -76,7 +76,7 @@ contains
     character(str_def),           intent(in)    :: orography_mesh_name
     type(inventory_by_mesh_type), intent(inout) :: chi_inventory
     type(inventory_by_mesh_type), intent(in)    :: panel_id_inventory
-    type(field_type),             intent(in)    :: surf_alt_w3
+    type(field_type),             intent(inout) :: surf_alt_w3
 
     ! local variables
     integer(kind=i_def)                   :: i, fs_id

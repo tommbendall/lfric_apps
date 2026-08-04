@@ -65,7 +65,7 @@ contains
       ! Create a mesh object
       !
       mesh => field_new_proxy%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Look-up dofmaps for each function space
       !

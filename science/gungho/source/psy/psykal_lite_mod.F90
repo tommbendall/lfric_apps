@@ -631,9 +631,9 @@ stencil_dofmap(:,:,cell), ndf_adspc1_target_field, &
     ! Look-up mesh objects and loop limits for inter-grid kernels
     !
     mesh_source_field => source_field_proxy%vspace%get_mesh()
-    max_halo_depth_mesh_source_field = mesh_source_field%get_halo_depth()
+    max_halo_depth_mesh_source_field = mesh_source_field%get_halo_depth() - 1
     mesh_target_field => target_field_proxy%vspace%get_mesh()
-    max_halo_depth_mesh_target_field = mesh_target_field%get_halo_depth()
+    max_halo_depth_mesh_target_field = mesh_target_field%get_halo_depth() - 1
     mmap_source_field_target_field => mesh_target_field%get_mesh_map(mesh_source_field)
     cell_map_target_field => mmap_source_field_target_field%get_whole_cell_map()
     ncell_source_field = mesh_source_field%get_last_halo_cell(depth=2)
@@ -794,5 +794,136 @@ map_adspc2_source_field(:,cell), ndf_adspc3_source_mask, &
     !
     !
   end subroutine invoke_prolong_multidata_linear_kernel_type
+
+  ! -------------------------------------------------------------------------- !
+  ! Redundant computations for setting W0 surface altitude
+  ! -------------------------------------------------------------------------- !
+  ! Sets the surface altitude field on W0 from the W3 surface altitude,
+  ! performing redundant computations to avoid halo exchanges on the W0 field
+  subroutine invoke_surface_altitude_kernel_type(surface_altitude_w0, multiplicity_w0, surface_altitude_w3)
+
+    use sci_average_w3_to_w0_kernel_mod, only: average_w3_to_w0_code
+    use sci_multiplicity_kernel_mod,     only: multiplicity_code
+    use mesh_mod, only : mesh_type
+    use constants_mod, only : i_def
+
+    implicit none
+
+    type(field_type), intent(in) :: surface_altitude_w0
+    type(field_type), intent(in) :: multiplicity_w0
+    type(field_type), intent(in) :: surface_altitude_w3
+    integer(kind=i_def) :: df
+    integer(kind=i_def) :: cell
+    type(mesh_type), pointer :: mesh => null()
+    integer(kind=i_def) :: max_halo_depth_mesh
+    real(kind=r_def), pointer, dimension(:) :: surface_altitude_w0_data => null()
+    real(kind=r_def), pointer, dimension(:) :: multiplicity_w0_data => null()
+    real(kind=r_def), pointer, dimension(:) :: surface_altitude_w3_data => null()
+    integer(kind=i_def) :: nlayers_multiplicity_w0
+    integer(kind=i_def) :: nlayers_surface_altitude_w0
+    integer(kind=i_def) :: ndf_a1_se_ae_w0
+    integer(kind=i_def) :: undf_a1_se_ae_w0
+    integer(kind=i_def) :: ndf_as1_multiplicity_w0
+    integer(kind=i_def) :: undf_as1_multiplicity_w0
+    integer(kind=i_def) :: ndf_w0
+    integer(kind=i_def) :: undf_w0
+    integer(kind=i_def) :: ndf_w3
+    integer(kind=i_def) :: undf_w3
+    integer(kind=i_def), pointer :: map_as1_multiplicity_w0(:,:) => null()
+    integer(kind=i_def), pointer :: map_w0(:,:) => null()
+    integer(kind=i_def), pointer :: map_w3(:,:) => null()
+    type(field_proxy_type) :: surface_altitude_w0_proxy
+    type(field_proxy_type) :: multiplicity_w0_proxy
+    type(field_proxy_type) :: surface_altitude_w3_proxy
+    integer(kind=i_def) :: loop0_start
+    integer(kind=i_def) :: loop0_stop
+    integer(kind=i_def) :: loop1_start
+    integer(kind=i_def) :: loop1_stop
+    integer(kind=i_def) :: loop2_start
+    integer(kind=i_def) :: loop2_stop
+    integer(kind=i_def) :: loop3_start
+    integer(kind=i_def) :: loop3_stop
+
+    ! Initialise field and/or operator proxies
+    surface_altitude_w0_proxy = surface_altitude_w0%get_proxy()
+    surface_altitude_w0_data => surface_altitude_w0_proxy%data
+    multiplicity_w0_proxy = multiplicity_w0%get_proxy()
+    multiplicity_w0_data => multiplicity_w0_proxy%data
+    surface_altitude_w3_proxy = surface_altitude_w3%get_proxy()
+    surface_altitude_w3_data => surface_altitude_w3_proxy%data
+
+    ! Initialise number of layers
+    nlayers_multiplicity_w0 = multiplicity_w0_proxy%vspace%get_nlayers()
+    nlayers_surface_altitude_w0 = surface_altitude_w0_proxy%vspace%get_nlayers()
+
+    ! Create a mesh object
+    mesh => surface_altitude_w0_proxy%vspace%get_mesh()
+    max_halo_depth_mesh = mesh%get_halo_depth()
+
+    ! Look-up dofmaps for each function space
+    map_as1_multiplicity_w0 => multiplicity_w0_proxy%vspace%get_whole_dofmap()
+    map_w0 => surface_altitude_w0_proxy%vspace%get_whole_dofmap()
+    map_w3 => surface_altitude_w3_proxy%vspace%get_whole_dofmap()
+
+    ! Initialise number of DoFs for a1_se_ae_w0
+    ndf_a1_se_ae_w0 = surface_altitude_w0_proxy%vspace%get_ndf()
+    undf_a1_se_ae_w0 = surface_altitude_w0_proxy%vspace%get_undf()
+
+    ! Initialise number of DoFs for as1_multiplicity_w0
+    ndf_as1_multiplicity_w0 = multiplicity_w0_proxy%vspace%get_ndf()
+    undf_as1_multiplicity_w0 = multiplicity_w0_proxy%vspace%get_undf()
+
+    ! Initialise number of DoFs for w0
+    ndf_w0 = surface_altitude_w0_proxy%vspace%get_ndf()
+    undf_w0 = surface_altitude_w0_proxy%vspace%get_undf()
+
+    ! Initialise number of DoFs for w3
+    ndf_w3 = surface_altitude_w3_proxy%vspace%get_ndf()
+    undf_w3 = surface_altitude_w3_proxy%vspace%get_undf()
+
+    ! Set-up all of the loop bounds
+    loop0_start = 1
+    loop0_stop = surface_altitude_w0_proxy%vspace%get_last_dof_halo()
+    loop1_start = 1
+    loop1_stop = multiplicity_w0_proxy%vspace%get_last_dof_halo()
+    loop2_start = 1
+    loop2_stop = mesh%get_last_halo_cell()
+    loop3_start = 1
+    loop3_stop = mesh%get_last_halo_cell()
+
+    ! Call kernels and communication routines
+    do df = loop0_start, loop0_stop, 1
+      ! Built-in: setval_c (set a real-valued field to a real scalar value)
+      surface_altitude_w0_data(df) = 0.0_r_def
+    enddo
+
+    ! Set halos dirty/clean for fields modified in the above loop(s)
+    do df = loop1_start, loop1_stop, 1
+      ! Built-in: setval_c (set a real-valued field to a real scalar value)
+      multiplicity_w0_data(df) = 0.0_r_def
+    enddo
+
+    ! Set halos dirty/clean for fields modified in the above loop(s)
+    do cell = loop2_start, loop2_stop, 1
+      call multiplicity_code(nlayers_multiplicity_w0, multiplicity_w0_data, ndf_as1_multiplicity_w0, undf_as1_multiplicity_w0, &
+&map_as1_multiplicity_w0(:,cell))
+    enddo
+
+    ! Set halos dirty/clean for fields modified in the above loop(s)
+    call multiplicity_w0_proxy%set_dirty()
+    call multiplicity_w0_proxy%set_clean(max_halo_depth_mesh - 1)
+    if (surface_altitude_w3_proxy%is_dirty(depth=max_halo_depth_mesh)) then
+      call surface_altitude_w3_proxy%halo_exchange(depth=max_halo_depth_mesh)
+    end if
+    do cell = loop3_start, loop3_stop, 1
+      call average_w3_to_w0_code(nlayers_surface_altitude_w0, surface_altitude_w0_data, surface_altitude_w3_data, &
+&multiplicity_w0_data, ndf_w0, undf_w0, map_w0(:,cell), ndf_w3, undf_w3, map_w3(:,cell))
+    enddo
+
+    ! Set halos dirty/clean for fields modified in the above loop(s)
+    call surface_altitude_w0_proxy%set_dirty()
+    call surface_altitude_w0_proxy%set_clean(max_halo_depth_mesh - 1)
+
+  end subroutine invoke_surface_altitude_kernel_type
 
 end module psykal_lite_mod

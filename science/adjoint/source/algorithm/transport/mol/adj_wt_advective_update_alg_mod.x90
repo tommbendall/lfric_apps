@@ -90,6 +90,7 @@ contains
     type(integer_field_type),    pointer :: num_sets_poly_field
     integer(kind=i_def)                  :: nsets
     integer(kind=i_def)                  :: nindices
+    integer(kind=i_def)                  :: halo_depth
 
     nullify(lookup_poly, lookup_poly_adv,           &
             lookup_poly_field, num_sets_poly_field, &
@@ -108,8 +109,9 @@ contains
     adv_coeffs => get_hori_wt_mol_coeffs(config, mesh)
 
     ! Copy field to a large halo version
+    halo_depth = mesh%get_halo_depth() - 1
     call field_big_halo%initialise( field%get_function_space(), &
-                                    halo_depth=mesh%get_halo_depth() )
+                                    halo_depth=halo_depth )
 
     ! Compute reconstruction on a Wtheta multidata field
     ! each Wt point contains 4 values assigned to each edge,

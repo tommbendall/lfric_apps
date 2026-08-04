@@ -83,7 +83,7 @@ subroutine invoke_init_remap_on_extended_mesh_kernel_type(remap_weights, remap_i
   integer(kind=i_def), pointer :: pid_stencil_size(:,:) => null()
   integer(kind=i_def), pointer :: pid_stencil_dofmap(:,:,:,:) => null()
   integer(kind=i_def)          :: pid_stencil_max_branch_length
-  integer(kind=i_def)          :: cell_start, cell_end
+  integer(kind=i_def)          :: cell_start, cell_end, halo_depth
 
   ! Initialise field and/or operator proxies
   remap_weights_proxy = remap_weights%get_proxy()
@@ -145,12 +145,13 @@ subroutine invoke_init_remap_on_extended_mesh_kernel_type(remap_weights, remap_i
   end do
 
   ! Call kernels and communication routines
-  if (panel_id_proxy%is_dirty(depth=mesh%get_halo_depth())) THEN
-    call panel_id_proxy%halo_exchange(depth=mesh%get_halo_depth())
+  halo_depth = mesh%get_halo_depth() - 1
+  if (panel_id_proxy%is_dirty(depth=halo_depth)) THEN
+    call panel_id_proxy%halo_exchange(depth=halo_depth)
   end if
 
   cell_start = mesh%get_last_edge_cell() + 1
-  cell_end   = mesh%get_last_halo_cell(mesh%get_halo_depth())
+  cell_end   = mesh%get_last_halo_cell(halo_depth)
 
   !$omp parallel default(shared), private(cell)
   !$omp do schedule(static)
@@ -187,8 +188,8 @@ subroutine invoke_init_remap_on_extended_mesh_kernel_type(remap_weights, remap_i
 
   ! Set halos dirty/clean for fields modified in the above loop
   !$omp master
-  call remap_weights_proxy%set_clean(mesh%get_halo_depth())
-  call remap_indices_proxy%set_clean(mesh%get_halo_depth())
+  call remap_weights_proxy%set_clean(halo_depth)
+  call remap_indices_proxy%set_clean(halo_depth)
   !$omp end master
   !
   !$omp end parallel
@@ -236,7 +237,7 @@ subroutine invoke_remap_on_extended_mesh_kernel_type(remap_field, field, stencil
   integer(kind=i_def), pointer :: stencil_size(:,:) => null()
   integer(kind=i_def), pointer :: stencil_dofmap(:,:,:,:) => null()
   integer(kind=i_def)          :: stencil_max_branch_length
-  integer(kind=i_def)          :: cell_start, cell_end
+  integer(kind=i_def)          :: cell_start, cell_end, halo_depth
 
   ! Initialise field and/or operator proxies
   remap_field_proxy = remap_field%get_proxy()
@@ -275,8 +276,9 @@ subroutine invoke_remap_on_extended_mesh_kernel_type(remap_field, field, stencil
   undf_panel_id = panel_id_proxy%vspace%get_undf()
 
   ! Call kernels and communication routines
-  if (field_proxy%is_dirty(depth=mesh%get_halo_depth())) THEN
-    call field_proxy%halo_exchange(depth=mesh%get_halo_depth())
+  halo_depth = mesh%get_halo_depth() - 1
+  if (field_proxy%is_dirty(depth=halo_depth)) THEN
+    call field_proxy%halo_exchange(depth=halo_depth)
   end if
   if (panel_id_proxy%is_dirty(depth=halo_compute_depth)) THEN
     call panel_id_proxy%halo_exchange(depth=halo_compute_depth)
@@ -614,7 +616,7 @@ SUBROUTINE invoke_panel_edge_remap_kernel_type(                                &
   ! Create a mesh object
   !
   mesh => remapped_in_x_proxy%vspace%get_mesh()
-  max_halo_depth_mesh = mesh%get_halo_depth()
+  max_halo_depth_mesh = mesh%get_halo_depth() - 1
   !
   ! Initialise stencil dofmaps
   !
@@ -768,7 +770,7 @@ END SUBROUTINE invoke_panel_edge_remap_kernel_type
     ! Create a mesh object
     !
     mesh => halo_mask_x_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !

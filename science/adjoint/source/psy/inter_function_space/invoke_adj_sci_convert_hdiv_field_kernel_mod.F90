@@ -99,8 +99,8 @@ module invoke_adj_cvt_hdiv_field_kernel_mod
       !
       ! Create a mesh object
       !
-      mesh => physical_field3_proxy(1)%vspace%get_mesh()
-      max_halo_depth_mesh = mesh%get_halo_depth()
+      mesh => physical_field3_proxy(1)%vspace%get_mesh()ss
+      max_halo_depth_mesh = mesh%get_halo_depth() - 1
       !
       ! Get the colourmap
       !

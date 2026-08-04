@@ -87,7 +87,7 @@ module invoke_adj_poly_adv_upd_lookup_mod
     ! Create a mesh object
     !
     mesh => advective_proxy%vspace%get_mesh()
-    max_halo_depth_mesh = mesh%get_halo_depth()
+    max_halo_depth_mesh = mesh%get_halo_depth() - 1
     !
     ! Initialise stencil dofmaps
     !

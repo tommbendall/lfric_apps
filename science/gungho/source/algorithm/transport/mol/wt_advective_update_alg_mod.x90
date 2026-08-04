@@ -116,6 +116,7 @@ contains
     integer(kind=i_def) :: stencil_size
     logical(kind=l_def) :: monotone
     integer(kind=i_def) :: remap_depth
+    integer(kind=i_def) :: halo_depth
     integer(tik)        :: id
 
     if ( LPROF ) call start_timing( id, 'mol.wt_hori_recon' )
@@ -135,8 +136,9 @@ contains
     adv_coeffs => get_hori_wt_mol_coeffs(config, mesh)
 
     ! Copy field to a large halo version
+    halo_depth = mesh%get_halo_depth() - 1
     call field_big_halo%initialise( field%get_function_space(), &
-                                    halo_depth=mesh%get_halo_depth() )
+                                    halo_depth=halo_depth )
     call invoke( setval_X( field_big_halo, field ) )
 
     ! Compute reconstruction on a Wtheta multidata field

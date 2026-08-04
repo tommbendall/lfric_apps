@@ -333,6 +333,7 @@ contains
     integer(kind=i_def) :: stencil_extent
     integer(kind=i_def) :: extra_points
     integer(kind=i_def) :: remap_depth
+    integer(kind=i_def) :: halo_depth
     integer(kind=i_def) :: ndep
     integer(kind=i_def) :: order
     real(kind=r_tran)   :: min_val
@@ -413,7 +414,7 @@ contains
 
     ! Set constant values
     extra_points = ffsl_extra_points(panel_edge_treatment, panel_edge_high_order)
-    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth())
+    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth() - 1)
     ndep = ndepk_fs%get_ndata()
 
     ! The minimum value is required for the quasi-monotone limiter for PPM,
@@ -436,8 +437,9 @@ contains
                                   transport_metadata%get_min_value(),          &
                                   remap_depth)
     else
+      halo_depth = mesh%get_halo_depth() - 1
       call field_big_halo%initialise( field_n%get_function_space(), &
-                                      halo_depth=mesh%get_halo_depth() )
+                                      halo_depth=halo_depth )
       call invoke( setval_x(field_big_halo, field_n) )
     end if
     ! Copy required as PSyclone doesn't allow the same field to be
@@ -589,6 +591,7 @@ contains
     integer(kind=i_def) :: extra_points
     integer(kind=i_def) :: stencil_extent
     integer(kind=i_def) :: remap_depth
+    integer(kind=i_def) :: halo_depth
     integer(kind=i_def) :: ndep
     integer(kind=i_def) :: order
     real(kind=r_tran)   :: min_val
@@ -703,7 +706,7 @@ contains
 
     ! Set constant values
     extra_points = ffsl_extra_points(panel_edge_treatment, panel_edge_high_order)
-    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth())
+    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth()-1)
     ndep = ndepk_fs%get_ndata()
 
     ! The minimum value is required for the quasi-monotone limiter for PPM,
@@ -726,8 +729,9 @@ contains
                                   transport_metadata%get_min_value(),          &
                                   remap_depth)
     else
+      halo_depth = mesh%get_halo_depth() - 1
       call field_big_halo%initialise( field_n%get_function_space(), &
-                                      halo_depth=mesh%get_halo_depth() )
+                                      halo_depth=halo_depth )
       call invoke( setval_x(field_big_halo, field_n) )
     end if
 
@@ -931,6 +935,7 @@ contains
     integer(kind=i_def) :: mesh_id, step
     integer(kind=i_def) :: stencil_extent
     integer(kind=i_def) :: remap_depth
+    integer(kind=i_def) :: halo_depth
     integer(kind=i_def) :: ndep
     real(kind=r_tran)   :: min_val
     logical(kind=l_def) :: enforce_minvalue
@@ -1064,7 +1069,7 @@ contains
 
     ! Set constant values
     extra_points = ffsl_extra_points(panel_edge_treatment, panel_edge_high_order)
-    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth())
+    stencil_extent = MIN(dep_stencil_extent + extra_points + order, mesh%get_halo_depth()-1)
     ndep = ndepk_fs%get_ndata()
 
     ! The minimum value is required for the quasi-monotone limiter for PPM,
@@ -1092,8 +1097,9 @@ contains
                                   transport_metadata%get_min_value(),          &
                                   remap_depth)
     else
-      call field_x_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
-      call field_y_big_halo%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+      halo_depth = mesh%get_halo_depth() - 1
+      call field_x_big_halo%initialise(field_fs, halo_depth=halo_depth)
+      call field_y_big_halo%initialise(field_fs, halo_depth=halo_depth)
       call invoke( setval_x(field_x_big_halo, field_x),                        &
                    setval_x(field_y_big_halo, field_y) )
     end if

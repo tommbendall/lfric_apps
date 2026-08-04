@@ -218,7 +218,7 @@ contains
     local_mesh => mesh%get_local_mesh()
     twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
     w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3, ndata)
-    halo_depth = twod_mesh%get_halo_depth()
+    halo_depth = twod_mesh%get_halo_depth() - 1
 
     ! Create fields in the inventories
     call ext_mesh_weights_inventory%add_field(                                 &
@@ -279,9 +279,9 @@ contains
     twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
     fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3)
     panel_id => get_panel_id(mesh)
-    stencil_extent = mesh%get_halo_depth()
+    stencil_extent = mesh%get_halo_depth() - 1
     depth = stencil_extent
-    field_depth = mesh%get_halo_depth()
+    field_depth = mesh%get_halo_depth() - 1
 
     call panel_edge_dist_inventory%add_field_array(                            &
         panel_edge_dist, fs, 4, local_mesh, halo_depth=field_depth             &
@@ -361,7 +361,7 @@ contains
     chi => get_coordinates(mesh)
     fs => chi(1)%get_function_space()
     panel_id => get_panel_id(mesh)
-    field_depth = mesh%get_halo_depth()
+    field_depth = mesh%get_halo_depth() - 1
     depth = MAX(ffsl_inner_order, ffsl_outer_order)
 
     call panel_edge_coords_x_inventory%add_field_array(                        &
@@ -439,7 +439,7 @@ contains
     !                   of the weights. These are set to full size to match the
     !                   transported fields, and the kernel is looped over to
     !                   this depth, so the weights are set clean for this depth
-    max_halo_depth = mesh%get_halo_depth()
+    max_halo_depth = mesh%get_halo_depth() - 1
     remap_depth = MAX(ffsl_inner_order, ffsl_outer_order)
     if (panel_edge_high_order) then
       cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
@@ -523,7 +523,7 @@ contains
     local_mesh => mesh%get_local_mesh()
     twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
 
-    max_halo_depth = mesh%get_halo_depth()
+    max_halo_depth = mesh%get_halo_depth() - 1
     cross_depth = max_halo_depth + 1
     w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3)
 
@@ -668,7 +668,7 @@ contains
                                                 element_order_h,               &
                                                 element_order_v,               &
                                                 W3)
-      halo_depth = mesh%get_halo_depth()
+      halo_depth = mesh%get_halo_depth() - 1
       call detj_at_w3_r_tran_inventory%add_field(detj_r_tran, w3_fs, mesh,     &
                                                  halo_depth=halo_depth)
 

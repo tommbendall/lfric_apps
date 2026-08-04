@@ -727,16 +727,16 @@ contains
     do i = 1, size(base_mesh_names)
       if (trim(base_mesh_names(i)) == trim(prime_mesh_name)) then
         ! Assume transport always occurs on prime mesh
-        stencil_depths(i) = transport_depth
+        stencil_depths(i) = transport_depth + 1
 
       else if (use_multires_coupling .and. coarse_aerosol_transport .and.      &
                trim(base_mesh_names(i)) == trim(aerosol_mesh_name)) then
         ! Coarse mesh transport for aerosols
-        stencil_depths(i) = transport_depth
+        stencil_depths(i) = transport_depth + 1
 
       else
         ! No transport on this mesh, so set stencil depth to 2
-        stencil_depths(i) = 2
+        stencil_depths(i) = 3
       end if
     end do
 
