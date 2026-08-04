@@ -774,7 +774,7 @@ contains
 
       if ( use_spectral_nudging                                                &
            .and. trim(base_mesh_names(i)) == trim(nudging_mesh_name) ) then
-        stencil_depths(i) = MAX(stencil_depths(i), spectral_stencil_extent)
+        stencil_depths(i) = MAX(stencil_depths(i), spectral_stencil_extent + 1)
       end if
     end do
 
