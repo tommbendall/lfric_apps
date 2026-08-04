@@ -251,12 +251,13 @@ contains
       undf_pid       = panel_id_proxy%vspace%get_undf()
       ndf_pid        = panel_id_proxy%vspace%get_ndf()
       nlayers        = chi_proxy(1)%vspace%get_nlayers()
+      depth = chi_proxy(1)%get_field_proxy_halo_depth()
 
       map_chi => chi_proxy(1)%vspace%get_whole_dofmap()
       map_pid => panel_id_proxy%vspace%get_whole_dofmap()
 
       ! Call column procedure
-      do cell = 1, chi_proxy(1)%vspace%get_ncell()
+      do cell = 1, mesh%get_last_halo_cell(depth)
         call analytic_orography(                                               &
                 nlayers, ndf_chi, undf_chi, map_chi(:,cell),                   &
                 ndf_pid, undf_pid, map_pid(:,cell),                            &
@@ -298,6 +299,7 @@ contains
       chi_in_proxy(3) = chi_in(3)%get_proxy()
       panel_id_proxy = panel_id%get_proxy()
       sfc_alt_proxy = surface_altitude%get_proxy()
+      depth = chi_proxy(1)%get_field_proxy_halo_depth()
 
       undf_chi = chi_proxy(1)%vspace%get_undf()
       ndf_chi  = chi_proxy(1)%vspace%get_ndf()
@@ -331,7 +333,7 @@ contains
       end if
 
       ! Call column procedure
-      do cell = 1, chi_proxy(1)%vspace%get_ncell()
+      do cell = 1, mesh%get_last_halo_cell(depth)
         call ancil_orography(                                                  &
             nlayers, chi_proxy(1)%data, chi_proxy(2)%data, chi_proxy(3)%data,  &
             chi_in_proxy(1)%data, chi_in_proxy(2)%data, chi_in_proxy(3)%data,  &
