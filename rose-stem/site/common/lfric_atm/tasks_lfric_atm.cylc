@@ -299,7 +299,7 @@
         "DT": 1800,
         "tsteps": 12,
         "mpi_parts": 24,
-        "log_level": "info",
+        "log_level": "debug",
         "kgo_checks": ["checksum"],
         "plot_str": "plot_map.py $NODAL_DATA_DIR/lfric_diagnostics.nc  $PLOT_DIR",
     }) %}
