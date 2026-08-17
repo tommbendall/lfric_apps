@@ -31,8 +31,9 @@ In a classical SISL scheme, the explicit :math:`n`-level values are evaluated
 at the departure points, while the implicit :math:`(n+1)`-level values are
 evaluated at the arrival points. This results in a discretisation of the
 material derivative which preserves the numerical properties of the
-Crank-Nicolson scheme: high frequency (acoustic) waves are damped while low
-frequency waves (such as Rossby waves) are represented accurately.
+Crank-Nicolson scheme: low frequency waves (such as Rossby waves) are
+represented accurately, while high frequency (acoustic) waves can be damped
+through off-centering.
 
 GungHo builds on the classical SISL picture by providing local mass conservation
 through the use of conservative transport schemes. Like the ENDGame dynamical
@@ -418,7 +419,7 @@ parametrisation). Let tracers be represented by the state vector
       - \Delta t\,\mathcal{P}_S(\boldsymbol{X}^n; \boldsymbol{Y}^n), \\
    \boldsymbol{Y}^T &= \mathcal{T}^{\Delta t}_{\overline{\boldsymbol{u}}_n^{n+1}}
    \left[\boldsymbol{Y}^\dagger \right] + \mathcal{P}_F(\boldsymbol{X}^{n+1}; \boldsymbol{Y}^\dagger), \\
-   \boldsymbol{Y}^{n+1} &= \boldsymbol{X}^T - \Delta t\,\mathcal{P}_E(\boldsymbol{X}^{n+1};\boldsymbol{Y}^T).
+   \boldsymbol{Y}^{n+1} &= \boldsymbol{Y}^T - \Delta t\,\mathcal{P}_E(\boldsymbol{X}^{n+1};\boldsymbol{Y}^T).
    \end{aligned}
 
 References
