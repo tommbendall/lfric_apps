@@ -33,11 +33,11 @@ class vnXX_txxx(MacroUpgrade):
 """
 
 
-class vn32_t379(MacroUpgrade):
-    """Upgrade macro for ticket #379 by Thomas Bendall."""
+class vn32_t714(MacroUpgrade):
+    """Upgrade macro for ticket #714 by Thomas Bendall."""
 
     BEFORE_TAG = "vn3.2"
-    AFTER_TAG = "vn3.2_t379"
+    AFTER_TAG = "vn3.2_t714"
 
     def upgrade(self, config, meta_config=None):
         # Commands From: rose-meta/lfric-gungho
