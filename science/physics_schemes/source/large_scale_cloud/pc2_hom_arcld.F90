@@ -21,16 +21,17 @@ subroutine pc2_hom_arcld(                                                      &
  large_levels, levels_per_level,                                               &
 !      Prognostic Fields
  cf_area, t, cf, cfl, cff, q, qcl, qcf,                                        &
+!      Moist heat capacity field
+ cpm,                                                                          &
 !      Logical control
  l_mixing_ratio)
 
 use water_constants_mod,  only: lc, tm
-use planet_constants_mod, only: cpd => cp
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: pdims,tdims
 use qsat_mod, only: qsat_wat, qsat_wat_mix
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 
 use pc2_homog_plus_turb_mod, only: pc2_homog_plus_turb
 implicit none
@@ -102,8 +103,13 @@ real(kind=real_umphys), intent(in) ::                                          &
 !       Vapour content (kg water per kg air)
    qcl(               tdims%i_start:tdims%i_end,                               &
                       tdims%j_start:tdims%j_end,                               &
-                                  1:tdims%k_end)
+                                  1:tdims%k_end),                              &
 !       Liquid content (kg water per kg air)
+   cpm(               tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                  1:tdims%k_end)
+!       Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!       across the scheme and updated when moisture changes phase
 
 real(kind=real_umphys), intent(out) ::                                         &
  cf_area(           tdims%i_start:tdims%i_end,                                 &
@@ -123,8 +129,6 @@ real(kind=real_umphys) ::                                                      &
 !       Set to (1. / levels_per_level)
   qt_norm_next,                                                                &
 !       Temporary space for qT_norm
-  cpm,                                                                         &
-!       Moist heat capacity at a grid point
   cpm_dag,                                                                     &
 !       Modified moist heat capacity for TL/T inversion
   lrv0,                                                                        &
@@ -232,9 +236,8 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      cpm = cpd + q(i,j,k)*cpv_cpm + qcl(i,j,k)*cl_cpm + qcf(i,j,k)*ci_cpm
-      cpm_dag = cpd + (q(i,j,k) + qcl(i,j,k))*cpv_cpm + qcf(i,j,k)*ci_cpm
-      tl(i,j,k) = (cpm/cpm_dag)*t(i,j,k) - (lrv0/cpm_dag)*qcl(i,j,k)
+      cpm_dag = cpm(i,j,k) + (cpv_cpm - cl_cpm) * qcl(i,j,k)
+      tl(i,j,k) = (cpm(i,j,k)/cpm_dag)*t(i,j,k) - (lrv0/cpm_dag)*qcl(i,j,k)
     end do
   end do
 end do

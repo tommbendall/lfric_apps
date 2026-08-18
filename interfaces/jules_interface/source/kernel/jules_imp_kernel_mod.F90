@@ -376,7 +376,8 @@ contains
                                          soil_model_ecosse, l_layeredc
     use jules_water_tracers_mod, only: l_wtrac_jls, n_wtrac_jls, n_evap_srce
     use nlsizes_namelist_mod, only: sm_levels, ntiles, bl_levels
-    use planet_constants_mod, only: p_zero, kappa, planet_radius, two_omega
+    use planet_constants_mod, only: p_zero, kappa, planet_radius, two_omega,   &
+                    cpd => cp
     use rad_input_mod, only: co2_mmr
     use theta_field_sizes, only: t_i_length, t_j_length, &
                                  u_i_length,u_j_length,  &
@@ -559,7 +560,7 @@ contains
     ! profile fields from level 1 upwards
     real(r_um), dimension(seg_len,1) :: rhcpt, qcf_latest, co2
 
-    real(r_um), dimension(seg_len,1) :: qrain, qgraupel
+    real(r_um), dimension(seg_len,1) :: qrain, qgraupel, cpm_dag
 
     ! profile field on boundary layer levels
     real(r_um), dimension(seg_len,1) :: fqw, ftl, rhokh, rhokh_mix
@@ -1438,10 +1439,16 @@ contains
              .not. associated(rh1p5m, empty_real_data) .or.                    &
              .not. associated(qcl1p5m, empty_real_data) ) then
 
+          do i = 1, seg_len
+            cpm_dag(i,1) = cpd + sf_diag%q1p5m(i,1)*cpv_cpm                    &
+              + qrain(i,1)*cl_cpm                                              &
+              + (qcf_latest(i,1) + qgraupel(i,1))*ci_cpm
+          end do
+
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., sf_diag%t1p5m, work_2d_1, sf_diag%q1p5m, qcf_latest,   &
-               qcl1p5m_loc, qrain, qgraupel,                                   &
+               qcl1p5m_loc, cpm_dag,                                           &
                work_2d_2, work_2d_3, error_code )
         end if
 
@@ -1475,10 +1482,16 @@ contains
              .not. associated(rh1p5m_ssi, empty_real_data) .or.                &
              .not. associated(qcl1p5m_ssi, empty_real_data) ) then
 
+          do i = 1, seg_len
+            cpm_dag(i,1) = cpd + sf_diag%q1p5m_ssi(i,1)*cpv_cpm                &
+                + qrain(i,1)*cl_cpm                                            &
+                + (qcf_latest(i,1) + qgraupel(i,1))*ci_cpm
+          end do
+
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., sf_diag%t1p5m_ssi, work_2d_1, sf_diag%q1p5m_ssi,       &
-               qcf_latest, qcl1p5m_loc, qrain, qgraupel,                       &
+               qcf_latest, qcl1p5m_loc, cpm_dag,                               &
                work_2d_2, work_2d_3, error_code )
         end if
 
@@ -1529,10 +1542,16 @@ contains
             end do
           end do
 
+          do i = 1, seg_len
+            cpm_dag(i,1) = cpd + q1p5m_land_loc(i,1)*cpv_cpm                   &
+                + qrain(i,1)*cl_cpm                                            &
+                + (qcf_latest(i,1) + qgraupel(i,1))*ci_cpm
+          end do
+
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., t1p5m_land_loc, work_2d_1, q1p5m_land_loc,             &
-               qcf_latest, qcl1p5m_loc, qrain, qgraupel,                       &
+               qcf_latest, qcl1p5m_loc, cpm_dag,                               &
                work_2d_2, work_2d_3, error_code )
         end if
 

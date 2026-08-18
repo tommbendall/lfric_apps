@@ -21,11 +21,10 @@ implicit none
 character(len=*), parameter, private :: ModuleName = 'BL_LSP_MOD'
 contains
 
-subroutine bl_lsp( bl_levels,qcf,q,t,qcl,qrain,qgraupel )
+subroutine bl_lsp( bl_levels,qcf,q,t,qcl,cpm )
 
 use atm_fields_bounds_mod, only: tdims
-use planet_constants_mod, only: cpd => cp
-use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
+use bl_cpm_mod, only: cpv_cpm, ci_cpm
 use water_constants_mod, only: tm => tm_bl, lc => lc_bl, lf => lf_bl
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
@@ -44,19 +43,17 @@ real(kind=real_umphys), intent(in out) ::                                      &
 !                                  in    Vapour+liquid+ice content
 !                                  out   Vapour+liquid content
     t(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                     &
-      bl_levels)                   ! INOUT
+      bl_levels),                                                              &
 !                                  in    Liquid ice temperature
 !                                  out   Liquid temperature
+    cpm(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                   &
+        bl_levels)
+!    Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!    across the scheme and updated when moisture changes phase
 real(kind=real_umphys), intent(in) ::                                          &
   qcl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                     &
-      bl_levels),                                                              &
+      bl_levels)
                                  ! IN Cloud liquid water content
-  qrain(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                   &
-        bl_levels),                                                            &
-                                 ! IN Rain mixing ratio
-  qgraupel(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                &
-           bl_levels)
-                                 ! IN Graupel mixing ratio
 ! Temporary Space
 integer ::                                                                     &
         i,                                                                     &
@@ -65,7 +62,6 @@ integer ::                                                                     &
                                ! Counter over points
         k                ! Counter over boundary layer levels
 real(kind=real_umphys) :: newqcf              ! Temporary variable for QCF
-real(kind=real_umphys) :: cpm                 ! Moist heat capacity before phase change (qcf as ice)
 real(kind=real_umphys) :: cpm_dag             ! Moist heat capacity after phase change (qcf as vapour)
 real(kind=real_umphys) :: lrs0                ! Reference latent heat of sublimation
 
@@ -79,17 +75,14 @@ character(len=*), parameter :: RoutineName='BL_LSP'
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 lrs0 = (lc + lf) + (ci_cpm - cpv_cpm) * tm
 !$OMP PARALLEL do DEFAULT(none) SCHEDULE(STATIC)                               &
-!$OMP          private(i,j,k,newqcf,cpm,cpm_dag)                               &
-!$OMP          SHARED(bl_levels,tdims,q,qcf,t,qcl,qrain,qgraupel,              &
-!$OMP                 cpd,cpv_cpm,cl_cpm,ci_cpm,lrs0)
+!$OMP          private(i,j,k,newqcf,cpm_dag)                                   &
+!$OMP          SHARED(bl_levels,tdims,q,qcf,t,qcl,cpm,                         &
+!$OMP                 cpv_cpm,ci_cpm,lrs0)
 do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      ! Compute cpm_dag_TL BEFORE removing ice from q.
-      ! q here = QW = qv + qcl + qcf, so cpv_cpm*q = cpv*(qv+qcl+qcf).
-      cpm = cpd + cpv_cpm*q(i,j,k)                                             &
-                + cl_cpm*qrain(i,j,k)                                          &
-                + ci_cpm*qgraupel(i,j,k)
+      ! cpm(i,j,k) on entry is the moist heat capacity BEFORE removing ice
+      ! from q (q here = QW = qv + qcl + qcf, so cpv_cpm*q = cpv*(qv+qcl+qcf)).
       ! Convert Q (vapour+liquid+ice) to (vapour+liquid)
       q(i,j,k)=q(i,j,k)-qcf(i,j,k)
       ! Check that Q is not negative
@@ -100,13 +93,15 @@ do k = 1, bl_levels
         q(i,j,k)=q(i,j,k)+(qcf(i,j,k)-newqcf)
         qcf(i,j,k)=newqcf
       end if
-      ! Compute cpm_dag_liq AFTER removing ice from q.
-      ! q now = qv + qcl, so cpv_cpm*q = cpv*(qv+qcl).
-      cpm_dag = cpd + cpv_cpm*q(i,j,k)                                         &
-                    + cl_cpm*qrain(i,j,k)                                      &
-                    + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
+      ! Since q+qcf is conserved by the above (ice moved between q and
+      ! qcf only), and other species are unchanged by this routine, the
+      ! moist heat capacity after removing ice from q can be derived as
+      ! a delta from the maintained "before" value
+      cpm_dag = cpm(i,j,k) + (ci_cpm - cpv_cpm) * qcf(i,j,k)
       ! Adjust T from T liquid ice to T liquid
-      t(i,j,k) = (cpm/cpm_dag) * t(i,j,k) + (lrs0/cpm_dag)*qcf(i,j,k)
+      t(i,j,k) = (cpm(i,j,k)/cpm_dag) * t(i,j,k) + (lrs0/cpm_dag)*qcf(i,j,k)
+      ! Persist the updated moist heat capacity for downstream use
+      cpm(i,j,k) = cpm_dag
     end do
   end do
 end do

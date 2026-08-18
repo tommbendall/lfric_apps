@@ -23,7 +23,7 @@ subroutine bm_cld( p_l, qsl_l, qsi_l, q_l, qv_l_est, ql_l_est,                 &
                    wvar_l, dtldz_l, dqtdz_l, ql_mean,                          &
                    qcl_f, qcf_f, cfl_f, cff_f, cf_f, cfl_max, q_f, t_f,        &
                    sskew, svar_turb, svar_bm, indx,points, l_mixing_ratio,     &
-                   qrain_l, qgraupel_l)
+                   cpm_dag_l)
 
 use water_constants_mod,  only: lc, lf, tm
 use planet_constants_mod, only: r, repsilon, g, cpd => cp
@@ -127,12 +127,11 @@ real(kind=real_umphys) ::                                                      &
 
 real(kind=real_umphys) ::                                                      &
                !, intent(in)
-   qrain_l(       tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end),                                  &
-!       Rain mixing ratio for current level.
-   qgraupel_l(    tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end)
-!       Graupel mixing ratio for current level.
+   cpm_dag_l(     tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,3)
+!       Moist heat capacity with qcl treated as vapour, for each of the
+!       three modes (bottom of EZ, k-level of interest, top of EZ).
+!       Constant through this routine
 
 logical ::                                                                     &
                       !, intent(in)
@@ -443,15 +442,11 @@ do i = 1, points
       ! ----------------------------------------------------------------------
 
       do kk=idn,iup
-        ! Moist heat capacity using pre-TL-conversion species.
-        cpm(kk) = cpd + cpv_cpm*qv_l_est(ii,ij,kk)                             &
-                      + cl_cpm*(ql_l_est(ii,ij,kk) + qrain_l(ii,ij))           &
-                      + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
-        ! Post-TL-conversion heat capacity: cloud liquid evaporates to vapour;
-        ! since m_v + m_cl = q_l (total water), this uses q_l directly.
-        cpm_dag(kk) = cpd + cpv_cpm*q_l(ii,ij,kk)                              &
-                          + cl_cpm*qrain_l(ii,ij)                              &
-                          + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+        ! Moist heat capacity: read the invariant cpm_dag for this mode,
+        ! then derive cpm using the current qcl estimate via
+        ! cpm = cpm_dag - (cpv_cpm - cl_cpm) * qcl.
+        cpm_dag(kk) = cpm_dag_l(ii,ij,kk)
+        cpm(kk) = cpm_dag(kk) - (cpv_cpm - cl_cpm) * ql_l_est(ii,ij,kk)
         ! Recover physical temperature from liquid temperature using the
         ! moist form of the TL definition.
         t_phys_l(kk) = (cpm_dag(kk) / cpm(kk)) * t_l(ii,ij,kk)                 &
@@ -789,20 +784,14 @@ do i = 1, points
       do kk=idn,iup
         ! Recompute cpm with the newly determined qcl, then recover physical
         ! temperature from liquid temperature using the moist TL definition.
-        ! Note that q_l = qv + qcl
-        cpm(kk) = cpd + cpv_cpm*(q_l(ii,ij,kk) - qcl(kk))                      &
-                      + cl_cpm*(qcl(kk) + qrain_l(ii,ij))                      &
-                      + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+        cpm(kk) = cpm_dag(kk) - (cpv_cpm - cl_cpm) * qcl(kk)
         t(i,kk) = (cpm_dag(kk) / cpm(kk)) * t_l(ii,ij,kk)                      &
                 + (lrv0 / cpm(kk)) * qcl(kk)
         p(i,kk) = p_l(ii,ij)
       end do
 
       ! Recompute cpm for the output level using the final qcl_f.
-      ! Note that q_l = qv + qcl
-      cpm(ikk) = cpd + cpv_cpm*(q_l(ii,ij,ikk) - qcl_f(ii,ij))                 &
-                     + cl_cpm*(qcl_f(ii,ij) + qrain_l(ii,ij))                  &
-                     + ci_cpm*(qcf_f(ii,ij) + qgraupel_l(ii,ij))
+      cpm(ikk) = cpm_dag(ikk) - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
       t_f(ii,ij) = (cpm_dag(ikk) / cpm(ikk)) * t_l(ii,ij,ikk)                  &
                  + (lrv0 / cpm(ikk)) * qcl_f(ii,ij)
       q_f(ii,ij) = q_l(ii,ij,ikk) - qcl_f(ii,ij)

@@ -376,7 +376,7 @@ contains
          qcl_earliest, qcf_earliest, cf_earliest, cfl_earliest,              &
          cff_earliest, qt_force, tl_force, t_inc_pc2, q_inc_pc2, qcl_inc_pc2,&
          bcf_inc_pc2, cfl_inc_pc2, sskew, svar_turb, svar_bm, qcf_total,     &
-         qrain, qgraupel,                                                    &
+         qrain, qgraupel, cpm_latest, cpm_earliest, cpm_dag_earliest,        &
          ri_bm, tgrad_in, mix_len_in, tau_dec_in, tau_hom_in, tau_mph_in,    &
          wvar_in, z_rho
     real(r_bl), dimension(seg_len,1,nlayers) ::                              &
@@ -603,7 +603,7 @@ contains
                          bq_gb(i,1,k)*fqw_m )/weight1
 
           dissip_mol = dissip_u(i,1,k)+dissip_v(i,1,k) + f_buoy_m
-          fric_heating_inc = max (0.0_r_bl, timestep * dissip_mol             &
+          fric_heating_inc = max (0.0_r_bl, timestep * dissip_mol              &
                                            / ( cpm_bl(i,1,k)*rho_wet_tq(i,1,k) ) )
 
           ! Save level 1 heating increment for redistribution over
@@ -623,7 +623,7 @@ contains
                            bq_gb(i,1,k)*fqw_m )/weight1
 
             dissip_mol = dissip_u(i,1,k)+dissip_v(i,1,k) + f_buoy_m
-            fric_heating_incv(i,1) = max (0.0_r_bl, timestep * dissip_mol     &
+            fric_heating_incv(i,1) = max (0.0_r_bl, timestep * dissip_mol      &
                                                    / ( cpm_bl(i,1,k)*rho_wet_tq(i,1,k) ) )
 
             if ( z_theta(i,1,k) <= zh(i,1) ) then
@@ -733,9 +733,20 @@ contains
         end do
 
         ! Remove qcf from T(liquid) and Q(vapour+liquid)
-        if (.not. l_noice_in_turb)                                             &
-             call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest,           &
-                          qcl_latest, qrain, qgraupel )
+        if (.not. l_noice_in_turb) then
+          do k = 1, bl_levels
+            do i = 1, seg_len
+              ! Moist-air heat capacity at constant pressure (J/kg/K).
+              ! Maintained across the scheme and updated when moisture
+              ! changes phase
+              cpm_latest(i,1,k) = cpd + cpv_cpm*q_latest(i,1,k)                &
+                                      + cl_cpm*qrain(i,1,k)                    &
+                                      + ci_cpm*qgraupel(i,1,k)
+            end do
+          end do
+          call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest,              &
+                       qcl_latest, cpm_latest )
+        end if
 
         ! Which cloud scheme are we using?
         ! 3 options are available:
@@ -782,19 +793,35 @@ contains
           ! Calculate forcing in qT and TL. Currently q_latest contains the
           ! vapour plus liquid content and q_earliest just the initial vapour
           ! content
+          ! For k in 1..bl_levels, cpm_earliest is mathematically identical
+          ! to the already-computed cpm_bl (same m_v/m_cl/m_r/m_ci/m_s/m_g
+          ! fields, numerically identical coefficients under a different
+          ! kind), so reuse it directly instead of rebuilding it from
+          ! qrain/qgraupel a second time.
+          do k = 1, bl_levels
+            do i = 1, seg_len
+              cpm_earliest(i,1,k) = real(cpm_bl(i,1,k), r_um)
+            end do
+          end do
           do k = 1, nlayers
             do i = 1, seg_len
-              cpm = cpd + q_earliest(i,1,k)*cpv_cpm                            &
-                       + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm             &
-                       + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
-              cpm_dag = cpd + cpv_cpm*(q_earliest(i,1,k)+qcl_earliest(i,1,k))  &
-                           + cl_cpm*qrain(i,1,k)                               &
-                           + ci_cpm*(qcf_total(i,1,k)+qgraupel(i,1,k))
+              if (k > bl_levels) then
+                ! No maintained field exists above bl_levels, so build
+                ! fresh from qrain/qgraupel.
+                cpm_earliest(i,1,k) = cpd + q_earliest(i,1,k)*cpv_cpm          &
+                         + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm           &
+                         + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
+              end if
+              ! "Dagger" form (qcl treated as vapour too) derived as a
+              ! delta from cpm_earliest, avoiding a second rebuild.
+              cpm_dag_earliest(i,1,k) = cpm_earliest(i,1,k)                    &
+                       + (cpv_cpm - cl_cpm) * qcl_earliest(i,1,k)
               qt_force(i,1,k) = ( q_latest(i,1,k)                              &
                    - (q_earliest(i,1,k) + qcl_earliest(i,1,k)) )
               tl_force(i,1,k) = t_latest(i,1,k)                                &
-                     - ( (cpm/cpm_dag)*t_earliest(i,1,k)                       &
-                     - (lrv0/cpm_dag)*qcl_earliest(i,1,k) )
+                     - ( (cpm_earliest(i,1,k)/cpm_dag_earliest(i,1,k))         &
+                     * t_earliest(i,1,k)                                       &
+                     - (lrv0/cpm_dag_earliest(i,1,k))*qcl_earliest(i,1,k) )
             end do
           end do
 
@@ -862,10 +889,8 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  cpm = cpd + q_earliest(i,1,k)*cpv_cpm                        &
-                           + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm         &
-                           + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
-                  t_inc_pc2(i,1,k)   =  (-lrv0/cpm) * qcl_earliest(i,1,k)
+                  t_inc_pc2(i,1,k)   =  (-lrv0/cpm_earliest(i,1,k))            &
+                                        * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
                   qcl_inc_pc2(i,1,k) =  (-qcl_earliest(i,1,k))
                   cfl_inc_pc2(i,1,k) =  (-cfl_earliest(i,1,k))
@@ -896,19 +921,13 @@ contains
 
           do k = 1, nlayers
             do i = 1, seg_len
-              ! Recompute heat capacities for T_liq-to-T conversion
-              cpm = cpd + q_earliest(i,1,k)*cpv_cpm                            &
-                       + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm             &
-                       + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
-              cpm_dag = cpd + cpv_cpm*(q_earliest(i,1,k)+qcl_earliest(i,1,k))  &
-                           + cl_cpm*qrain(i,1,k)                               &
-                           + ci_cpm*(qcf_total(i,1,k)+qgraupel(i,1,k))
               ! Update working version of temperature, moisture and cloud
               ! fields with increments from the PC2 homogeneous response.
               ! tl_force is a T_liq increment; scale by cpm_dag/cpm to
               ! convert to a T increment.
               t_latest(i,1,k)   = t_earliest(i,1,k)                            &
-                   + (cpm_dag/cpm)*tl_force(i,1,k) + t_inc_pc2(i,1,k)
+                   + (cpm_dag_earliest(i,1,k)/cpm_earliest(i,1,k))             &
+                   * tl_force(i,1,k) + t_inc_pc2(i,1,k)
               q_latest(i,1,k)   = q_earliest(i,1,k) + qt_force(i,1,k)          &
                    + q_inc_pc2(i,1,k)
               qcl_latest(i,1,k) = qcl_earliest(i,1,k)                          &

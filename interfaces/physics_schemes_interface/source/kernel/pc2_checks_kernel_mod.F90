@@ -131,7 +131,8 @@ subroutine pc2_checks_code( nlayers,                   &
 
     use nlsizes_namelist_mod,       only: row_length, rows, model_levels
     use pc2_checks_mod,             only: pc2_checks
-    use planet_constants_mod,       only: p_zero, kappa
+    use planet_constants_mod,       only: p_zero, kappa, cpd => cp
+    use lsc_cpm_mod,                only: cpv_cpm, cl_cpm, ci_cpm
     use gen_phys_inputs_mod,        only: l_mr_physics
 
     use free_tracers_inputs_mod,    only: n_wtrac
@@ -171,10 +172,10 @@ subroutine pc2_checks_code( nlayers,                   &
     real(kind=r_def), intent(inout), dimension(undf_wth) :: dcff_response_wth
     real(kind=r_def), intent(inout), dimension(undf_wth) :: dbcf_response_wth
 
-    real(r_um), dimension(row_length,rows,model_levels) :: &
+    real(r_um), dimension(row_length,rows,model_levels) ::                     &
                   qv_work, qcl_work, qrain_work, qcf_work, qgraupel_work,      &
                   cfl_work, cff_work, bcf_work,                                &
-                  t_work, theta_work, qcf2_work,                               &
+                  t_work, theta_work, qcf2_work, cpm_work,                     &
                   p_theta_levels, p_rho_levels
 
     integer(i_um) :: k
@@ -210,6 +211,10 @@ subroutine pc2_checks_code( nlayers,                   &
       qgraupel_work(1,1,k) = m_g_wth(map_wth(1) + k)
       qcf2_work(1,1,k) = mi_wth(map_wth(1) + k)
 
+      cpm_work(1,1,k) = cpd + qv_work(1,1,k)*cpv_cpm                           &
+          + (qcl_work(1,1,k) + qrain_work(1,1,k))*cl_cpm                       &
+          + (qcf_work(1,1,k) + qcf2_work(1,1,k) + qgraupel_work(1,1,k))*ci_cpm
+
       ! Cast LFRic cloud fractions onto cloud fraction work arrays.
       bcf_work(1,1,k) = bcf_wth(map_wth(1) + k)
       cfl_work(1,1,k) = cfl_wth(map_wth(1) + k)
@@ -217,12 +222,12 @@ subroutine pc2_checks_code( nlayers,                   &
 
     end do
 
-    call pc2_checks( p_theta_levels, p_rho_levels,             &
-                     t_work, bcf_work, cfl_work, cff_work,     &
-                     qv_work, qcl_work, qrain_work, qcf_work,  &
-                     qgraupel_work, l_mr_physics,              &
-                     row_length, rows, model_levels,           &
-                     0_i_um, 0_i_um, 0_i_um, 0_i_um, qcf2_work,&
+    call pc2_checks( p_theta_levels, p_rho_levels,              &
+                     t_work, bcf_work, cfl_work, cff_work,      &
+                     qv_work, qcl_work, qcf_work,               &
+                     cpm_work, l_mr_physics,                    &
+                     row_length, rows, model_levels,            &
+                     0_i_um, 0_i_um, 0_i_um, 0_i_um, qcf2_work, &
                      wtrac)
 
     ! Recast back to LFRic space

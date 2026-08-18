@@ -25,7 +25,7 @@ subroutine ls_cld(                                                             &
 !      From convection diagnosis (only used if A05_4A)
  ntml, cumulus, l_mixing_ratio,                                                &
 !      Prognostic Fields
- t, cf, q, qcf, qcl, qrain, qgraupel,                                          &
+ t, cf, q, qcf, qcl, cpm_dag,                                                  &
 !      Liquid and frozen ice cloud fractions
  cfl, cff,                                                                     &
  i_err)
@@ -93,12 +93,10 @@ real(kind=real_umphys) ::                                                      &
 
 real(kind=real_umphys) ::                                                      &
                !, intent(in)
- qrain(         tdims%i_start:tdims%i_end,                                     &
-                tdims%j_start:tdims%j_end,levels),                             &
-!       Rain water content at processed levels (kg water per kg air).
- qgraupel(      tdims%i_start:tdims%i_end,                                     &
+ cpm_dag(       tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,levels)
-!       Graupel content at processed levels (kg water per kg air).
+!       Moist heat capacity with qcl treated as vapour.
+!       Constant through this scheme; passed through to LS_CLD_C.
 
 integer ::                                                                     &
  ntml(          tdims%i_start:tdims%i_end,                                     &
@@ -284,7 +282,7 @@ end if
 !$OMP  rhc_row_length, rhc_rows, bl_levels, cloud_fraction_method, cf,         &
 !$OMP  overlap_ice_liquid, cff, t_weight, sub_cld, q, t, jblock, cfl_max,      &
 !$OMP  qsat_fixed, multrhc, cumulus, ntml, rhcrit, l_param_conv, tdims,        &
-!$OMP  qv_l_est, ql_l_est,qrain,qgraupel)                                      &
+!$OMP  qv_l_est, ql_l_est,cpm_dag)                                             &
 !$OMP  private(k, j, i, rhcritx, qc_points, rootwo, subgrid, qsl, qsl_ctt,     &
 !$OMP  phiqcf, cosqcf, qn_imp, qn_adj, overlap_max, overlap_min,               &
 !$OMP  overlap_random, temp0, temp1, temp2, qn, lqc, idx, qcfrbs, jj,          &
@@ -431,7 +429,7 @@ do k = 1, levels
   if (qc_points  >   0) then
     call ls_cld_c(p_theta_levels(1,1,k),rhcrit(1,1,k),qsl,qn,                  &
                   q(1,1,k),qv_l_est(1,1,k),ql_l_est(1,1,k),t(1,1,k),           &
-                  qcf(1,1,k),qrain(1,1,k),qgraupel(1,1,k),                     &
+                  cpm_dag(1,1,k),                                              &
                   qcl(1,1,k),cfl(1,1,k),grid_qc(1,1,k),bs(1,1,k),              &
                   idx,qc_points,rhc_row_length,rhc_rows,                       &
                   bl_levels,k, l_mixing_ratio)

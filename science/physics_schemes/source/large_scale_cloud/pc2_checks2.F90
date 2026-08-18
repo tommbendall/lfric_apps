@@ -21,17 +21,19 @@ subroutine pc2_checks2(                                                        &
 !      Array dimensions
  rhc_row_length,rhc_rows,                                                      &
 !      Prognostic Fields
- t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                                &
+ t, cf, cfl, cff, q, qcl,                                                      &
+!      Moist heat capacity field
+ cpm,                                                                          &
 !      Logical control
  l_mixing_ratio)
 
 use water_constants_mod,   only: lc, tm
-use planet_constants_mod,  only: cpd => cp, r, repsilon
+use planet_constants_mod,  only: r, repsilon
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use cloud_inputs_mod,      only: cloud_pc2_tol, cloud_pc2_tol_2
-use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 
 use free_tracers_inputs_mod, only: l_wtrac
@@ -89,6 +91,11 @@ real(kind=real_umphys) ::                                                      &
                 tdims%j_start:tdims%j_end,                                     &
                             1:tdims%k_end),                                    &
 !       Temperature (K)
+   cpm(           tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                              1:tdims%k_end),                                  &
+!    Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!    across the scheme and updated when moisture changes phase
    cf(            tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,                                   &
                               1:tdims%k_end),                                  &
@@ -105,21 +112,6 @@ real(kind=real_umphys) ::                                                      &
                   tdims%j_start:tdims%j_end,                                   &
                               1:tdims%k_end)
 !       Liquid content (kg water per kg air)
-
-real(kind=real_umphys) ::                                                      &
-               !, intent(in)
-   qrain(         tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,                                   &
-                              1:tdims%k_end),                                  &
-!       Rain water content (kg water per kg air)
-   qcf(           tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,                                   &
-                              1:tdims%k_end),                                  &
-!       Frozen condensate content (kg water per kg air)
-   qgraupel(      tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,                                   &
-                              1:tdims%k_end)
-!       Graupel content (kg water per kg air)
 
 !  External functions:
 
@@ -143,11 +135,9 @@ real(kind=real_umphys) ::                                                      &
 !       1 / (1 + alpha L/cp)  (no units)
    Lc_full,                                                                    &
 !       Temperature-dependent latent heat of condensation (J/kg)
-   cpm,                                                                        &
-!       Moist air heat capacity at constant pressure (J/kg/K)
    cpm_dag,                                                                    &
 !       Modified moist heat capacity for TL/T conversion:
-!       cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+!       cpm + (cpv_cpm - cl_cpm) * qcl
    lrv0,                                                                       &
 !       Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
    lcrcp_moist,                                                                &
@@ -209,7 +199,7 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 ! Levels_do1:
 
 !$OMP  PARALLEL do DEFAULT(SHARED) SCHEDULE(STATIC) private(i, j, k,           &
-!$OMP  irhi, irhj, rht, alpha, al, Lc_full, cpm, cpm_dag, lcrcp_moist, sd,     &
+!$OMP  irhi, irhj, rht, alpha, al, Lc_full, cpm_dag, lcrcp_moist, sd,          &
 !$OMP  qsl_t, qsl_tl,                                                          &
 !$OMP  tl)
 do k = 1, tdims%k_end
@@ -227,12 +217,8 @@ do k = 1, tdims%k_end
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! for liquid temperature. Use moist T->TL formula.
-        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
-            + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                               &
-            + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-        cpm_dag = cpd + cpv_cpm*(q(i,j,k) + qcl(i,j,k))                        &
-                + cl_cpm*qrain(i,j,k) + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
-        tl = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
+        cpm_dag = cpm(i,j,k) + (cpv_cpm - cl_cpm) * qcl(i,j,k)
+        tl = (cpm(i,j,k) / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else
@@ -267,10 +253,7 @@ do k = 1, tdims%k_end
 
           ! Calculate the saturation deficit
           Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
-                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
-                    + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-          lcrcp_moist = Lc_full / cpm
+          lcrcp_moist = Lc_full / cpm(i,j,k)
           alpha = repsilon * Lc_full * qsl_t /                                 &
                 (r * t(i,j,k) ** 2)
           al    = 1.0 / (1.0 + lcrcp_moist * alpha)
@@ -281,6 +264,7 @@ do k = 1, tdims%k_end
           qcl(i,j,k) = qcl(i,j,k) - sd
           q(i,j,k)   = q(i,j,k)   + sd
           t(i,j,k)   = t(i,j,k)   - sd * lcrcp_moist
+          cpm(i,j,k) = cpm(i,j,k) - (cl_cpm - cpv_cpm) * sd
 
           if (l_wtrac) then
             wtrac_pc2%q_cond(i,j,k) = -sd
@@ -302,10 +286,8 @@ do k = 1, tdims%k_end
           end if
 
           Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
-                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
-                    + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-          lcrcp_moist = Lc_full / cpm
+          cpm(i,j,k) = cpm(i,j,k) - (cl_cpm - cpv_cpm) * qcl(i,j,k)
+          lcrcp_moist = Lc_full / (cpm(i,j,k) + cl_cpm * qcl(i,j,k))
           t(i,j,k)   = t(i,j,k) - qcl(i,j,k) * lcrcp_moist
           qcl(i,j,k) = 0.0
         end if
@@ -322,10 +304,8 @@ do k = 1, tdims%k_end
         end if
 
         Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
-            + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                               &
-            + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-        lcrcp_moist = Lc_full / cpm
+        cpm(i,j,k) = cpm(i,j,k) - (cl_cpm - cpv_cpm) * qcl(i,j,k)
+        lcrcp_moist = Lc_full / (cpm(i,j,k) + cl_cpm * qcl(i,j,k))
         t(i,j,k)   = t(i,j,k) - qcl(i,j,k) * lcrcp_moist
         qcl(i,j,k) = 0.0
       end if

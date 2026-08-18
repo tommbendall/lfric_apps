@@ -263,7 +263,7 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 !$OMP  sde, cfc, s1, s2, cfl1, cfc1, qcl1, sde1, cfl2, cfc2, qcl2, sde2,       &
 !$OMP  w1, w2, dqcfac, cfl_diff, qcl_diff, a_coef, b_coef, c_coef, qsl_new,    &
 !$OMP  alpha_lcrcp, p2al )                                                     &
-!$OMP  SHARED(tdims,cfl,t,qcl,p_theta_levels,l_mixing_ratio,             &
+!$OMP  SHARED(tdims,cfl,t,qcl,p_theta_levels,l_mixing_ratio,                   &
 !$OMP     repsilon,r,q,dqin,dtin,dbsdtbs0,dbsdtbs1,                            &
 !$OMP     timestep,dcflpc2,lrv0,                                               &
 !$OMP     dcfpc2,cf,cff,dqclpc2,dqpc2,dtpc2,                                   &
@@ -313,11 +313,6 @@ do k = 1, tdims%k_end
         ! Need to estimate the rate of change of saturated specific humidity
         ! with respect to temperature (alpha) first, then use this to calculate
         ! factor aL. Also estimate the rate of change of qsat with pressure.
-        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
-            + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                               &
-            + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-        lcrcp_moist = Lc_full / cpm
         alpha = repsilon*Lc_full*qsl_t /                                       &
           (r*t(i,j,k)**2)
         al = 1.0 / (1.0 + lcrcp_moist*alpha)
@@ -367,8 +362,7 @@ do k = 1, tdims%k_end
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! for TL. Use moist T->TL formula.
 
-        cpm_dag = cpd + cpv_cpm*(q(i,j,k) + qcl(i,j,k))                        &
-                + cl_cpm*qrain(i,j,k) + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
+        cpm_dag = cpm + (cpv_cpm - cl_cpm) * qcl(i,j,k)
         tl = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
@@ -475,11 +469,6 @@ do k = 1, tdims%k_end
                   if (cfc2<0.0) w2 = min(w2, max( cfc1/cfl_diff-smallp, 0.0))
                 end if
                 w1 = 1.0 - w2
-                Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-                cpm = cpd + q(i,j,k)*cpv_cpm                                   &
-                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
-                    + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-                lcrcp_moist  = Lc_full / cpm
                 ! Don't allow s1 > al qsat(T) (implies -ive q in the tail)
                 qsl_new = qsl_tl + alpha*dtin(i,j,k)
                 alpha_lcrcp = alpha*lcrcp_moist
@@ -588,11 +577,6 @@ do k = 1, tdims%k_end
           call qsat_wat(qsl_t, t(i,j,k), p_theta_levels(i,j,k))
         end if
 
-        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
-            + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                               &
-            + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-        lcrcp_moist  = Lc_full / cpm
         alpha = repsilon * Lc_full * qsl_t /                                   &
           (r * t(i,j,k)**2)
         al = 1.0 / (1.0 + lcrcp_moist*alpha)

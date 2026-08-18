@@ -18,7 +18,9 @@ subroutine pc2_checks(                                                         &
 !   Pressure related fields
  p_theta_levels, p_rho_levels,                                                 &
 !   Prognostic Fields
- t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                                &
+ t, cf, cfl, cff, q, qcl, qcf,                                                 &
+!   Moist heat capacity field
+ cpm,                                                                          &
 !   Logical control
  l_mixing_ratio,                                                               &
 !   Sizes of input arrays
@@ -28,7 +30,7 @@ use mphys_inputs_mod,   only: l_casim, l_mcr_qcf2
 use atm_fields_bounds_mod, only: pdims_s
 
 use mphys_ice_mod,         only: thomo
-use planet_constants_mod,  only: lcrcp, lfrcp, lsrcp, r, repsilon, cpd => cp
+use planet_constants_mod,  only: lcrcp, lfrcp, lsrcp, r, repsilon
 use conversions_mod,       only: zerodegc
 use water_constants_mod,   only: lc, lf, tm
 use pc2_constants_mod,     only: cloud_rounding_tol,                           &
@@ -104,6 +106,11 @@ real(kind=real_umphys), intent(in out) ::                                      &
      1:rows,                                                                   &
      1:model_levels),                                                          &
 !    Temperature (K)
+   cpm(1:row_length,                                                           &
+       1:rows,                                                                 &
+       1:model_levels),                                                        &
+!    Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!    across the scheme and updated when moisture changes phase
    cf( 1-halo_i:row_length+halo_i,                                             &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels),                                                 &
@@ -124,18 +131,10 @@ real(kind=real_umphys), intent(in out) ::                                      &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels),                                                 &
 !    Liquid content (kg water per kg air)
-     qrain(1-halo_i:row_length+halo_i,                                         &
-          1-halo_j:rows+halo_j,                                                &
-              1:model_levels),                                                 &
-  !    Rain content (kg water per kg air)
    qcf(1-halo_i:row_length+halo_i,                                             &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels),                                                 &
 !    Ice content (kg water per kg air)
-     qgraupel(1-halo_i:row_length+halo_i,                                      &
-              1-halo_j:rows+halo_j,                                            &
-              1:model_levels),                                                 &
-  !    Graupel content (kg water per kg air)
    qcf2(1-halo_i:row_length+halo_i,                                            &
        1-halo_j:rows+halo_j,                                                   &
               1:model_levels)
@@ -175,16 +174,12 @@ real(kind=real_umphys) ::                                                      &
 !      Temperature-dependent latent heat of sublimation (J/kg)
    Lf_full,                                                                    &
 !      Temperature-dependent latent heat of fusion (J/kg)
-   cpm,                                                                        &
-!      Moist-air heat capacity at constant pressure (J/kg/K)
    lcrcp_moist,                                                                &
 !      L_con / cp_moist
    lsrcp_moist,                                                                &
 !      L_sub / cp_moist
    lfrcp_moist,                                                                &
 !      L_fus / cp_moist
-   qcf_tot,                                                                    &
-!      Total ice mixing ratio used in cp_moist when moist switch is on
    sd,                                                                         &
 !      Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
    cfl_old
@@ -334,7 +329,7 @@ end if  ! ( l_ensure_max_in_cloud_pc2 )
 
 !$OMP  PARALLEL DO DEFAULT(SHARED) SCHEDULE(STATIC) PRIVATE(i, j, k, al,       &
 !$OMP  alpha, sd, cfl_old, qsl_t, i_wt, Lc_full, Ls_full, Lf_full,             &
-!$OMP  cpm, lcrcp_moist, lsrcp_moist, lfrcp_moist, qcf_tot)
+!$OMP  lcrcp_moist, lsrcp_moist, lfrcp_moist)
 do k = 1,model_levels
 
   ! ----------------------------------------------------------------------
@@ -364,16 +359,8 @@ do k = 1,model_levels
       ! Need to estimate the rate of change of saturated specific humidity
       ! with respect to temperature (alpha) first, then use this to calculate
       ! factor aL.
-      if (l_mcr_qcf2) then
-        qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
-      else
-        qcf_tot = qcf(i,j,k)
-      end if
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cpm = cpd + q(i,j,k)*cpv_cpm                                             &
-                + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                           &
-                + (qcf_tot + qgraupel(i,j,k))*ci_cpm
-      lcrcp_moist = Lc_full / cpm
+      lcrcp_moist = Lc_full / cpm(i,j,k)
       alpha = repsilon*Lc_full*qsl_t(i,j)/(r*t(i,j,k)**2)
       al = 1.0/(1.0+lcrcp_moist*alpha)
 
@@ -614,12 +601,9 @@ do k = 1,model_levels
 
         if (qcf(i,j,k) < condensate_limit) then
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
-          qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
           Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
-                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
-                    + (qcf_tot + qgraupel(i,j,k))*ci_cpm
-          lsrcp_moist = Ls_full / cpm
+          cpm(i,j,k) = cpm(i,j,k) - (ci_cpm - cpv_cpm) * qcf(i,j,k)
+          lsrcp_moist = Ls_full / (cpm(i,j,k) + ci_cpm * qcf(i,j,k))
           t(i,j,k) = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
           if (l_wtrac) then    ! Update water tracers
@@ -633,12 +617,9 @@ do k = 1,model_levels
 
         if (qcf2(i,j,k) < condensate_limit) then
           q(i,j,k)   = q(i,j,k) + qcf2(i,j,k)
-          qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
           Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
-                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
-                    + (qcf_tot + qgraupel(i,j,k))*ci_cpm
-          lsrcp_moist = Ls_full / cpm
+          cpm(i,j,k) = cpm(i,j,k) - (ci_cpm - cpv_cpm) * qcf2(i,j,k)
+          lsrcp_moist = Ls_full / (cpm(i,j,k) + ci_cpm * qcf2(i,j,k))
           t(i,j,k) = t(i,j,k) - qcf2(i,j,k) * lsrcp_moist
           qcf2(i,j,k) = 0.0
           if (l_wtrac) then     ! Update water tracers
@@ -681,12 +662,9 @@ do k = 1,model_levels
         if (qcf(i,j,k) < condensate_limit) then
 
           q(i,j,k)   = q(i,j,k) + qcf(i,j,k)
-          qcf_tot = qcf(i,j,k)
           Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i,j,k) - tm)
-          cpm = cpd + q(i,j,k)*cpv_cpm                                         &
-                    + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                       &
-                    + (qcf_tot + qgraupel(i,j,k))*ci_cpm
-          lsrcp_moist = Ls_full / cpm
+          cpm(i,j,k) = cpm(i,j,k) - (ci_cpm - cpv_cpm) * qcf(i,j,k)
+          lsrcp_moist = Ls_full / (cpm(i,j,k) + ci_cpm * qcf(i,j,k))
           t(i,j,k) = t(i,j,k) - qcf(i,j,k) * lsrcp_moist
           qcf(i,j,k) = 0.0
 
@@ -750,17 +728,10 @@ do k = 1,model_levels
         end if
 
         qcf(i,j,k) = qcf(i,j,k) + qcl(i,j,k)
-        if (l_mcr_qcf2) then
-          qcf_tot = qcf(i,j,k) + qcf2(i,j,k)
-        else
-          qcf_tot = qcf(i,j,k)
-        end if
         Lf_full = lf - (ci_cpm - cl_cpm) * (t(i,j,k) - tm)
-        cpm = cpd + q(i,j,k)*cpv_cpm                                           &
-                  + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                         &
-                  + (qcf_tot + qgraupel(i,j,k))*ci_cpm
-        lfrcp_moist = Lf_full / cpm
+        lfrcp_moist = Lf_full / (cpm(i,j,k) + ci_cpm * qcl(i,j,k))
         t(i,j,k) = t(i,j,k) + qcl(i,j,k) * lfrcp_moist
+        cpm(i,j,k) = cpm(i,j,k) + (ci_cpm - cl_cpm) * qcl(i,j,k)
         qcl(i,j,k) = 0.0
 
         if (l_wtrac) then   ! Update water tracers

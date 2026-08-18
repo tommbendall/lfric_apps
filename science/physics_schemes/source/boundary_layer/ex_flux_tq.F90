@@ -29,15 +29,15 @@ subroutine ex_flux_tq (                                                        &
   tl, qw, rdz, rhokh, rhokhz, grad_t_adj, grad_q_adj, rhof2, rhofsc,           &
   ft_nt, fq_nt, ft_nt_dscb, fq_nt_dscb, tothf_zh, tothf_zhsc, totqf_zh,        &
   totqf_zhsc,  weight_1dbl, ntml, ntdsc, nbdsc,                                &
-  q, qcl, qcf, qrain, qgraupel,                                                &
+  q, qcl, qcf, qrain, qgraupel, cpm_bl, cpm_dag_bl, q_tot_bl,                  &
 ! INOUT fields
   ftl, fqw, wtrac_bl                                                           &
   )
 
 use atm_fields_bounds_mod, only: pdims, tdims, scmrowlen, scmrow
 use bl_option_mod, only: flux_grad, LockWhelan2006, l_converge_ga, zero
-use planet_constants_mod, only: cpd => cp_bl, g => g_bl
-use bl_cpm_mod,           only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl, bl_mload_switch
+use planet_constants_mod, only: g => g_bl
+use bl_cpm_mod,           only: bl_mload_switch
 use bl_diags_mod, only: strnewbldiag
 use s_scmop_mod,   only: default_streams,                                      &
     t_avg, d_bl, scmdiag_bl
@@ -155,8 +155,14 @@ real(kind=r_bl), intent(in) ::                                                 &
                             ! in Total cloud ice mixing ratio (kg/kg)
   qrain(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),        &
                             ! in Rain mixing ratio (kg/kg)
-  qgraupel(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels)
+  qgraupel(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),     &
                             ! in Graupel mixing ratio (kg/kg)
+  cpm_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),       &
+                            ! in Moist-air heat capacity (J/kg/K)
+  cpm_dag_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),   &
+                            ! in As cpm_bl but with qcl treated as vapour
+  q_tot_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels)
+                            ! in Total moisture (sum of all species)
 
 ! Water tracer structure containing boundary layer fields
 type(bl_wtrac_type), intent(in out) :: wtrac_bl(n_wtrac)
@@ -276,9 +282,7 @@ if (scm_bl_diags) then
         fsc_fqw_scm(i,j,k)=zero
         ftl_entr_scm(i,j,k)=ftl(i,j,k)
         fqw_entr_scm(i,j,k)=fqw(i,j,k)
-        cpm = cpd + cpv_cpm_bl*q(i,j,k)                                        &
-                  + cl_cpm_bl*(qcl(i,j,k)+qrain(i,j,k))                        &
-                  + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k))
+        cpm = cpm_bl(i,j,k)
         ft_nt_scm(i,j,k)=cpm*ft_nt(i,j,k)
       end do
     end do
@@ -308,15 +312,9 @@ do k = 2, bl_levels
   !-----------------------------------------------------------------------
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
-      cpm = cpd + cpv_cpm_bl*q(i,j,k)                                          &
-                + cl_cpm_bl*(qcl(i,j,k)+qrain(i,j,k))                          &
-                + ci_cpm_bl*(qcf(i,j,k)+qgraupel(i,j,k))
-      grcp_moist = g * (1.0_r_bl + bl_mload_switch*(q(i,j,k) + qcl(i,j,k)      &
-                                   + qcf(i,j,k) + qrain(i,j,k)                 &
-                                   + qgraupel(i,j,k)))                         &
-                / ( cpd + cpv_cpm_bl*(q(i,j,k)+qcl(i,j,k)+qcf(i,j,k))         &
-                        + cl_cpm_bl*qrain(i,j,k)                               &
-                        + ci_cpm_bl*qgraupel(i,j,k) )
+      cpm = cpm_bl(i,j,k)
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*q_tot_bl(i,j,k))            &
+                / cpm_dag_bl(i,j,k)
       grad_ftl = - rhokh(i,j,k) *                                              &
         ( ( ( tl(i,j,k) - tl(i,j,k-1) ) * rdz(i,j,k) ) + grcp_moist )
       grad_fqw = - rhokh(i,j,k) *                                              &

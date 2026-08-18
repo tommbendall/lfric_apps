@@ -263,6 +263,13 @@ real ::                                                                        &
 !       Copy of initial t
 
 real(kind=real_umphys) ::                                                      &
+   cpm_dag_levs(tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,levels)
+!       Moist heat capacity with qcl treated as vapour, at each full level.
+!       Invariant while liquid condenses/evaporates; computed once at scheme
+!       entry and reused throughout instead of being rebuilt at each use site.
+
+real(kind=real_umphys) ::                                                      &
    qsl_lay(     tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,3),                                  &
 !       Liquid saturation specific humidity for bimodal cloud scheme on layers
@@ -290,6 +297,11 @@ real(kind=real_umphys) ::                                                      &
    qgraupel_lay(tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end),                                    &
 !       Graupel mixing ratio for bimodal cloud scheme at current level
+   cpm_dag_lay( tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,3),                                  &
+!       Cached moist heat capacity for each of the three modes (bottom of EZ,
+!       k-level of interest, top of EZ), computed once per mode per level and
+!       reused when the same mode's properties are needed again.
    tl_lay(      tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,3),                                  &
 !       Liquid water temperature for bimodal cloud scheme on layers
@@ -419,13 +431,19 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do                                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(none)                                                            &
-!$OMP SHARED(levels,tdims,q_in,t_in,q,t)                                       &
+!$OMP SHARED(levels,tdims,q_in,t_in,q,t,qcf,qrain,qgraupel,cpm_dag_levs,       &
+!$OMP        cpd,cpv_cpm,cl_cpm,ci_cpm)                                        &
 !$OMP private(k,j,i)
 do k = 1, levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       q_in(i,j,k)       = q(i,j,k)
       t_in(i,j,k)       = t(i,j,k)
+      ! Moist heat capacity with qcl treated as vapour, invariant while
+      ! liquid condenses/evaporates; computed once here and reused
+      ! throughout the scheme instead of being rebuilt at each use site.
+      cpm_dag_levs(i,j,k) = cpd + cpv_cpm*q_in(i,j,k) + cl_cpm*qrain(i,j,k)    &
+                                + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
     end do
   end do
 end do
@@ -444,7 +462,7 @@ case ( i_bm_ez_orig, i_bm_ez_subcrit )
   ! Options using entrainment zone diagnosis on model-levels
 
   call  bm_ez_diagnosis( p_theta_levels,tgrad_bm,z_theta,ri_bm,zh,zhsc,dzh,    &
-                         bl_type_7,levels,t_in,q_in,qcl,qcf,qrain,qgraupel,    &
+                         bl_type_7,levels,t_in,q_in,qcl,cpm_dag_levs,          &
                          l_mixing_ratio,kez_inv,kez_bottom,kez_top)
 
 case ( i_bm_ez_entpar )
@@ -489,7 +507,7 @@ end if
 !$OMP SHARED(levels,tdims,qcl,cfl,sskew,svar_turb,svar_bm,t_in,q_in,z_theta,   &
 !$OMP        p_theta_levels,svar_ini,l_mixing_ratio,g,cpd,r,qcf,cff,cf,        &
 !$OMP        cfl_max,kappa,repsilon,lcld,kez_top,kez_bottom,kez_inv,t,q,       &
-!$OMP        qrain,qgraupel,qv_lay_est,ql_lay_est,                             &
+!$OMP        qrain,qgraupel,qv_lay_est,ql_lay_est,cpm_dag_levs,                &
 !$OMP        tau_dec_bm,tau_hom_bm,tau_mph_bm,bl_w_var,l_bm_sigma_s_grad,      &
 !$OMP        i_bm_ez_opt, turb_var_fac_bm, mix_len_bm, max_sigmas,             &
 !$OMP        min_sigx_ft, min_sigx_fac, cpv_cpm, cl_cpm, ci_cpm, lrv0,         &
@@ -503,7 +521,7 @@ end if
 !$OMP         tl_lay,ql_lay,qsl_lay,qsi_lay,tdc_lay,inv_thm_lay,inv_tmp_lay,   &
 !$OMP         wvar_lay,qsl_v,qsi_v,km1,kp1,kkm1,kkp1,                          &
 !$OMP         dtldz_lay,dqtdz_lay,tmp,cpm,cpm_dag,t_phys,l_set_modes,          &
-!$OMP         qrain_lay,qgraupel_lay)
+!$OMP         qrain_lay,qgraupel_lay,cpm_dag_lay)
 
 !$OMP do SCHEDULE(STATIC)
 do k = 1, levels
@@ -618,11 +636,11 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
 
       alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(t_in(i,j,k) - tm))         &
              * qsl_v(i) / (r * t_in(i,j,k) * t_in(i,j,k))
-      cpm = cpd + qv_lay_est(i,j,2)*cpv_cpm                                    &
-        + (ql_lay_est(i,j,2) + qrain_lay(i,j))*cl_cpm                          &
-        + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-      cpm_dag = cpd + cpv_cpm*ql_lay(i,j,2) + cl_cpm*qrain_lay(i,j)            &
-                    + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+      ! Mode 2 (current level) moist heat capacity is exactly the invariant
+      ! full-level field computed once at scheme entry.
+      cpm_dag_lay(i,j,2) = cpm_dag_levs(i,j,k)
+      cpm_dag = cpm_dag_lay(i,j,2)
+      cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,2)
       t_phys = (cpm_dag / cpm) * t_in(i,j,k)                                   &
              + (lrv0 / cpm) * ql_lay_est(i,j,2)
       alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                           &
@@ -804,11 +822,14 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         qsl = qsl_lay(i,j,3)
         alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,3) - tm))     &
                * qsl / (r * tl_lay(i,j,3)*tl_lay(i,j,3))
-        cpm = cpd + qv_lay_est(i,j,3)*cpv_cpm                                  &
-            + (ql_lay_est(i,j,3) + qrain_lay(i,j))*cl_cpm                      &
-            + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-        cpm_dag = cpd + cpv_cpm*ql_lay(i,j,3) + cl_cpm*qrain_lay(i,j)          &
-                      + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        ! Mode 3 (above inversion) moist heat capacity: mode-specific total
+        ! water combined with current-level rain/graupel/ice, cached for
+        ! reuse in the diagnostics block below.
+        cpm_dag_lay(i,j,3) = cpd + cpv_cpm*ql_lay(i,j,3)                       &
+                                 + cl_cpm*qrain_lay(i,j)                       &
+                                 + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        cpm_dag = cpm_dag_lay(i,j,3)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,3)
         t_phys = (cpm_dag / cpm) * tl_lay(i,j,3)                               &
                + (lrv0 / cpm) * ql_lay_est(i,j,3)
         alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
@@ -841,11 +862,14 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         qsl = qsl_lay(i,j,1)
         alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,1) - tm))     &
                * qsl / (r * tl_lay(i,j,1)*tl_lay(i,j,1))
-        cpm = cpd + qv_lay_est(i,j,1)*cpv_cpm                                  &
-            + (ql_lay_est(i,j,1) + qrain_lay(i,j))*cl_cpm                      &
-            + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-        cpm_dag = cpd + cpv_cpm*ql_lay(i,j,1) + cl_cpm*qrain_lay(i,j)          &
-                      + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        ! Mode 1 (bottom of EZ) moist heat capacity: mode-specific total
+        ! water combined with current-level rain/graupel/ice, cached for
+        ! reuse in the diagnostics block below.
+        cpm_dag_lay(i,j,1) = cpd + cpv_cpm*ql_lay(i,j,1)                       &
+                                 + cl_cpm*qrain_lay(i,j)                       &
+                                 + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        cpm_dag = cpm_dag_lay(i,j,1)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,1)
         t_phys = (cpm_dag / cpm) * tl_lay(i,j,1)                               &
                + (lrv0 / cpm) * ql_lay_est(i,j,1)
         alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
@@ -884,11 +908,9 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         ! Copy properties of middle mode, from current level
         alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,2) - tm))     &
                * qsl_lay(i,j,2) / (r * tl_lay(i,j,2) * tl_lay(i,j,2))
-        cpm = cpd + qv_lay_est(i,j,2)*cpv_cpm                                  &
-            + (ql_lay_est(i,j,2) + qrain_lay(i,j))*cl_cpm                      &
-            + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-        cpm_dag = cpd + cpv_cpm*ql_lay(i,j,2) + cl_cpm*qrain_lay(i,j)          &
-                      + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        ! Reuse mode 2 moist heat capacity cached above.
+        cpm_dag = cpm_dag_lay(i,j,2)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,2)
         t_phys = (cpm_dag / cpm) * tl_lay(i,j,2)                               &
                + (lrv0 / cpm) * ql_lay_est(i,j,2)
         alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                         &
@@ -905,11 +927,9 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           ! Copy properties of mode from below
           alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,1) - tm))   &
                  * qsl_lay(i,j,1) / (r * tl_lay(i,j,1) * tl_lay(i,j,1))
-          cpm = cpd + qv_lay_est(i,j,1)*cpv_cpm                                &
-              + (ql_lay_est(i,j,1) + qrain_lay(i,j))*cl_cpm                    &
-              + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-          cpm_dag = cpd + cpv_cpm*ql_lay(i,j,1) + cl_cpm*qrain_lay(i,j)        &
-                        + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+          ! Reuse mode 1 moist heat capacity cached above.
+          cpm_dag = cpm_dag_lay(i,j,1)
+          cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,1)
           t_phys = (cpm_dag / cpm) * tl_lay(i,j,1)                             &
                  + (lrv0 / cpm) * ql_lay_est(i,j,1)
           alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
@@ -923,14 +943,12 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           ! Copy properties of mode from above
           alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,3) - tm))   &
                  * qsl_lay(i,j,3) / (r * tl_lay(i,j,3) * tl_lay(i,j,3))
-          cpm = cpd + qv_lay_est(i,j,3)*cpv_cpm                                &
-            + (ql_lay_est(i,j,3) + qrain_lay(i,j))*cl_cpm                      &
-            + (qcf(i,j,k) + qgraupel_lay(i,j))*ci_cpm
-          cpm_dag = cpd + cpv_cpm*ql_lay(i,j,3) + cl_cpm*qrain_lay(i,j)        &
-                        + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+          ! Reuse mode 3 moist heat capacity cached above.
+          cpm_dag = cpm_dag_lay(i,j,3)
+          cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,3)
           t_phys = (cpm_dag / cpm) * tl_lay(i,j,3)                             &
                  + (lrv0 / cpm) * ql_lay_est(i,j,3)
-          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                     &
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
                       * (t_phys - tm)) / cpm) * alphal))
           sl_modes(i,j,k,3) = tl_lay(i,j,3)                                    &
             + (g*(1.0 + ql_lay(i,j,3) + qcf(i,j,k)                             &
@@ -1005,7 +1023,7 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
                   cfl_max(1,1),q(1,1,k),t(1,1,k),                              &
                   sskew(1,1,k),svar_turb(1,1,k),svar_bm(1,1,k),                &
                   idx,qc_points,l_mixing_ratio,                                &
-                  qrain_lay(:,:), qgraupel_lay(:,:) )
+                  cpm_dag_lay(:,:,:) )
 
   end if ! Qc_points_if
 

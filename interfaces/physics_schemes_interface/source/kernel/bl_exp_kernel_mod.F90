@@ -531,7 +531,8 @@ contains
     real(r_bl), dimension(seg_len,1,bl_levels) :: fqw, ftl, rhokh, bq_gb,    &
          bt_gb, dtrdz_charney_grid, rdz_charney_grid, rhokm_mix,             &
          temperature, rho_mix_tq, dzl_charney, qw, tl, bt, bq,               &
-         bt_cld, bq_cld, a_qs, a_dqsdt, dqsdt, rhokm, tau_fd_x, tau_fd_y, rdz
+         bt_cld, bq_cld, a_qs, a_dqsdt, dqsdt, rhokm, tau_fd_x, tau_fd_y,    &
+         rdz, cpm_bl, cpm_dag_bl, q_tot_bl
 
     real(r_um), dimension(seg_len,1,bl_levels) :: w_mixed, w_flux
 
@@ -791,15 +792,22 @@ contains
         rad_hr(i,1,2,k) = sw_heating_rate(map_wth(1,i)+k)
         ! temperature
         temperature(i,1,k) = theta(i,1,k) * exner_theta_levels(i,1,k)
-        cpm = cp_bl + q(i,1,k)*cpv_cpm_bl                                      &
-                    + (qcl(i,1,k)+qrain(i,1,k))*cl_cpm_bl                      &
-                    + (qcf(i,1,k)+qgraupel(i,1,k))*ci_cpm_bl
-        cpm_dag = cp_bl + cpv_cpm_bl*(q(i,1,k)+qcl(i,1,k)+qcf(i,1,k))          &
-                        + cl_cpm_bl*qrain(i,1,k) + ci_cpm_bl*qgraupel(i,1,k)
+        ! Moist-air heat capacity at constant pressure (J/kg/K), and its
+        ! "dagger" form treating qcl as vapour
+        cpm_bl(i,1,k) = cp_bl + q(i,1,k)*cpv_cpm_bl                            &
+                      + (qcl(i,1,k)+qrain(i,1,k))*cl_cpm_bl                    &
+                      + (qcf(i,1,k)+qgraupel(i,1,k))*ci_cpm_bl
+        cpm_dag_bl(i,1,k) = cp_bl + cpv_cpm_bl*(q(i,1,k)+qcl(i,1,k)+qcf(i,1,k))&
+                          + cl_cpm_bl*qrain(i,1,k) + ci_cpm_bl*qgraupel(i,1,k)
+        cpm = cpm_bl(i,1,k)
+        cpm_dag = cpm_dag_bl(i,1,k)
         tl(i,1,k) = (cpm/cpm_dag)*temperature(i,1,k)                           &
                   - (lrv0/cpm_dag)*qcl(i,1,k)                                  &
                   - (lrs0/cpm_dag)*qcf(i,1,k)
         qw(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)
+        ! Total moisture (sum of all species)
+        q_tot_bl(i,1,k) = q(i,1,k) + qcl(i,1,k) + qcf(i,1,k)                   &
+                        + qrain(i,1,k) + qgraupel(i,1,k)
       end do
     end do
 
@@ -906,6 +914,7 @@ contains
       dqsdt,recip_l_mo_sea, flandg, rib_gb, sil_orog_land_gb,z0m_eff_gb,       &
     ! IN cloud/moisture data :
       bulk_cloud_fraction,q,qcf,qcl,qrain,qgraupel,temperature,qw,tl,          &
+      cpm_bl,cpm_dag_bl,q_tot_bl,                                              &
     ! IN everything not covered so far :
       rad_hr,micro_tends,fb_surf,ustargbm,p_star,tstar,                        &
       zh_prev, zhpar,zlcl,ho2r2_orog_gb,sd_orog,wtrac_as,                      &

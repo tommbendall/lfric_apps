@@ -16,15 +16,15 @@ contains
 ! Subroutine Interface:
 subroutine bm_ez_diagnosis( p_theta_levels, tgrad_bm, z_theta,                 &
                             ri_bm, zh, zhsc, dzh, bl_type_7, levels, t, q, ql, &
-                            qcf, qrain, qgraupel,                              &
+                            cpm_dag_levs,                                      &
                             l_mixing_ratio, kez_inv, kez_bottom, kez_top)
 
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
-use planet_constants_mod,  only: r, kappa, repsilon, grcp, cpd => cp
+use planet_constants_mod,  only: r, kappa, repsilon, grcp
 use water_constants_mod,   only: lc, tm
-use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 use pc2_constants_mod,     only: bm_negative_init
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
@@ -98,15 +98,10 @@ real(kind=real_umphys), intent(in) ::                                          &
    ql(            tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,levels),                           &
 !       Liquid cloud water content (kg per kg air).
-   qcf(           tdims%i_start:tdims%i_end,                                   &
+   cpm_dag_levs(  tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,levels),                           &
-!       Ice cloud water content (kg per kg air).
-   qrain(         tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,levels),                           &
-!       Rain water content (kg per kg air).
-   qgraupel(      tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,levels),                           &
-!       Graupel water content (kg per kg air).
+!       Moist heat capacity with qcl treated as vapour, at each full level.
+!       Invariant while liquid condenses/evaporates within this routine.
    t(             tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,levels)
 !       Liquid/frozen water temperature (TL) (K).
@@ -254,10 +249,10 @@ end if
 
 !$OMP  PARALLEL                                                                &
 !$OMP  DEFAULT(none)                                                           &
-!$OMP  SHARED(tdims,t,q,ql,qcf,qrain,qgraupel,p_theta_levels,l_mixing_ratio,   &
+!$OMP  SHARED(tdims,t,q,ql,cpm_dag_levs,p_theta_levels,l_mixing_ratio,         &
 !$OMP  grcp,tgrad_bm,kappa,repsilon,r,z_theta,lrv0,levels,ri_bm,               &
 !$OMP  zh_eff,i_bm_ez_opt,kez_top,kez_bottom,kez_inv,ez_max_bm,                &
-!$OMP  cpd, cpv_cpm, cl_cpm, ci_cpm)                                           &
+!$OMP  cpv_cpm, cl_cpm)                                                        &
 !$OMP  private(j,i,k,kk,qs,alphal,alx,cpm,cpm_dag,temperature,tlx,mux,mukp1,   &
 !$OMP          l_turb)
 do k = 2, levels-3
@@ -315,11 +310,8 @@ do k = 2, levels-3
         end if
         alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tlx - tm))               &
                * qs / (r * tlx * tlx)
-        cpm = cpd + cpv_cpm * (q(i,j,k) - ql(i,j,k))                           &
-            + cl_cpm * (ql(i,j,k) + qrain(i,j,k))                              &
-            + ci_cpm * (qcf(i,j,k) + qgraupel(i,j,k))
-        cpm_dag = cpd + cpv_cpm * q(i,j,k) + cl_cpm * qrain(i,j,k)             &
-                + ci_cpm * (qcf(i,j,k) + qgraupel(i,j,k))
+        cpm_dag = cpm_dag_levs(i,j,k)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql(i,j,k)
         temperature = (cpm_dag / cpm) * tlx + (lrv0 / cpm) * ql(i,j,k)
         alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
                               * (temperature - tm)) / cpm) * alphal))
@@ -335,11 +327,8 @@ do k = 2, levels-3
         end if
         alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tlx - tm))               &
                * qs / (r * tlx * tlx)
-        cpm = cpd + cpv_cpm * (q(i,j,k+1) - ql(i,j,k+1))                       &
-            + cl_cpm * (ql(i,j,k+1) + qrain(i,j,k+1))                          &
-            + ci_cpm * (qcf(i,j,k+1) + qgraupel(i,j,k+1))
-        cpm_dag = cpd + cpv_cpm * q(i,j,k+1) + cl_cpm * qrain(i,j,k+1)         &
-                + ci_cpm * (qcf(i,j,k+1) + qgraupel(i,j,k+1))
+        cpm_dag = cpm_dag_levs(i,j,k+1)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql(i,j,k+1)
         temperature = (cpm_dag / cpm) * tlx + (lrv0 / cpm) * ql(i,j,k+1)
         alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
                               * (temperature - tm)) / cpm) * alphal))
@@ -363,11 +352,8 @@ do k = 2, levels-3
           end if
           alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tlx - tm))             &
                  * qs / (r * tlx * tlx)
-          cpm = cpd + cpv_cpm * (q(i,j,kk) - ql(i,j,kk))                       &
-              + cl_cpm * (ql(i,j,kk) + qrain(i,j,kk))                          &
-              + ci_cpm * (qcf(i,j,kk) + qgraupel(i,j,kk))
-          cpm_dag = cpd + cpv_cpm * q(i,j,kk) + cl_cpm * qrain(i,j,kk)         &
-                  + ci_cpm * (qcf(i,j,kk) + qgraupel(i,j,kk))
+          cpm_dag = cpm_dag_levs(i,j,kk)
+          cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql(i,j,kk)
           temperature = (cpm_dag / cpm) * tlx + (lrv0 / cpm) * ql(i,j,kk)
           alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
                                 * (temperature - tm)) / cpm) * alphal))
@@ -383,11 +369,8 @@ do k = 2, levels-3
           end if
           alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tlx - tm))             &
                  * qs / (r * tlx * tlx)
-          cpm = cpd + cpv_cpm * (q(i,j,kk+1) - ql(i,j,kk+1))                   &
-              + cl_cpm * (ql(i,j,kk+1) + qrain(i,j,kk+1))                      &
-              + ci_cpm * (qcf(i,j,kk+1) + qgraupel(i,j,kk+1))
-          cpm_dag = cpd + cpv_cpm * q(i,j,kk+1) + cl_cpm * qrain(i,j,kk+1)     &
-                  + ci_cpm * (qcf(i,j,kk+1) + qgraupel(i,j,kk+1))
+          cpm_dag = cpm_dag_levs(i,j,kk+1)
+          cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql(i,j,kk+1)
           temperature = (cpm_dag / cpm) * tlx + (lrv0 / cpm) * ql(i,j,kk+1)
           alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                        &
                                 * (temperature - tm)) / cpm) * alphal))

@@ -19,18 +19,18 @@ contains
 !  Large-scale Cloud Scheme Compression routine (Cloud points only).
 ! Subroutine Interface:
 subroutine ls_cld_c(                                                           &
- p_f,rhcrit,qsl_f,qn_f,q_f,qv_l_est_f,ql_l_est_f,t_f,                         &
- qcf_f,qrain_f,qgraupel_f,qcl_f,cf_f,grid_qc_f,bs_f,                          &
+ p_f,rhcrit,qsl_f,qn_f,q_f,qv_l_est_f,ql_l_est_f,t_f,                          &
+ cpm_dag_f,qcl_f,cf_f,grid_qc_f,bs_f,                                          &
  indx,points,rhc_row_length,rhc_rows,                                          &
  bl_levels,k, l_mixing_ratio)
 
 use water_constants_mod,  only: lc, tm
-use planet_constants_mod, only: cpd => cp, r, repsilon
+use planet_constants_mod, only: r, repsilon
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims
 use cloud_inputs_mod,     only: i_eacf, all_clouds
-use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
 implicit none
@@ -90,15 +90,10 @@ real(kind=real_umphys) ::                                                      &
 
 real(kind=real_umphys) ::                                                      &
                !, intent(in)
- qcf_f(         tdims%i_start:tdims%i_end,                                     &
-                tdims%j_start:tdims%j_end),                                    &
-!       Cloud frozen-water content (kg water per kg air)
- qrain_f(       tdims%i_start:tdims%i_end,                                     &
-                tdims%j_start:tdims%j_end),                                    &
-!       Rain water content (kg water per kg air)
- qgraupel_f(    tdims%i_start:tdims%i_end,                                     &
+ cpm_dag_f(     tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end)
-!       Graupel content (kg water per kg air)
+!       Moist heat capacity with qcl treated as vapour:
+!       cpd + qw*cpv_cpm + qrain*cl_cpm + (qcf+qgraupel)*ci_cpm
 
 logical ::                                                                     &
                       !, intent(in)
@@ -226,12 +221,8 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  cpm = cpd + qv_l_est_f(ii,ij)*cpv_cpm                                        &
-            + (ql_l_est_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                      &
-            + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
-  cpm_dag = cpd + (qv_l_est_f(ii,ij) + ql_l_est_f(ii,ij))*cpv_cpm              &
-                + qrain_f(ii,ij)*cl_cpm                                        &
-                + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+  cpm_dag = cpm_dag_f(ii,ij)
+  cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_l_est_f(ii,ij)
   t_phys = (cpm_dag / cpm) * t_f(ii,ij) + (lrv0 / cpm) * ql_l_est_f(ii,ij)
   Lc_full = lc - (cl_cpm - cpv_cpm) * (t_phys - tm)
   lcrcp_moist = Lc_full / cpm
@@ -314,13 +305,9 @@ do i = 1, points
 
   ! Recover T from TL using the exact moist formula:
   ! T = (cpm_dag/cpm)*TL + (lrv0/cpm)*qcl
-  ! cpm_dag treats qcl as vapour (dag world, constant for this point)
-  cpm_dag = cpd + q_f(ii,ij)*cpv_cpm                                           &
-                + qrain_f(ii,ij)*cl_cpm                                        &
-                + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
-  cpm = cpd + q(i)*cpv_cpm                                                     &
-            + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                           &
-            + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+  ! cpm_dag treats qcl as vapour
+  cpm_dag = cpm_dag_f(ii,ij)
+  cpm = cpm_dag - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
   t(i) = (cpm_dag/cpm)*t_f(ii,ij) + (lrv0/cpm)*qcl_f(ii,ij)
 end do ! Points_do1
 
@@ -356,9 +343,7 @@ if (its  >=  2) then
         alphal = wtn * alphal + (1.0 - wtn) * alphal_nm1(i)
         alphal_nm1(i) = alphal
         Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-        cpm = cpd + q(i)*cpv_cpm                                               &
-                  + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                     &
-                  + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+        cpm = cpm_dag_f(ii,ij) - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
         lcrcp_moist = Lc_full / cpm
         al = 1.0 / (1.0 + (lcrcp_moist * alphal))
         ! Rhcrit_if2:
@@ -387,13 +372,9 @@ if (its  >=  2) then
 
         ! Recover T from TL using the exact moist formula:
         ! T = (cpm_dag/cpm)*TL + (lrv0/cpm)*qcl
-        ! cpm_dag = cpm with qcl treated as vapour; constant for this point
-        cpm_dag = cpd + q_f(ii,ij)*cpv_cpm                                     &
-                      + qrain_f(ii,ij)*cl_cpm                                  &
-                      + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
-        cpm = cpd + q(i)*cpv_cpm                                               &
-                  + (qcl_f(ii,ij) + qrain_f(ii,ij))*cl_cpm                     &
-                  + (qcf_f(ii,ij) + qgraupel_f(ii,ij))*ci_cpm
+        ! cpm_dag treats qcl as vapour
+        cpm_dag = cpm_dag_f(ii,ij)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
         t(i) = (cpm_dag/cpm)*t_f(ii,ij) + (lrv0/cpm)*qcl_f(ii,ij)
       end if ! T_if
     end do ! Points_do2

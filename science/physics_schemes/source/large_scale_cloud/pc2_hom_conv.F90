@@ -386,8 +386,7 @@ do j = tdims%j_start, tdims%j_end
 
       ! Calculate Qc
       ! Use moist T->TL formula.
-      cpm_dag = cpd + cpv_cpm*(q(i,j) + qcl(i,j))                              &
-              + cl_cpm*qrain(i,j) + ci_cpm*(qcf(i,j) + qgraupel(i,j))
+      cpm_dag = cpm + (cpv_cpm - cl_cpm) * qcl(i,j)
       tl = (cpm / cpm_dag) * t(i,j) - (lrv0 / cpm_dag) * qcl(i,j)
       if ( l_mr_physics ) then
         call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j))
