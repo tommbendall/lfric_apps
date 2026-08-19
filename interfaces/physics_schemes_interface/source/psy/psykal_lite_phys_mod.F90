@@ -322,7 +322,8 @@ contains
   !---------------------------------------------------------------------
   ! PSyclone currently doesn't work for DOMAIN kernels with stencil fields
   ! See PSyclone #1948
-    SUBROUTINE invoke_jules_exp_kernel_type(ncells, ncells_halo, theta, exner_in_wth, u_in_w3, v_in_w3, mr_n, mr_n_1, mr_n_2, height_w3, height_wth, &
+    SUBROUTINE invoke_jules_exp_kernel_type(ncells, ncells_halo, theta, exner_in_wth, u_in_w3, v_in_w3, mr_n, mr_n_1, mr_n_2, &
+&mr_r, mr_g, height_w3, height_wth, &
 &zh, z0msea, z0m, tile_fraction, leaf_area_index, canopy_height, peak_to_trough_orog, silhouette_area_orog, soil_albedo, &
 &soil_roughness, soil_moist_wilt, soil_moist_crit, soil_moist_sat, soil_thermal_cond, soil_suction_sat, clapp_horn_b, &
 &soil_respiration, thermal_cond_wet_soil, sea_u_current_ptr, sea_v_current_ptr, sea_ice_temperature, sea_ice_conductivity, sea_ice_pensolar, &
@@ -344,7 +345,7 @@ flux_e, flux_h, urbwrr, urbhwr, urbhgt, urbztm, urbdisp, &
       USE stencil_dofmap_mod, ONLY: STENCIL_REGION
       USE stencil_dofmap_mod, ONLY: stencil_dofmap_type
       implicit none
-      TYPE(field_type), intent(in) :: theta, exner_in_wth, u_in_w3, v_in_w3, mr_n, mr_n_1, mr_n_2, height_w3, height_wth, zh, &
+      TYPE(field_type), intent(in) :: theta, exner_in_wth, u_in_w3, v_in_w3, mr_n, mr_n_1, mr_n_2, mr_r, mr_g, height_w3, height_wth, zh, &
 &z0msea, z0m, tile_fraction, leaf_area_index, canopy_height, peak_to_trough_orog, silhouette_area_orog, soil_albedo, &
 &soil_roughness, soil_moist_wilt, soil_moist_crit, soil_moist_sat, soil_thermal_cond, soil_suction_sat, clapp_horn_b, &
 &soil_respiration, thermal_cond_wet_soil, sea_u_current_ptr, sea_v_current_ptr, sea_ice_temperature, sea_ice_conductivity, &
@@ -366,7 +367,8 @@ rhostar, recip_l_mo_sea, t1_sd_2d, q1_sd_2d, &
       INTEGER(KIND=i_def) nlayers
       TYPE(integer_field_proxy_type) n_snow_layers_proxy, blend_height_tq_proxy, ocn_cpl_point_proxy
       TYPE(field_proxy_type) theta_proxy, exner_in_wth_proxy, u_in_w3_proxy, v_in_w3_proxy, mr_n_proxy, mr_n_1_proxy, &
-&mr_n_2_proxy, height_w3_proxy, height_wth_proxy, zh_proxy, z0msea_proxy, z0m_proxy, tile_fraction_proxy, leaf_area_index_proxy, &
+&mr_n_2_proxy, mr_r_proxy, mr_g_proxy, height_w3_proxy, height_wth_proxy, &
+&zh_proxy, z0msea_proxy, z0m_proxy, tile_fraction_proxy, leaf_area_index_proxy, &
 &canopy_height_proxy, peak_to_trough_orog_proxy, silhouette_area_orog_proxy, soil_albedo_proxy, soil_roughness_proxy, &
 &soil_moist_wilt_proxy, soil_moist_crit_proxy, soil_moist_sat_proxy, soil_thermal_cond_proxy, soil_suction_sat_proxy, &
 &clapp_horn_b_proxy, soil_respiration_proxy, thermal_cond_wet_soil_proxy, &
@@ -423,6 +425,8 @@ rhostar_proxy, recip_l_mo_sea_proxy, &
       mr_n_proxy = mr_n%get_proxy()
       mr_n_1_proxy = mr_n_1%get_proxy()
       mr_n_2_proxy = mr_n_2%get_proxy()
+      mr_r_proxy = mr_r%get_proxy()
+      mr_g_proxy = mr_g%get_proxy()
       height_w3_proxy = height_w3%get_proxy()
       height_wth_proxy = height_wth%get_proxy()
       zh_proxy = zh%get_proxy()
@@ -644,7 +648,8 @@ rhostar_proxy, recip_l_mo_sea_proxy, &
       !
       CALL jules_exp_code(nlayers, ncells, ncells_halo, theta_proxy%data, exner_in_wth_proxy%data, u_in_w3_proxy%data, u_in_w3_stencil_size, &
 &u_in_w3_stencil_dofmap, v_in_w3_proxy%data, u_in_w3_stencil_size, u_in_w3_stencil_dofmap, &
-&mr_n_proxy%data, mr_n_1_proxy%data, mr_n_2_proxy%data, height_w3_proxy%data, height_wth_proxy%data, zh_proxy%data, &
+&mr_n_proxy%data, mr_n_1_proxy%data, mr_n_2_proxy%data, mr_r_proxy%data, mr_g_proxy%data, &
+&height_w3_proxy%data, height_wth_proxy%data, zh_proxy%data, &
 &z0msea_proxy%data, z0m_proxy%data, tile_fraction_proxy%data, tile_fraction_stencil_size, &
 &tile_fraction_stencil_dofmap, leaf_area_index_proxy%data, canopy_height_proxy%data, peak_to_trough_orog_proxy%data, &
 &silhouette_area_orog_proxy%data, soil_albedo_proxy%data, soil_roughness_proxy%data, soil_moist_wilt_proxy%data, &

@@ -164,6 +164,8 @@ module iau_pc2_assimilation_alg_mod
                                          m_cl,                  &
                                          m_ci,                  &
                                          m_s,                   &
+                                         m_r,                   &
+                                         m_g,                   &
                                          cfl,                   &
                                          cff,                   &
                                          bcf,                   &

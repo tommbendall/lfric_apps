@@ -18,12 +18,12 @@
 # local clone. These can be filled to set a different source if desired.
 
 casim:
-    source: git@github.com:MetOffice/casim.git
-    ref: 2026.07.1
+    source: git@github.com:tommbendall/casim.git
+    ref: adca6226959e0417498989419552ec3b59fb04c5
 
 jules:
-    source: git@github.com:MetOffice/jules.git
-    ref: 2026.07.1
+    source: git@github.com:tommbendall/jules.git
+    ref: dea8226694fa246b0a6fdfd2eae5a88c9c6d925d
 
 lfric_apps:
     source:

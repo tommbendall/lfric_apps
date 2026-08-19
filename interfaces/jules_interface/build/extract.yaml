@@ -28,6 +28,7 @@ jules:
     - src/control/shared/jules_hydrology_mod.F90
     - src/control/shared/jules_irrig_mod.F90
     - src/control/shared/jules_mod.F90
+    - src/control/shared/jules_cpm_mod.F90
     - src/control/shared/jules_model_environment_mod.F90
     - src/control/shared/jules_print_mgr.F90
     - src/control/shared/jules_radiation_mod.F90

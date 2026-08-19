@@ -42,7 +42,11 @@ module jules_physics_init_mod
                               i_modiscopt_on,                                  &
                               iscrntdiag_decoupled_trans,                      &
                               anthrop_heat_option_dukes,                       &
-                              anthrop_heat_option_flanner
+                              anthrop_heat_option_flanner,                     &
+                              jules_cp_in => jules_cp,                         &
+                              jules_cp_none,                                   &
+                              jules_cp_dry,                                    &
+                              jules_cp_moist
   use jules_vegetation_config_mod, only :                                      &
                               can_rad_mod_one, can_rad_mod_four,               &
                               can_rad_mod_five, can_rad_mod_six,               &
@@ -162,7 +166,7 @@ contains
          anthrop_heat_mean, l_urban2t, l_epot_corr, l_land_ice_imp,         &
          l_mo_buoyancy_calc, l_vary_z0m_soil, beta1, beta2, fwe_c3, fwe_c4, &
          hwood, hleaf, l_flake_model, l_elev_land_ice, l_elev_lw_down,      &
-         l_point_data
+         l_point_data, jules_cp
     use jules_rivers_mod, only: lake_water_conserve_method, use_elake_surft
     use jules_urban_mod, only: anthrop_heat_scale, l_moruses_albedo,        &
          l_moruses_emissivity, l_moruses_rough, l_moruses_storage,          &
@@ -498,6 +502,16 @@ contains
     else
        min_sea_ice_frac = 0.1_r_def
     endif
+
+    ! Transfer the LFRic jules_cp namelist value to the JULES jules_surface_mod variable
+    select case (jules_cp_in)
+      case (jules_cp_none)
+        jules_cp = 0
+      case (jules_cp_dry)
+        jules_cp = 1
+      case (jules_cp_moist)
+        jules_cp = 2
+    end select
 
     ! Check the contents of the JULES surface parameters module
     call print_nlist_jules_surface()

@@ -32,6 +32,10 @@ use atmos_max_sizes,  only: model_levels_max
 use yomhook,  only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 use errormessagelength_mod, only: errormessagelength
+use cloud_config_mod, only: lsc_cp_none,                          &
+                            lsc_cp_dry,                           &
+                            lsc_cp_moist
+use lsc_cpm_mod,     only: set_lsc_cp_coeffs
 
 use um_types, only: real_umphys, real_eps
 
@@ -207,6 +211,18 @@ logical :: l_bm_tweaks=.false.
                                  !    calculation of mixed-phase fraction.
 
 !=======================================================================
+! Additional integer options set from RUN_CLOUD namelist
+!=======================================================================
+
+integer :: lsc_cp = imdi
+                                 ! Moist heat capacity treatment mode:
+                                 ! lsc_cp_none : no moist contribution to cp
+                                 ! lsc_cp_dry  : use dry-air approximation
+                                 ! lsc_cp_moist: use moist heat capacities
+                                 !               and temperature-dependent
+                                 !               latent heats
+
+!=======================================================================
 ! real values set from RUN_CLOUD namelist
 !=======================================================================
 
@@ -331,7 +347,8 @@ namelist/RUN_Cloud/ rhcrit, i_eacf, forced_cu, forced_cu_fac,                  &
        l_cloud_call_b4_conv, i_pc2_homog_g_method,                             &
        i_pc2_checks_cld_frac_method,                                           &
        ice_fraction_method, i_pc2_init_method,i_pc2_init_logic,                &
-       ez_max_bm, i_bm_ez_opt, l_bm_sigma_s_grad, l_bm_tweaks
+       ez_max_bm, i_bm_ez_opt, l_bm_sigma_s_grad, l_bm_tweaks,                 &
+       lsc_cp
 
 !DrHook-related parameters
 integer(kind=jpim), parameter, private :: zhook_in  = 0
@@ -455,6 +472,12 @@ if ( l_pc2_homog_conv_pressure ) then
   end if
 end if
 
+! Check and set the moist heat capacity coefficients based on the input
+call chk_var(lsc_cp,'lsc_cp',                          &
+     [lsc_cp_none, lsc_cp_dry,                         &
+      lsc_cp_moist])
+call set_lsc_cp_coeffs(lsc_cp)
+
 def_src = ''
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 return
@@ -465,6 +488,7 @@ use nlsizes_namelist_mod, only: model_levels
 use umPrintMgr, only: umPrint
 implicit none
 character(len=50000) :: lineBuffer
+character(len=24)    :: lsc_cp_label
 real(kind=jprb)      :: zhook_handle
 integer              :: i, rh_lev
 
@@ -584,6 +608,20 @@ call umPrint(lineBuffer,src='cloud_inputs_mod')
 write(lineBuffer,'(A,L1)')' l_bm_sigma_s_grad = ',l_bm_sigma_s_grad
 call umPrint(lineBuffer,src='cloud_inputs_mod')
 write(lineBuffer,'(A,L1)')' l_bm_tweaks = ',l_bm_tweaks
+call umPrint(lineBuffer,src='cloud_inputs_mod')
+write(lineBuffer,'(A,I0)')' lsc_cp = ',lsc_cp
+call umPrint(lineBuffer,src='cloud_inputs_mod')
+select case (lsc_cp)
+case (lsc_cp_none)
+  lsc_cp_label = 'lsc_cp_none'
+case (lsc_cp_dry)
+  lsc_cp_label = 'lsc_cp_dry'
+case (lsc_cp_moist)
+  lsc_cp_label = 'lsc_cp_moist'
+case default
+  lsc_cp_label = 'invalid'
+end select
+write(lineBuffer,'(A,A)')' lsc_cp_mode = ',trim(lsc_cp_label)
 call umPrint(lineBuffer,src='cloud_inputs_mod')
 
 call umPrint('- - - - - - end of namelist - - - - - -',                        &

@@ -22,7 +22,7 @@ subroutine pc2_hom_conv(                                                       &
 !      Timestep
  timestep,                                                                     &
 !      Prognostic Fields
- t, q, qcl, cf, cfl, cff,                                                      &
+ t, q, qcl, cpm, cf, cfl, cff,                                                 &
 !      Forcing quantities for driving the homogeneous forcing
  dtin, dqin, dqclin, dpdt, dcflin,                                             &
 !      Output increments to the prognostic fields
@@ -30,13 +30,14 @@ subroutine pc2_hom_conv(                                                       &
 !      Other quantities for the turbulence
  pc2mixingrate, dbsdtbs1 )
 
-use water_constants_mod,   only: lc
-use planet_constants_mod,  only: lcrcp, r, repsilon
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: r, repsilon
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
 use cloud_inputs_mod,      only: i_pc2_erosion_method, i_pc2_erosion_numerics, &
-     l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph, i_pc2_homog_g_method
+  l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph, i_pc2_homog_g_method
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 use pc2_constants_mod,     only: pc2eros_exp_rh,                               &
      pc2eros_hybrid_sidesonly,                                                 &
      i_pc2_erosion_explicit, i_pc2_erosion_implicit, i_pc2_erosion_analytic,   &
@@ -131,6 +132,10 @@ real(kind=real_umphys), intent(in) ::                                          &
                   tdims%j_start:tdims%j_end)
 !       Increment in liquid cloud fraction (no units)
 
+real(kind=real_umphys), intent(in) ::                                          &
+   cpm(           tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end)
+!       Moist-air specific heat at constant pressure (J/kg/K)
 ! Arguments with intent out. ie: output variables.
 
 real(kind=real_umphys), intent(out) ::                                         &
@@ -188,6 +193,15 @@ real(kind=real_umphys) ::                                                      &
 !       the saturation boundary (kg kg-1)-1
    qc,                                                                         &
 !       aL (q + l - qsat(TL) )  (kg kg-1)
+   Lc_full,                                                                    &
+!       Temperature-dependent latent heat of condensation (J/kg)
+   cpm_dag,                                                                    &
+!       Modified moist heat capacity for TL/T conversion:
+!       cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+   lrv0,                                                                       &
+!       Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
+   lcrcp_moist,                                                                &
+!       L_con / cp_moist (K)
    sd,                                                                         &
 !       Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
    dcs
@@ -257,6 +271,8 @@ integer                  :: errorstatus
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
+
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
 
@@ -287,8 +303,10 @@ do j = tdims%j_start, tdims%j_end
       ! Need to estimate the rate of change of saturated specific humidity
       ! with respect to temperature (alpha) first, then use this to calculate
       ! factor aL. Also estimate the rate of change of qsat with pressure.
-      alpha   = repsilon*lc*qsl_t / (r*t(i,j)**2)
-      al      = 1.0 / ( 1.0 + lcrcp * alpha )
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
+      lcrcp_moist = Lc_full / cpm(i,j)
+      alpha   = repsilon*Lc_full*qsl_t / (r*t(i,j)**2)
+      al      = 1.0 / ( 1.0 + lcrcp_moist * alpha )
       alpha_p = -qsl_t / p_theta_levels(i,j)
 
       ! Calculate the saturation deficit SD
@@ -353,7 +371,9 @@ do j = tdims%j_start, tdims%j_end
       dqcdt = dqcdt - al * dcs * (qsl_t-q(i,j))
 
       ! Calculate Qc
-      tl = t(i,j)-lcrcp*qcl(i,j)
+      ! Use moist T->TL formula.
+      cpm_dag = cpm(i,j) + (cpv_cpm - cl_cpm) * qcl(i,j)
+      tl = (cpm(i,j) / cpm_dag) * t(i,j) - (lrv0 / cpm_dag) * qcl(i,j)
       if ( l_mr_physics ) then
         call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j))
       else
@@ -474,7 +494,7 @@ do j = tdims%j_start, tdims%j_end
               w1 = 1.0 - w2
               ! Don't allow s1 > al qsat(T) (implies -ive q in the tail)
               qsl_new = qsl_tl + alpha*dtin(i,j) + alpha_p*dpdt(i,j)
-              alpha_lcrcp = alpha*lcrcp
+              alpha_lcrcp = alpha*lcrcp_moist  ! lcrcp_moist already calculated
               p2al = (pdf_power+2.0) / al
               if ( p2al * (w1*sde1 + w2*sde2) / (w1*cfc1 + w2*cfc2)            &
                  > qsl_new + alpha_lcrcp*(w1*qcl1 + w2*qcl2) ) then
@@ -619,8 +639,10 @@ do j = tdims%j_start, tdims%j_end
         call qsat_wat(qsl_t, t(i,j), p_theta_levels(i,j))
       end if
 
-      alpha   = repsilon * lc * qsl_t / (r * t(i,j)**2)
-      al      = 1.0 / (1.0 + lcrcp*alpha)
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j) - tm)
+      lcrcp_moist = Lc_full / cpm(i,j)
+      alpha   = repsilon * Lc_full * qsl_t / (r * t(i,j)**2)
+      al      = 1.0 / (1.0 + lcrcp_moist*alpha)
       alpha_p = -qsl_t / p_theta_levels(i,j)
       deltal  = al * (dqin(i,j) - alpha*dtin(i,j)                              &
             -alpha_p*dpdt(i,j)) + dqclin(i,j)
@@ -632,7 +654,9 @@ do j = tdims%j_start, tdims%j_end
       dcfpc2(i,j)  = 0.0
       dcflpc2(i,j) = 0.0
 
-      deltal         = 0.0
+      deltal       = 0.0
+      lcrcp_moist  = 0.0
+
 
     end if
 
@@ -947,7 +971,7 @@ do j = tdims%j_start, tdims%j_end
     end if
 
     dqpc2(i,j)   = - dqclpc2(i,j)
-    dtpc2(i,j)   = lcrcp * dqclpc2(i,j)
+    dtpc2(i,j) = lcrcp_moist * dqclpc2(i,j)
 
   end do  ! i
 end do  ! j

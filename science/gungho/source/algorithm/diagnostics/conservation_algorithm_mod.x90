@@ -16,7 +16,13 @@ module conservation_algorithm_mod
 
   use config_mod,                      only: config_type
   use constants_mod,                   only: r_def, i_def, i_timestep
+  use driver_water_constants_mod,      only: cpv => heat_capacity_h2o_vapour,  &
+                                             cl  => heat_capacity_h2o,         &
+                                             ci  => heat_capacity_ice,         &
+                                             Rv => gas_constant_h2o
   use energy_correction_config_mod,    only: integral_method_fe
+  use formulation_config_mod,          only: gungho_cp, gungho_cp_none,        &
+                                             gungho_cp_dry, gungho_cp_moist
   use function_space_collection_mod,   only: function_space_collection
   use field_parent_mod,                only: write_interface
   use field_mod,                       only: field_type
@@ -33,7 +39,7 @@ module conservation_algorithm_mod
   use sci_geometric_constants_mod,     only: get_coordinates, &
                                              get_panel_id
   use io_config_mod,                   only: use_xios_io
-  use planet_config_mod,               only: scaled_omega, cv, gravity
+  use planet_config_mod,               only: scaled_omega, cvd => cv, gravity
   use mr_indices_mod,                  only: nummr
   use timing_mod,                      only: start_timing, stop_timing, &
                                              tik, LPROF
@@ -94,6 +100,7 @@ contains
     real(kind=r_def) :: total_entropy_phys_dry, &
                         total_entropy_dyn_dry,  &
                         surface_geopotential
+    real(kind=r_def) :: cvv_local, cl_local, ci_local, Rv_local
     type(mesh_type), pointer :: mesh => null()
     integer(tik)             :: id
 
@@ -119,6 +126,23 @@ contains
 
     surface_geopotential = planet_radius*gravity
 
+    select case(gungho_cp)
+    case(gungho_cp_none)
+      cvv_local = 0.0_r_def
+      cl_local = 0.0_r_def
+      ci_local = 0.0_r_def
+      Rv_local = 0.0_r_def
+    case(gungho_cp_dry)
+      cvv_local = cvd
+      cl_local = cvd
+      ci_local = cvd
+      Rv_local = 0.0_r_def
+    case(gungho_cp_moist)
+      cvv_local = cpv
+      cl_local = cl
+      ci_local = ci
+      Rv_local = Rv
+    end select
 
     ! Initialise Mass, Energy and Axial Angular Momentum fields
     call kinetic_uv%initialise( vector_space = w3_fs )
@@ -142,7 +166,9 @@ contains
                                                 u, rho, exner, theta, mr, &
                                                 geopotential,             &
                                                 surface_geopotential, chi,&
-                                                panel_id, cv, qr),        &
+                                                panel_id, cvd, cvv_local, &
+                                                cl_local, ci_local,       &
+                                                Rv_local, qr),            &
                  sum_X(total_kinetic_uv, kinetic_uv),                     &
                  sum_X(total_kinetic_w, kinetic_w),                       &
                  sum_X(total_potential, potential),                       &

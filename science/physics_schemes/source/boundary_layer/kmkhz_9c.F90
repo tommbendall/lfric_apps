@@ -26,7 +26,8 @@ subroutine kmkhz_9c (                                                          &
 ! in levels/switches
  bl_levels,BL_diag,nSCMDpkgs,L_SCMDiags,                                       &
 ! in fields
- p,rho_wet_tq,rho_mix,rho_mix_tq,t,q,qcl,qcf,cf,qw,tl,dzl,rdz,z_tq,z_uv,       &
+ p,rho_wet_tq,rho_mix,rho_mix_tq,t,q,qcl,qcf,                                  &
+ qrain,qgraupel,cpm_bl,cpm_dag_bl,q_tot_bl,cf,qw,tl,dzl,rdz,z_tq,z_uv,         &
  rad_hr,micro_tends,                                                           &
  bt,bq,btm,bqm,dqsdt,btm_cld,bqm_cld,a_qs,a_qsm,a_dqsdtm,                      &
  v_s,fb_surf,rhostar_gb,ntpar,zh_prev,                                         &
@@ -66,12 +67,12 @@ use level_heights_mod, only: eta_theta_levels
 use model_domain_mod, only: model_type, mt_single_column
 use missing_data_mod, only: rmdi
 use planet_constants_mod, only: vkman => vkman_bl, r => rd_bl,                 &
-     c_virtual => c_virtual_bl, g => g_bl, etar => etar_bl, grcp => grcp_bl,   &
-     lcrcp => lcrcp_bl, lsrcp => lsrcp_bl
+     c_virtual => c_virtual_bl, g => g_bl, etar => etar_bl
 use s_scmop_mod,  only: default_streams,                                       &
      t_avg, d_bl, d_sl, scmdiag_bl
 use timestep_mod, only: timestep
-use water_constants_mod, only: tm => tm_bl
+use water_constants_mod, only: tm => tm_bl, lc_bl, lf
+use bl_cpm_mod, only: cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl, bl_mload_switch
 
 use qsat_mod, only: qsat, qsat_mix, qsat_wat, qsat_wat_mix
 
@@ -177,7 +178,19 @@ real(kind=r_bl), intent(in) ::                                                 &
                             ! IN Cloud ice (kg per kg air)
  qcl(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,              &
      tdims_l%k_start:bl_levels),                                               &
-                            ! IN Cloud liquid water
+                            ! in Cloud liquid water
+ qrain(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,            &
+       tdims_l%k_start:bl_levels),                                             &
+                            ! in Rain (kg per kg air)
+ qgraupel(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,         &
+          tdims_l%k_start:bl_levels),                                          &
+                            ! in Graupel (kg per kg air)
+ cpm_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),        &
+                            ! IN Moist-air heat capacity (J/kg/K)
+ cpm_dag_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),    &
+                            ! IN As cpm_bl but with qcl treated as vapour
+ q_tot_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),      &
+                            ! IN Total moisture (sum of all species).
  q(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,                &
    tdims_l%k_start:bl_levels),                                                 &
                             ! IN specific humidity
@@ -963,11 +976,22 @@ real(kind=r_bl), allocatable :: z_uv_ntmlp1(:,:) ! Temporary copy of
 !Variables for cache-blocking
 integer            :: jj         ! Block index
 
+! Local variables for temperature-dependent moist heat capacity
+real(kind=r_bl) :: lf_bl
+real(kind=r_bl) :: Lc_full, Ls_full, cpm, cpm_dag
+real(kind=r_bl) :: lcrcp_moist, lsrcp_moist
+real(kind=r_bl) :: lrv0, lrs0
+real(kind=r_bl) :: grcp_moist
+
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
 real(kind=jprb)               :: zhook_handle
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+lf_bl = real(lf, r_bl)
+lrv0 = lc_bl + (cl_cpm_bl - cpv_cpm_bl) * tm
+lrs0 = (lc_bl + lf_bl) + (ci_cpm_bl - cpv_cpm_bl) * tm
 
 ! Allocate water tracer working arrays
 if (l_wtrac) then
@@ -1080,7 +1104,9 @@ end do ! jj
 do k = 1, bl_levels
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
-      sl(i,j,k)  = tl(i,j,k) + grcp * z_tq(i,j,k)
+      cpm_dag = cpm_dag_bl(i,j,k)
+      grcp_moist = g * (one + bl_mload_switch*q_tot_bl(i,j,k)) / cpm_dag
+      sl(i,j,k)  = tl(i,j,k) + grcp_moist * z_tq(i,j,k)
       svl(i,j,k) = sl(i,j,k) * ( one + c_virtual*qw(i,j,k) )
     end do
   end do
@@ -1486,8 +1512,12 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
               ! the buoyancy gradient between levels K-1 and K for an
               ! undiluted parcel and the environment
               !---------------------------------------------------------
-              sl_plume = tl(i,j,k-1) + grcp * z_tq(i,j,k-1)
+              sl_plume = sl(i,j,k-1)
               qw_plume = qw(i,j,k-1)
+              ! Heat capacities and moist lapse rate at level k
+              cpm = cpm_bl(i,j,k)
+              cpm_dag = cpm_dag_bl(i,j,k)
+              grcp_moist = g * (one + bl_mload_switch*q_tot_bl(i,j,k)) / cpm_dag
               ! ------------------------------------------------------------
               ! calculate parcel water by linearising qsat about the
               ! environmental temperature.
@@ -1495,7 +1525,7 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
               if (t(i,j,k) >  tm) then
                 q_liq_parc = max( zero, ( qw_plume - qs(i,j,k) -               &
                   dqsdt(i,j,k)*                                                &
-                  ( sl_plume-grcp*z_tq(i,j,k)-t(i,j,k) )                       &
+                  ( sl_plume-grcp_moist*z_tq(i,j,k)-t(i,j,k) )                 &
                                        ) *a_qs(i,j,k) )
                 q_liq_env = max( zero, ( qw(i,j,k) - qs(i,j,k)                 &
                             -dqsdt(i,j,k)*( tl(i,j,k) - t(i,j,k) )             &
@@ -1507,12 +1537,12 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                 ! the parcel.
                 q_liq_parc = q_liq_parc + qcl(i,j,k) + qcf(i,j,k)              &
                                - q_liq_env
-                t_parc = sl_plume - grcp * z_tq(i,j,k) +                       &
-                                 lcrcp*q_liq_parc
+                t_parc = (cpm_dag/cpm)*(sl_plume - grcp_moist * z_tq(i,j,k))   &
+                       + (lrv0/cpm)*q_liq_parc
               else
                 q_liq_parc = max( zero, ( qw_plume - qs(i,j,k) -               &
                   dqsdt(i,j,k)*                                                &
-                    ( sl_plume - grcp*z_tq(i,j,k)-t(i,j,k) )                   &
+                    ( sl_plume - grcp_moist*z_tq(i,j,k)-t(i,j,k) )             &
                                        ) *a_qs(i,j,k) )
                 q_liq_env = max( zero, ( qw(i,j,k) - qs(i,j,k)                 &
                    -dqsdt(i,j,k)*( tl(i,j,k) - t(i,j,k) )                      &
@@ -1521,8 +1551,8 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                 ! RH_CRIT=1
                 q_liq_parc = q_liq_parc + qcl(i,j,k) + qcf(i,j,k)              &
                                - q_liq_env
-                t_parc = sl_plume - grcp * z_tq(i,j,k) +                       &
-                                 lsrcp*q_liq_parc
+                t_parc = (cpm_dag/cpm)*(sl_plume - grcp_moist * z_tq(i,j,k))   &
+                       + (lrs0/cpm)*q_liq_parc
               end if
               q_vap_parc=qw_plume - q_liq_parc
 
@@ -1531,12 +1561,15 @@ if ( .not. sc_diag_opt == sc_diag_all_rh_max ) then
                          (one+c_virtual*q(i,j,k)-qcl(i,j,k)-qcf(i,j,k))
               ! find vertical gradients in parcel and environment SVL
               ! (using values from level below (K-1))
+              grcp_moist = g * (one + bl_mload_switch*q_tot_bl(i,j,k-1))       &
+                         / cpm_dag_bl(i,j,k-1)
               env_svl_km1(i,j) = t(i,j,k-1) * ( one+c_virtual*q(i,j,k-1)       &
-                   -qcl(i,j,k-1)-qcf(i,j,k-1) ) + grcp*z_tq(i,j,k-1)
-              dpar_bydz=(t_dens_parc+grcp*z_tq(i,j,k)-                         &
+                   -qcl(i,j,k-1)-qcf(i,j,k-1) ) + grcp_moist*z_tq(i,j,k-1)
+              grcp_moist = g * (one + bl_mload_switch*q_tot_bl(i,j,k)) / cpm_dag
+              dpar_bydz=(t_dens_parc+grcp_moist*z_tq(i,j,k)-                   &
                           env_svl_km1(i,j)) /                                  &
                       (z_tq(i,j,k)-z_tq(i,j,k-1))
-              denv_bydz=(t_dens_env+grcp*z_tq(i,j,k)-                          &
+              denv_bydz=(t_dens_env+grcp_moist*z_tq(i,j,k)-                    &
                           env_svl_km1(i,j))/                                   &
                       (z_tq(i,j,k)-z_tq(i,j,k-1))
 
@@ -2674,10 +2707,12 @@ do k = 1, bl_levels
   do j = pdims%j_start, pdims%j_end
 
     do i = pdims%i_start, pdims%i_end
+      cpm_dag = cpm_dag_bl(i,j,k)
+      grcp_moist = g * (one + bl_mload_switch*q_tot_bl(i,j,k)) / cpm_dag
       if (k  <=  ntml_prev(i,j)) then
-        dsldz(i) = -grcp + grad_t_adj(i,j)
+        dsldz(i) = -grcp_moist + grad_t_adj(i,j)
       else
-        dsldz(i) = -grcp
+        dsldz(i) = -grcp_moist
       end if
     end do
 
@@ -2687,12 +2722,19 @@ do k = 1, bl_levels
       virt_factor = one + c_virtual*q(i,j,k) - qcl(i,j,k) -                    &
                           qcf(i,j,k)
 
+      ! variable latent heats and heat capacties
+      Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
+      Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,k) - tm)
+      cpm = cpm_bl(i,j,k)
+      lcrcp_moist = Lc_full / cpm
+      lsrcp_moist = Ls_full / cpm
+
       dqcldz(i,j,k) = -( dsldz(i)*dqsdt(i,j,k)                                 &
                      + g*qs(i,j,k)/(r*t(i,j,k)*virt_factor) )                  &
-                      / ( one + lcrcp*dqsdt(i,j,k) )
+                      / ( one + lcrcp_moist*dqsdt(i,j,k) )
       dqcfdz(i,j,k) = -( dsldz(i)*dqsdt(i,j,k)                                 &
                      + g*qs(i,j,k)/(r*t(i,j,k)*virt_factor) ) * fgf            &
-                      / ( one + lsrcp*dqsdt(i,j,k) )
+                      / ( one + lsrcp_moist*dqsdt(i,j,k) )
     end do
 
         ! limit calculation to greater than a small cloud fraction
@@ -3229,9 +3271,16 @@ do j = pdims%j_start, pdims%j_end
       dqcl = - cfl_ml*qcl_ic_top(i,j)
       dqcf = - cff_ml*qcf_ic_top(i,j)
 
+      ! variable latent heats and heat capacties at inversion level
+      Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      cpm = cpm_bl(i,j,km)
+      lcrcp_moist = Lc_full / cpm
+      lsrcp_moist = Ls_full / cpm
+
       db_disc = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                      &
-               (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +                 &
-               (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
+               (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +           &
+               (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
 
       if ( db_disc > 0.03_r_bl  ) then
           ! Diagnosed inversion statically stable and at least ~1K
@@ -3253,9 +3302,15 @@ do j = pdims%j_start, pdims%j_end
       qcf_ic_top(i,j) = qcf(i,j,km)
       dqcl = qcl(i,j,kp) - qcl_ic_top(i,j)
       dqcf = qcf(i,j,kp) - qcf_ic_top(i,j)
+      ! variable latent heats and heat capacties at inversion level
+      Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+      cpm = cpm_bl(i,j,km)
+      lcrcp_moist = Lc_full / cpm
+      lsrcp_moist = Ls_full / cpm
       db_top(i,j) = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                  &
-                (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +                &
-                (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
+                (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +          &
+                (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
     end if  ! no disc inversion diagnosed
 
     db_top_cld(i,j) = g * ( btm_cld(i,j,km)*dsl                                &
@@ -3322,9 +3377,16 @@ do j = pdims%j_start, pdims%j_end
         dqcl = - cfl_ml*qcl_ic_top(i,j)
         dqcf = - cff_ml*qcf_ic_top(i,j)
 
+        ! variable latent heats and heat capacties at DSC inversion level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        cpm = cpm_bl(i,j,km)
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
+
         db_disc = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +                    &
-                (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +                &
-                (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
+                (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +          &
+                (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf   )
 
         if ( db_disc > 0.03_r_bl  ) then
             ! Diagnosed inversion statically stable
@@ -3346,9 +3408,15 @@ do j = pdims%j_start, pdims%j_end
         qcf_ic_top(i,j) = qcf(i,j,km)
         dqcl = qcl(i,j,kp) - qcl_ic_top(i,j)
         dqcf = qcf(i,j,kp) - qcf_ic_top(i,j)
+        ! variable latent heats and heat capacties at DSC inversion level
+        Lc_full = lc_bl - (cl_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        Ls_full = (lc_bl + lf_bl) - (ci_cpm_bl - cpv_cpm_bl) * (t(i,j,km) - tm)
+        cpm = cpm_bl(i,j,km)
+        lcrcp_moist = Lc_full / cpm
+        lsrcp_moist = Ls_full / cpm
         db_dsct(i,j) = g * ( btm(i,j,km)*dsl + bqm(i,j,km)*dqw +               &
-                  (lcrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +              &
-                  (lsrcp*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
+                  (lcrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcl +        &
+                  (lsrcp_moist*btm(i,j,km) - etar*bqm(i,j,km)) * dqcf )
       end if  ! no disc inversion diagnosed
 
       db_dsct_cld(i,j) = g * ( btm_cld(i,j,km)*dsl                             &

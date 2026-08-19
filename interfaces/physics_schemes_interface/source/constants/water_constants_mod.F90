@@ -26,7 +26,7 @@ module water_constants_mod
 
   private
   public :: hcapi, hcapw, hcapv, lc, lf, rho_ice, rho_water, rhosea, tfs, tm, &
-            dpsidt, tm_bl, lc_bl, tm_32b, lc_32b
+            dpsidt, tm_bl, lc_bl, lf_bl, tm_32b, lc_32b
 
   !-----------------------------------------------------------------------
   ! Parameters names contained here are fixed, as these names are
@@ -57,6 +57,7 @@ module water_constants_mod
 
   ! Latent heat of fusion of water at 0 degC [J/kg]
   real(r_um), parameter :: lf = real(latent_heat_h2o_fusion, r_um)
+  real(r_bl), parameter :: lf_bl = real(latent_heat_h2o_fusion, r_bl)
 
   ! Specific heat capacity of water vapour [J/kg/K]
   real(r_um), parameter :: hcapv = real(heat_capacity_h2o_vapour, r_um)

@@ -212,7 +212,9 @@ subroutine mphys_code( nlayers, seg_len,            &
 
     use ls_ppn_mod,                 only: ls_ppn
 
-    use planet_constants_mod,       only: p_zero, kappa, planet_radius
+    use planet_constants_mod,       only: p_zero, kappa, planet_radius,        &
+                                          cpd => cp
+    use lsp_cpm_mod,                only: cpv_cpm, cl_cpm, ci_cpm
     use water_constants_mod,        only: tm
     use arcl_mod,                   only: npd_arcl_compnts
     use def_easyaerosol,            only: t_easyaerosol_cdnc
@@ -307,7 +309,7 @@ subroutine mphys_code( nlayers, seg_len,            &
 
     real(r_um), dimension(seg_len,1,nlayers) ::                                &
          u_on_p, v_on_p, q_work, qcl_work, qcf_work, deltaz, cfl_work,         &
-         cff_work, cf_work, rhodz_dry, rhodz_moist, t_n, t_work,               &
+         cff_work, cf_work, rhodz_dry, rhodz_moist, t_n, t_work, cpm_work,     &
          p_theta_levels, ls_rain3d, ls_snow3d, ls_graup3d, rainfrac3d,         &
          n_drop_pot, n_drop_3d, so4_accu_work, so4_diss_work,                  &
          aged_bmass_work, cloud_bmass_work, aged_ocff_work, cloud_ocff_work,   &
@@ -479,6 +481,31 @@ subroutine mphys_code( nlayers, seg_len,            &
       end do ! i
     else
       allocate(qgraup_work(1,1,1))
+    end if
+
+    ! Moist-air heat capacity at constant pressure (J/kg/K)
+    do i = 1, seg_len
+      do k = 1, nlayers
+        cpm_work(i,j,k) = cpd + cpv_cpm*q_work(i,j,k)                          &
+                              + cl_cpm*qcl_work(i,j,k)                         &
+                              + ci_cpm*qcf_work(i,j,k)
+      end do ! k
+    end do ! i
+
+    if (l_mcr_qrain) then
+      do i = 1, seg_len
+        do k = 1, nlayers
+          cpm_work(i,j,k) = cpm_work(i,j,k) + cl_cpm*qrain_work(i,j,k)
+        end do ! k
+      end do ! i
+    end if
+
+    if (l_mcr_qgraup) then
+      do i = 1, seg_len
+        do k = 1, nlayers
+          cpm_work(i,j,k) = cpm_work(i,j,k) + ci_cpm*qgraup_work(i,j,k)
+        end do ! k
+      end do ! i
     end if
 
     if ( l_mcr_precfrac ) then
@@ -669,7 +696,7 @@ subroutine mphys_code( nlayers, seg_len,            &
                 cf_work, cfl_work, cff_work, precfrac_work,                    &
                 rhcpt, f_arr, cos_theta_latitude,                              &
                 lspice_dim1,lspice_dim2,lspice_dim3,                           &
-                rho_r2, dry_rho, q_work, qcf_work, qcl_work, t_work,           &
+                rho_r2, dry_rho, q_work, qcf_work, qcl_work, t_work,cpm_work,  &
                 qcf2_work, qrain_work, qgraup_work,                            &
                 u_on_p, v_on_p,                                                &
                 sea_salt_film, sea_salt_jet,                                   &

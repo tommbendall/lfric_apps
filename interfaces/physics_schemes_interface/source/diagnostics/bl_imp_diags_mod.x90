@@ -157,7 +157,7 @@ contains
   !> @param[in]     pseudotau_w2             pseudo wind stress in w2
   !> @param[in]     mv                       Vapour mixing ratio
   !> @param[in]     mcl                      Cloud liq mixing ratio
-  !> @param[in]     ms                       Cloud snow mixing ratio
+  !> @param[in]     ms                       Snow mixing ratio
   !> @param[in]     cf_bulk                  Bulk cloud fraction
   !> @param[in]     cf_area                  Area cloud fraction
   !> @param[in]     cf_liq                   Liquid cloud fraction

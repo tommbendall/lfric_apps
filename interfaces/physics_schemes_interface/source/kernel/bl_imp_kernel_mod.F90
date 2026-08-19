@@ -29,19 +29,23 @@ module bl_imp_kernel_mod
   !>
   type, public, extends(kernel_type) :: bl_imp_kernel_type
     private
-    type(arg_type) :: meta_args(29) = (/                                          &
+    type(arg_type) :: meta_args(33) = (/                                          &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! theta_in_wth
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! exner_in_wth
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_v_n
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cl_n
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf_n
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r_n
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g_n
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! theta_latest
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! height_w3
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! height_wth
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_v
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cl
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! dtrdz_tq_bl
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! rdz_tq_bl
          arg_type(GH_FIELD,  GH_INTEGER, GH_READ,      ANY_DISCONTINUOUS_SPACE_1),&! blend_height_tq
@@ -123,12 +127,16 @@ contains
                          m_v_n,                              &
                          m_cl_n,                             &
                          m_cf_n,                             &
+                         m_r_n,                              &
+                         m_g_n,                              &
                          theta_latest,                       &
                          height_w3,                          &
                          height_wth,                         &
                          m_v,                                &
                          m_cl,                               &
                          m_cf,                               &
+                         m_r,                                &
+                         m_g,                                &
                          dtrdz_tq_bl,                        &
                          rdz_tq_bl,                          &
                          blend_height_tq,                    &
@@ -190,10 +198,12 @@ contains
                                                            exner_in_wth,       &
                                                            m_v_n, m_cl_n,      &
                                                            m_cf_n,             &
+                                                           m_r_n, m_g_n,       &
                                                            theta_latest,       &
                                                            height_wth,         &
                                                            dtrdz_tq_bl,        &
-                                                           m_v, m_cl, m_cf
+                                                           m_v, m_cl, m_cf,    &
+                                                           m_r, m_g
     integer(kind=i_def), dimension(undf_2d), intent(in) :: blend_height_tq
     integer(kind=i_def), dimension(undf_bl), intent(in) :: bl_type_ind
 
@@ -212,7 +222,7 @@ contains
 
     ! profile fields from level 1 upwards
     real(r_bl), dimension(seg_len,1,nlayers) ::  t_latest, q_latest, &
-         qcl_latest, qcf_latest, t, r_rho_levels
+         qcl_latest, qcf_latest, qrain_latest, qgraupel_latest, t, r_rho_levels
 
     ! profile field on boundary layer levels
     real(r_bl), dimension(seg_len,1,bl_levels) :: fqw, ftl, rhokh,       &
@@ -220,7 +230,7 @@ contains
          dqw_nt, dtl_nt
 
     ! profile fields from level 0 upwards
-    real(r_bl), dimension(seg_len,1,0:nlayers) :: q, qcl, qcf, r_theta_levels
+    real(r_bl), dimension(seg_len,1,0:nlayers) :: q, qcl, qcf, qrain, qgraupel, r_theta_levels
 
     ! single level real fields
     real(r_bl), dimension(seg_len,1) :: gamma1, gamma2, ctctq1_1, &
@@ -267,6 +277,15 @@ contains
         end do
       end do
     end if
+
+    do i = 1, seg_len
+      do k = 1, nlayers
+        ! rain water mixing ratio
+        qrain(i,1,k) = m_r_n(map_wth(1,i) + k)
+        ! graupel mixing ratio
+        qgraupel(i,1,k) = m_g_n(map_wth(1,i) + k)
+      end do
+    end do
 
     ! surface height
     do i = 1, seg_len
@@ -327,6 +346,13 @@ contains
     end if
 
     do i = 1, seg_len
+      do k = 1, nlayers
+        qrain_latest(i,1,k)    = m_r(map_wth(1,i) + k)
+        qgraupel_latest(i,1,k) = m_g(map_wth(1,i) + k)
+      end do
+    end do
+
+    do i = 1, seg_len
       p1=bl_type_ind(map_bl(1,i)+0)*pstb + &
            (1.0_r_bl-bl_type_ind(map_bl(1,i)+0))*puns
       p2=bl_type_ind(map_bl(1,i)+1)*pstb + &
@@ -356,7 +382,8 @@ contains
          ! IN levels/switches
          bl_levels, l_correct,                                               &
          ! IN fields
-         q, qcl, qcf, q_latest, qcl_latest, qcf_latest, t, t_latest,         &
+         q, qcl, qcf, qrain, qgraupel, q_latest, qcl_latest, qcf_latest,     &
+         qrain_latest, qgraupel_latest, t, t_latest,                         &
          dtrdz_charney_grid, rhokh,                                          &
          rdz_charney_grid, gamma1, gamma2, real(alpha_cd,r_bl),              &
          r_theta_levels, r_rho_levels, k_blend_tq,                           &

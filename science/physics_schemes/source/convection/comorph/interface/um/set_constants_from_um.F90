@@ -35,7 +35,7 @@ use water_constants_mod, only: tm, lc, lf,                                     &
                                um_rho_ice => rho_ice
 use gen_phys_inputs_mod, only: l_mr_physics
 use mphys_inputs_mod, only: l_mcr_precfrac, l_subgrid_graupel_frac
-
+use convection_config_mod, only: conv_cp_none, conv_cp_dry, conv_cp_moist
 use comorph_um_namelist_mod, only:                                             &
                       par_radius_knob,                                         &
                       par_radius_evol_method_um => par_radius_evol_method,     &
@@ -49,6 +49,7 @@ use comorph_um_namelist_mod, only:                                             &
                       coef_auto_um              => coef_auto,                  &
                       q_cl_auto_um              => q_cl_auto,                  &
                       drag_coef_par_um          => drag_coef_par,              &
+                      conv_cp_um,                                              &
 !
                       par_gen_mass_fac_um       => par_gen_mass_fac,           &
                       wind_w_fac_um             => wind_w_fac,                 &
@@ -176,7 +177,7 @@ rho_ice = real( um_rho_ice, real_cvprec )
 ! capacity to dry air).  These appproximations can only be
 ! reproduced in CoMorph by setting the heat capacities of all
 ! 3 water phases equal to eachother.
-if ( l_mr_physics ) then
+if ( conv_cp_um == conv_cp_none ) then
   ! If using mixing-ratio physics, consistent setting is
   ! for all 3 heat capacities to be zero
   cp_vap = zero
@@ -184,8 +185,8 @@ if ( l_mr_physics ) then
   cp_ice = zero
   ! Yields dT = L_ref/cp_dry dq
   ! where dq is a mixing-ratio increment.
-else
-  ! Otherwise, consistent setting is
+else if ( conv_cp_um == conv_cp_dry ) then
+  ! Otherwise, UM-consistent setting is
   ! for all 3 heat capacities to be equal to that of dry air
   cp_vap = real( cp, real_cvprec )
   cp_liq = real( cp, real_cvprec )
@@ -193,6 +194,7 @@ else
   ! Yields dT = L_ref/cp_dry dq
   ! where dq is a specific humidity increment.
 end if
+! Otherwise we use the correct heat capacities!
 
 ! Set which condensed water fields exist within which sub-grid fractions...
 

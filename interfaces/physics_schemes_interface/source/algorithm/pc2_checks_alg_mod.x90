@@ -55,7 +55,8 @@ contains
                              dbcf_pc2_inc    )
 
     use pc2_checks_kernel_mod, only: pc2_checks_kernel_type
-    use mr_indices_mod,        only: imr_v, imr_cl, imr_ci, nummr, imr_s
+    use mr_indices_mod,        only: imr_v, imr_cl, imr_ci, nummr, imr_s,      &
+                                     imr_r, imr_g
     use timing_mod,            only: start_timing, stop_timing, tik, LPROF
 
     implicit none
@@ -104,6 +105,8 @@ contains
                                            mr(imr_cl),          & ! IN, not get
                                            mr(imr_ci),          & ! IN, updated
                                            mr(imr_s),           &
+                                           mr(imr_r),           &
+                                           mr(imr_g),           &
                                            liquid_fraction,     &
                                            frozen_fraction,     &
                                            bulk_fraction,       &

@@ -25,7 +25,7 @@ subroutine pc2_initiation_ctl (                                                &
   nSCMDpkgs,L_SCMDiags,                                                        &
 
 ! Primary fields passed in/out
-  t,q,qcl,qcf,qcf2,cf,cfl,cff,rhts,tlts,qtts,ptts,cf_area,                     &
+  t,q,qcl,qcf,qcf2,qrain,qgraupel,cf,cfl,cff,rhts,tlts,qtts,ptts,cf_area,      &
 
 ! Primary fields passed in
   p,pstar,p_theta_levels,cumulus,rhcrit,                                       &
@@ -66,6 +66,8 @@ use pc2_hom_arcld_mod, only: pc2_hom_arcld
 use pc2_initiate_mod, only: pc2_initiate
 use pc2_bm_initiate_mod, only: pc2_bm_initiate
 use mphys_inputs_mod,   only: l_mcr_qcf2
+use planet_constants_mod, only: cpd => cp
+use lsc_cpm_mod,        only: cpv_cpm, cl_cpm, ci_cpm
 
 use free_tracers_inputs_mod, only: n_wtrac
 use water_tracers_mod,       only: wtrac_type
@@ -125,6 +127,12 @@ real(kind=real_umphys) ::                                                      &
   qcf2(              tdims%i_start:tdims%i_end,                                &
                      tdims%j_start:tdims%j_end,                                &
                                  1:tdims%k_end),                               &
+  qrain(             tdims%i_start:tdims%i_end,                                &
+                     tdims%j_start:tdims%j_end,                                &
+                                 1:tdims%k_end),                               &
+  qgraupel(          tdims%i_start:tdims%i_end,                                &
+                     tdims%j_start:tdims%j_end,                                &
+                                 1:tdims%k_end),                               &
   cf(                tdims%i_start:tdims%i_end,                                &
                      tdims%j_start:tdims%j_end,                                &
                                  1:tdims%k_end),                               &
@@ -140,6 +148,12 @@ real(kind=real_umphys) ::                                                      &
 
 !cloud ice + snow
 real(kind=real_umphys) ::  qcf_total(tdims%i_start:tdims%i_end,                &
+                                tdims%j_start:tdims%j_end,                     &
+                                            1:tdims%k_end)
+
+!    Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!    across the scheme and updated when moisture changes phase
+real(kind=real_umphys) ::  cpm( tdims%i_start:tdims%i_end,                     &
                                 tdims%j_start:tdims%j_end,                     &
                                             1:tdims%k_end)
 
@@ -357,10 +371,31 @@ if (calculate_increments) then
 !$OMP end PARALLEL
 end if
 
+! Build qcf_total (qcf, plus qcf2 if present) and the master moist-air heat
+! capacity field cpm, ahead of the first checking routine call. cpm is then
+! threaded through and maintained by all the routines called below.
+do k = 1, tdims%k_end
+  do j = tdims%j_start, tdims%j_end
+    do i = tdims%i_start, tdims%i_end
+      qcf_total(i,j,k) = qcf(i,j,k)
+
+      if (l_mcr_qcf2) then
+        !make a total qcf to pass to bimodal cloud scheme.
+        qcf_total(i,j,k) = qcf_total(i,j,k) + qcf2(i,j,k)
+      end if
+
+      cpm(i,j,k) = cpd + q(i,j,k)*cpv_cpm                                      &
+                 + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                          &
+                 + (qcf_total(i,j,k) + qgraupel(i,j,k))*ci_cpm
+    end do
+  end do
+end do
+
 ! Call checking routine
 ! Pass field arrays without halo cells.
 call pc2_checks(p_theta_levels, p,                                             &
     t, cf, cfl, cff, q, qcl, qcf,                                              &
+    cpm,                                                                       &
     l_mixing_ratio,                                                            &
     tdims%i_len, tdims%j_len, tdims%k_end,                                     &
     tdims%halo_i, tdims%halo_j, tdims%halo_i, tdims%halo_j, qcf2, wtrac)
@@ -430,29 +465,33 @@ end if
 ! Store water values prior to initiation routine call
 if (l_wtrac) call wtrac_pc2_store(q, qcl)
 
+! Recompute qcf_total to reflect any changes made by the checking routine
+! above (qcf/qcf2 may have been zeroed or adjusted). Used by both the
+! bimodal and non-bimodal (pc2_initiate) initiation branches below.
+do k = 1, tdims%k_end
+  do j = tdims%j_start, tdims%j_end
+    do i = tdims%i_start, tdims%i_end
+      qcf_total(i,j,k) = qcf(i,j,k)
+
+      if (l_mcr_qcf2) then
+        !make a total qcf to pass to bimodal cloud scheme.
+        qcf_total(i,j,k) = qcf_total(i,j,k) + qcf2(i,j,k)
+      end if
+
+    end do
+  end do
+end do
+
 ! Call initiation routine
 
 if (i_pc2_init_method == pc2init_bimodal) then
-
-  do k = 1, tdims%k_end
-    do j = tdims%j_start, tdims%j_end
-      do i = tdims%i_start, tdims%i_end
-        qcf_total(i,j,k) = qcf(i,j,k)
-
-        if (l_mcr_qcf2) then
-          !make a total qcf to pass to bimodal cloud scheme.
-          qcf_total(i,j,k) = qcf_total(i,j,k) + qcf2(i,j,k)
-        end if
-
-      end do
-    end do
-  end do
 
   call pc2_bm_initiate(p_theta_levels,cumulus,tgrad_bm,bl_w_var,               &
       tau_dec_bm,tau_hom_bm,tau_mph_bm,ri_bm, mix_len_bm,                      &
       zh,zhsc,dzh,bl_type_7,                                                   &
       tdims%k_end,zlcl_mixed,r_theta_levels,z_theta,t,cf,cfl,cff,              &
-      q,qcl,qcf_total,sskew,svar_turb,svar_bm,entzone,                         &
+      q,qcl,qcf_total,qrain,qgraupel,cpm,                                      &
+      sskew,svar_turb,svar_bm,entzone,                                         &
       sl_modes, qw_modes, rh_modes, sd_modes,                                  &
       calculate_increments, l_mixing_ratio)
 
@@ -466,13 +505,13 @@ else
      cumulus,rhcrit,                                                           &
      rhc_row_length,rhc_rows,zlcl_mixed,                                       &
      large_levels,levels_per_level,cf_area,                                    &
-     t,cf,cfl,cff,q,qcl,qcf,rhts,tlts,qtts,ptts,l_mixing_ratio)
+      t,cf,cfl,cff,q,qcl,qcf,rhts,cpm,tlts,qtts,ptts,l_mixing_ratio)
 
   else !i_cld_area
 
     call pc2_initiate(p_theta_levels,cumulus,rhcrit,                           &
       tdims%k_end, rhc_row_length,rhc_rows,zlcl_mixed,r_theta_levels,          &
-      t,cf,cfl,cff,q,qcl,rhts,l_mixing_ratio)
+      t,cf,cfl,cff,q,qcl,qcf_total,rhts,cpm,l_mixing_ratio)
 
   end if !i_cld_area
 
@@ -501,7 +540,7 @@ if ( cloud_pc2_tol > cloud_rounding_tol ) then
 
   call pc2_checks2(p_theta_levels,rhcrit,                                      &
       rhc_row_length,rhc_rows,                                                 &
-      t, cf, cfl, cff, q, qcl, l_mixing_ratio)
+      t, cf, cfl, cff, q, qcl, cpm, l_mixing_ratio)
 
   if (l_wtrac) then
     call wtrac_pc2_phase_chg(tdims, q, qcl, 'pc2_checks2', wtrac = wtrac)
@@ -513,6 +552,7 @@ end if
 ! Pass field arrays without halo cells.
 call pc2_checks(p_theta_levels, p,                                             &
     t, cf, cfl, cff, q, qcl, qcf,                                              &
+    cpm,                                                                       &
     l_mixing_ratio,                                                            &
     tdims%i_len, tdims%j_len, tdims%k_end,                                     &
     tdims%halo_i, tdims%halo_j, tdims%halo_i, tdims%halo_j, qcf2, wtrac)
@@ -521,7 +561,7 @@ call pc2_checks(p_theta_levels, p,                                             &
 if (i_cld_area == acf_cusack) then
   call pc2_hom_arcld(p_layer_centres,p_layer_boundaries,                       &
      large_levels,levels_per_level,                                            &
-     cf_area,t,cf,cfl,cff,q,qcl,qcf,                                           &
+     cf_area,t,cf,cfl,cff,q,qcl,qcf,cpm,                                       &
      l_mixing_ratio)
 end if    ! i_cld_area
 

@@ -1,0 +1,179 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Computes the energy flux associated with moisture entering/leaving
+!>        the atmosphere at the surface.
+!>
+!> @details When moisture evaporates into the atmosphere, it adds mass that
+!>   carries kinetic and internal energy. When precipitation leaves, it removes
+!>   mass that was carrying kinetic and internal energy. These energy changes
+!>   are not captured by the latent heat terms (Lvr*rain, Lsr*snow) already
+!>   tracked in sum_fluxes_alg, so this kernel computes the additional
+!>   contribution to the energy budget.
+!>
+!>   The energy carried per unit mass comprises the internal energy, the
+!>   horizontal kinetic energy and the gravitational potential energy
+!>   (geopotential) at the model surface. The geopotential term is the flux
+!>   analogue of the (1 + m_t)*geopotential potential-energy term in the moist
+!>   total-energy formulation: only the moisture mass crosses the surface, so
+!>   the geopotential is carried per unit moisture mass exactly as the kinetic
+!>   energy is.
+!>
+!>   For evaporation (vapour entering):
+!>     flux += [(cpv - Rv)*T_surf + 0.5*|u|^2 + geopot_surf] * evap_rate
+!>
+!>   For rain leaving:
+!>     flux -= [cl*T_liq + 0.5*|u|^2 + geopot_surf] * rain_rate
+!>
+!>   For snow/graupel leaving:
+!>     flux -= [ci*T_ice + 0.5*|u|^2 + geopot_surf] * ice_rate
+!>
+!>   SIMPLIFICATION: The temperature used for the heat capacity with
+!>   precipitation is the surface temperature and NOT the temperature at
+!>   which the precipitation "vanished" from the model grid. This is a
+!>   significant approximation for rain that forms aloft and falls to the
+!>   surface, but avoids the complexity of tracking where precipitation
+!>   originates.
+!>
+module moisture_energy_flux_kernel_mod
+
+  use argument_mod,  only: arg_type, CELL_COLUMN,                              &
+                           GH_FIELD, GH_SCALAR,                                &
+                           GH_REAL, GH_READ, GH_READWRITE,                     &
+                           ANY_DISCONTINUOUS_SPACE_1
+  use constants_mod, only: r_def, i_def
+  use kernel_mod,    only: kernel_type
+  use driver_water_constants_mod, only: Tm => T_freeze_h2o
+
+  implicit none
+
+  private
+
+  !---------------------------------------------------------------------------
+  ! Public types
+  !---------------------------------------------------------------------------
+  type, public, extends(kernel_type) :: moisture_energy_flux_kernel_type
+    private
+    type(arg_type) :: meta_args(14) = (/                                       &
+        arg_type(GH_FIELD,  GH_REAL, GH_READWRITE, ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_FIELD,  GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &
+        arg_type(GH_SCALAR, GH_REAL, GH_READ),                                 &
+        arg_type(GH_SCALAR, GH_REAL, GH_READ),                                 &
+        arg_type(GH_SCALAR, GH_REAL, GH_READ),                                 &
+        arg_type(GH_SCALAR, GH_REAL, GH_READ)                                  &
+    /)
+    integer :: operates_on = CELL_COLUMN
+  contains
+    procedure, nopass :: moisture_energy_flux_code
+  end type moisture_energy_flux_kernel_type
+
+  !---------------------------------------------------------------------------
+  ! Contained functions/subroutines
+  !---------------------------------------------------------------------------
+  public :: moisture_energy_flux_code
+
+contains
+
+  !> @brief Compute the energy flux from moisture entering/leaving atmosphere
+  !> @param[in]     nlayers           Number of layers
+  !> @param[in,out] accumulated_fluxes Accumulated energy flux field
+  !> @param[in]     theta_surf        Potential temperature at surface
+  !> @param[in]     exner_surf        Exner pressure at surface
+  !> @param[in]     u_surf            Zonal wind at lowest level
+  !> @param[in]     v_surf            Meridional wind at lowest level
+  !> @param[in]     w_surf            Vertical wind at lowest level
+  !> @param[in]     vap_in            Surface moisture flux (evaporation, kg/m2/s)
+  !> @param[in]     liq_out           Total liquid precipitation rate (kg/m2/s)
+  !> @param[in]     ice_out           Total ice precipitation rate (kg/m2/s)
+  !> @param[in]     geopot_surf       Geopotential at the surface level
+  !> @param[in]     cpv_local         Heat capacity of water vapour at const. p
+  !> @param[in]     cl_local          Heat capacity of liquid water
+  !> @param[in]     ci_local          Heat capacity of ice
+  !> @param[in]     delta_T_liq       Liquid temperature difference from surface
+  !!                                  for precipitation
+  !> @param[in]     ndf               Number of DOFs per cell
+  !> @param[in]     undf              Total number of unique DOFs
+  !> @param[in]     map               DOF map for the cell
+  subroutine moisture_energy_flux_code( nlayers,                               &
+                                        accumulated_fluxes,                    &
+                                        theta_surf, exner_surf,                &
+                                        u_surf, v_surf, w_surf,                &
+                                        vap_in, liq_out, ice_out,              &
+                                        geopot_surf,                           &
+                                        cpv_local, cl_local, ci_local,         &
+                                        delta_T_liq,                           &
+                                        ndf, undf, map )
+
+    implicit none
+
+    ! Arguments
+    integer(kind=i_def), intent(in) :: nlayers
+    integer(kind=i_def), intent(in) :: ndf, undf
+    integer(kind=i_def), intent(in) :: map(ndf)
+
+    real(kind=r_def), intent(inout) :: accumulated_fluxes(undf)
+    real(kind=r_def), intent(in)    :: theta_surf(undf)
+    real(kind=r_def), intent(in)    :: exner_surf(undf)
+    real(kind=r_def), intent(in)    :: u_surf(undf)
+    real(kind=r_def), intent(in)    :: v_surf(undf)
+    real(kind=r_def), intent(in)    :: w_surf(undf)
+    real(kind=r_def), intent(in)    :: vap_in(undf)
+    real(kind=r_def), intent(in)    :: liq_out(undf)
+    real(kind=r_def), intent(in)    :: ice_out(undf)
+    real(kind=r_def), intent(in)    :: geopot_surf(undf)
+    real(kind=r_def), intent(in)    :: cpv_local
+    real(kind=r_def), intent(in)    :: cl_local
+    real(kind=r_def), intent(in)    :: ci_local
+    real(kind=r_def), intent(in)    :: delta_T_liq
+
+    ! Local variables
+    integer(kind=i_def) :: k
+    real(kind=r_def)    :: T_surf, ke
+    real(kind=r_def)    :: T_liq, T_ice
+
+    ! Heat capacity at constant volume for vapour
+    k = map(1)
+
+    ! Compute surface temperature
+    T_surf = theta_surf(k) * exner_surf(k)
+    T_liq = max(T_surf - delta_T_liq, Tm)
+    T_ice = min(T_surf, Tm)
+
+    ! Compute horizontal kinetic energy at lowest level
+    ke = 0.5_r_def * ( u_surf(k)**2 + v_surf(k)**2 + w_surf(k)**2 )
+
+    ! Add energy flux contribution from moisture exchange:
+    !
+    ! Evaporation adds vapour carrying internal energy + KE + geopotential:
+    !   + (cp_vap * T_surf + ke + geopot_surf) * evap_rate
+    !
+    ! Precipitation removes liquid/ice carrying internal energy + KE +
+    ! geopotential:
+    !   - (cl * T_surf + ke + geopot_surf) * liq_precip_rate
+    !   - (ci * T_surf + ke + geopot_surf) * ice_precip_rate
+    !
+    ! The geopotential term is the flux analogue of the (1 + m_t)*geopotential
+    ! potential-energy term: only the moisture mass crosses the surface, so it
+    ! carries geopot_surf per unit mass, exactly as it carries ke.
+    !
+    ! SIMPLIFICATION: The temperature used for the heat capacity of
+    ! precipitation is the surface temperature, not the temperature at
+    ! which the precipitation "vanished" from the model grid.
+    accumulated_fluxes(k) = accumulated_fluxes(k)                              &
+        + ( cpv_local * T_surf + ke + geopot_surf(k) ) * vap_in(k)             &
+        - ( cl_local * T_liq + ke + geopot_surf(k) ) * liq_out(k)              &
+        - ( ci_local * T_ice + ke + geopot_surf(k) ) * ice_out(k)
+
+  end subroutine moisture_energy_flux_code
+
+end module moisture_energy_flux_kernel_mod

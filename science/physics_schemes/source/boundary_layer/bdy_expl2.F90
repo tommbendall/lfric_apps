@@ -45,7 +45,8 @@ subroutine bdy_expl2 (                                                         &
  z_tq,z_uv,rhostar,bt,bq,bt_cld,bq_cld,bt_gb,bq_gb,a_qs,a_dqsdt,dqsdt,         &
  recip_l_mo_sea,flandg,rib_gb, sil_orog_land, z0m_eff_gb,                      &
 ! in cloud/moisture data :
- cf_bulk,q,qcf,qcl,t,qw,tl,                                                    &
+ cf_bulk,q,qcf,qcl,qrain,qgraupel,t,qw,tl,                                     &
+ cpm_bl,cpm_dag_bl,q_tot_bl,                                                   &
 ! in everything not covered so far :
  rad_hr,micro_tends,fb_surf,u_s,pstar,tstar,                                   &
  zh_prev,zhpar,z_lcl,ho2r2_orog,sd_orog,wtrac_as,                              &
@@ -99,6 +100,7 @@ use pc2_constants_mod, only: rhcpt_tke_based, i_cld_bimodal, i_cld_pc2,        &
                              pc2init_bimodal, bm_negative_init, bm_tiny
 use planet_constants_mod, only: vkman => vkman_bl, grcp => grcp_bl,            &
      pref => pref_bl, kappa => kappa_bl, g => g_bl
+use bl_cpm_mod, only: bl_mload_switch
 use s_scmop_mod,   only: default_streams,                                      &
                          t_inst, t_avg, d_bl, d_sl, d_point, scmdiag_bl
 use science_fixes_mod, only: l_fix_dyndiag, l_fix_zh
@@ -311,6 +313,12 @@ real(kind=r_bl), intent(in) ::                                                 &
  qcl(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,              &
      tdims_l%k_start:bl_levels),                                               &
                                    ! in Cloud liquid water
+ qrain(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,            &
+       tdims_l%k_start:bl_levels),                                             &
+                                   ! in Rain (kg per kg air)
+ qgraupel(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,         &
+          tdims_l%k_start:bl_levels),                                          &
+                                   ! in Graupel (kg per kg air)
  q(tdims_l%i_start:tdims_l%i_end,tdims_l%j_start:tdims_l%j_end,                &
    tdims_l%k_start:bl_levels),                                                 &
                                    ! in specific humidity
@@ -320,6 +328,13 @@ real(kind=r_bl), intent(in) ::                                                 &
                                  ! in Total water content
  tl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end, bl_levels),           &
                                  ! in Ice/liquid water temperature
+ cpm_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end, bl_levels),       &
+!    Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!    across the scheme
+ cpm_dag_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end, bl_levels),   &
+!    As cpm_bl but with qcl treated as vapour ("dagger" form)
+ q_tot_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end, bl_levels),     &
+!    Total moisture (sum of all species)
  delta_smag(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end),              &
                                  ! in delta_x used by Smagorinsky
  max_diff(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end)
@@ -629,7 +644,7 @@ real(kind=r_bl) ::                                                             &
                                 ! qsat(Tl) on current level
 
 real(kind=r_bl) ::                                                             &
-   frac_sat, frac_dry, frac_edg, frac_lev, qc_tot, bt_rh, bq_rh
+   frac_sat, frac_dry, frac_edg, frac_lev, qc_tot, bt_rh, bq_rh, grcp_moist
    ! Temporary variables used to compute buoyancy coefficients on rho-levels
 
 real(kind=r_bl), allocatable :: visc_h_rho (:,:,:)
@@ -912,7 +927,8 @@ call btq_int (                                                                 &
 !-----------------------------------------------------------------------
 !$OMP  PARALLEL DEFAULT(SHARED) private(i, j, k, weight1,  weight2,            &
 !$OMP  weight3, zpr, dzv, dzu, l, slope, dsldzm_ga,                            &
-!$OMP  qs_tl, frac_sat, frac_dry, frac_edg, frac_lev, qc_tot, bt_rh, bq_rh )
+!$OMP  qs_tl, frac_sat, frac_dry, frac_edg, frac_lev, qc_tot, bt_rh, bq_rh,   &
+!$OMP  grcp_moist )
 !$OMP do SCHEDULE(STATIC)
 do j = pdims%j_start, pdims%j_end
   do i = pdims%i_start, pdims%i_end
@@ -926,8 +942,10 @@ end do
 do k = 2, bl_levels
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*q_tot_bl(i,j,k))            &
+                / cpm_dag_bl(i,j,k)
       dsldz(i,j,k)    = ( tl(i,j,k) - tl(i,j,k-1) )                            &
-                              *rdz_charney_grid(i,j,k) + grcp
+                              *rdz_charney_grid(i,j,k) + grcp_moist
       dsldz_ga(i,j,k) = dsldz(i,j,k)
       if ( z_tq(i,j,k) <= zh_prev(i,j) ) then
         dsldz_ga(i,j,k) = dsldz_ga(i,j,k) - grad_t_adj(i,j)
@@ -985,8 +1003,10 @@ else ! l_use_surf_in_ri = true
 !$OMP do SCHEDULE(STATIC)
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*q_tot_bl(i,j,k))            &
+                / cpm_dag_bl(i,j,k)
       dsldz(i,j,k)    = ( tl(i,j,k) - tstar(i,j) )                             &
-                              *rdz_charney_grid(i,j,k) + grcp
+                              *rdz_charney_grid(i,j,k) + grcp_moist
       dsldz_ga(i,j,k) = dsldz(i,j,k) ! no GA below level 1
       if ( flandg(i,j) < 0.2_r_bl) then
         dqwdz(i,j,k)  = ( qw(i,j,k) - qssurf(i,j) )                            &
@@ -1850,7 +1870,8 @@ if (non_local_bl == on) then
     !     in levels/switches
              nl_bl_levels,BL_diag, nSCMDpkgs,L_SCMDiags,                       &
     !     in fields
-             p_theta_levels,rho_wet_tq,rho_mix,rho_mix_tq,t,q,qcl,qcf,         &
+             p_theta_levels,rho_wet_tq,rho_mix,rho_mix_tq,t,                   &
+             q,qcl,qcf,qrain,qgraupel,cpm_bl,cpm_dag_bl,q_tot_bl,              &
              cf_bulk, qw,tl, dzl_charney,rdz_charney_grid,z_tq,z_uv,           &
              rad_hr,micro_tends,                                               &
              bt,bq,btm,bqm,dqsdt,btm_cld,bqm_cld,a_qs,a_qsm,a_dqsdtm,          &
@@ -2656,6 +2677,15 @@ call ex_flux_tq (                                                              &
     rhof2, rhofsc, ft_nt, fq_nt, ft_nt_dscb, fq_nt_dscb, tothf_zh,             &
     tothf_zhsc, totqf_zh, totqf_zhsc, weight_1dbl_rho,                         &
     ntml_nl, ntdsc, nbdsc,                                                     &
+    q(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels),        &
+    qcl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels),      &
+    qcf(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels),      &
+    qrain(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels),    &
+    qgraupel(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels), &
+    cpm_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels),   &
+    cpm_dag_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,            &
+               1:bl_levels),                                                   &
+    q_tot_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,1:bl_levels), &
 ! INOUT fields
     ftl,fqw,wtrac_bl                                                           &
     )

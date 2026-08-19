@@ -26,7 +26,8 @@ module compute_energetics_kernel_mod
   use constants_mod,     only : r_def, i_def
   use driver_water_constants_mod, &
                          only : Lv => latent_heat_h2o_condensation, &
-                                Lf => latent_heat_h2o_fusion
+                                Lf => latent_heat_h2o_fusion,       &
+                                Tm => T_freeze_h2o
   use fs_continuity_mod, only : W2, W3, Wtheta
   use kernel_mod,        only : kernel_type
 
@@ -46,7 +47,7 @@ module compute_energetics_kernel_mod
 !>
 type, public, extends(kernel_type) :: compute_energetics_kernel_type
   private
-  type(arg_type) :: meta_args(15) = (/                                     &
+  type(arg_type) :: meta_args(19) = (/                                     &
        arg_type(GH_FIELD,   GH_REAL, GH_WRITE, W3),                        &
        arg_type(GH_FIELD,   GH_REAL, GH_WRITE, W3),                        &
        arg_type(GH_FIELD,   GH_REAL, GH_WRITE, W3),                        &
@@ -61,6 +62,10 @@ type, public, extends(kernel_type) :: compute_energetics_kernel_type
        arg_type(GH_SCALAR,  GH_REAL, GH_READ),                             &
        arg_type(GH_FIELD*3, GH_REAL, GH_READ,  ANY_SPACE_9),               &
        arg_type(GH_FIELD,   GH_REAL, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), &
+       arg_type(GH_SCALAR,  GH_REAL, GH_READ),                             &
+       arg_type(GH_SCALAR,  GH_REAL, GH_READ),                             &
+       arg_type(GH_SCALAR,  GH_REAL, GH_READ),                             &
+       arg_type(GH_SCALAR,  GH_REAL, GH_READ),                             &
        arg_type(GH_SCALAR,  GH_REAL, GH_READ)                              &
        /)
   type(func_type) :: meta_funcs(4) = (/                                   &
@@ -104,7 +109,11 @@ contains
 !! @param[in] chi_2 2nd coordinate field in Wchi
 !! @param[in] chi_3 3rd coordinate field in Wchi
 !! @param[in] panel_id A field giving the ID for mesh panels
-!! @param[in] cv Specific heat of dry air at constant volume
+!! @param[in] cvd Specific heat of dry air at constant volume
+!! @param[in] cvv Specific heat of water vapour at constant volume
+!! @param[in] cl Specific heat of liquid water
+!! @param[in] ci Specific heat of ice
+!! @param[in] Rv Gas constant of water
 !! @param[in] ndf_w3 The number of degrees of freedom per cell for w3
 !! @param[in] undf_w3 The number of unique degrees of freedom  for w3
 !! @param[in] map_w3 Dofmap for the cell at the base of the column for w3
@@ -136,7 +145,7 @@ subroutine compute_energetics_code(                                           &
                                    u, rho, exner, theta,                      &
                                    mr_v, mr_cl, mr_r, mr_s, mr_g, mr_ci, phi, &
                                    phi0, chi_1, chi_2, chi_3, panel_id,       &
-                                   cv,                                        &
+                                   cvd, cvv, cl, ci, Rv,                      &
                                    ndf_w3, undf_w3, map_w3, w3_basis,         &
                                    ndf_w2, undf_w2, map_w2, w2_basis,         &
                                    ndf_wtheta, undf_wtheta, map_wtheta,       &
@@ -180,7 +189,7 @@ subroutine compute_energetics_code(                                           &
   real(kind=r_def), dimension(undf_w3),     intent(in)    :: phi
   real(kind=r_def), dimension(undf_chi),    intent(in)    :: chi_1, chi_2, chi_3
   real(kind=r_def), dimension(undf_pid),    intent(in)    :: panel_id
-  real(kind=r_def),                         intent(in)    :: cv
+  real(kind=r_def),                         intent(in)    :: cvd, cvv, cl, ci, Rv
   real(kind=r_def),                         intent(in)    :: phi0
 
   real(kind=r_def), dimension(nqp_h),       intent(in)  ::  wqp_h
@@ -200,20 +209,25 @@ subroutine compute_energetics_code(                                           &
                                                   moist_e
   real(kind=r_def), dimension(ndf_w2)          :: u_e
   real(kind=r_def), dimension(ndf_wtheta)      :: theta_e
-  real(kind=r_def), dimension(ndf_wtheta)      :: mr_cl_e, mr_r_e
+  real(kind=r_def), dimension(ndf_wtheta)      :: mr_cl_e, mr_r_e, mr_v_e
   real(kind=r_def), dimension(ndf_wtheta)      :: mr_ci_e, mr_s_e, mr_g_e
   real(kind=r_def), dimension(ndf_w3)          :: phi_e
+  real(kind=r_def)                             :: Lvr, Lsr
 
   real(kind=r_def) :: u_at_quad(3), phi_at_quad,  &
                       uv_at_quad(3), w_at_quad(3)
   real(kind=r_def) :: exner_at_quad, rho_at_quad, theta_at_quad, &
-                      mr_l_at_quad, mr_i_at_quad
+                      mr_l_at_quad, mr_i_at_quad, mr_v_at_quad
   real(kind=r_def) :: temperature_term, weight,            &
-                      ke_uv_term, ke_w_term, moisture_term
+                      ke_uv_term, ke_w_term, moisture_term, cv_tot, &
+                      one_plus_mt
 
   ipanel = int(panel_id(map_pid(1)), i_def)
   uv_at_quad(:) = 0.0_r_def
   w_at_quad(:) = 0.0_r_def
+
+  Lvr = Lv + (cl - (cvv + Rv))*Tm
+  Lsr = Lvr + Lf + (ci - cl)*Tm
 
   do k = 0, nlayers-1
     ! Extract element arrays of chi
@@ -232,6 +246,7 @@ subroutine compute_energetics_code(                                           &
     end do
     do df = 1, ndf_wtheta
       theta_e(df) = theta( map_wtheta(df) + k )
+      mr_v_e(df)  = mr_v( map_wtheta(df) + k )
       mr_cl_e(df) = mr_cl( map_wtheta(df) + k )
       mr_r_e(df)  = mr_r( map_wtheta(df) + k )
       mr_ci_e(df) = mr_ci( map_wtheta(df) + k )
@@ -261,6 +276,7 @@ subroutine compute_energetics_code(                                           &
           exner_at_quad  = exner_at_quad + exner_e(df)*w3_basis(1,df,qp1,qp2)
         end do
         theta_at_quad = 0.0_r_def
+        mr_v_at_quad  = 0.0_r_def
         mr_l_at_quad  = 0.0_r_def
         mr_i_at_quad  = 0.0_r_def
         phi_at_quad   = 0.0_r_def
@@ -272,6 +288,8 @@ subroutine compute_energetics_code(                                           &
         do df = 1, ndf_wtheta
           theta_at_quad   = theta_at_quad                              &
                           + theta_e(df)*wtheta_basis(1,df,qp1,qp2)
+          mr_v_at_quad   = mr_v_at_quad                                &
+                          + mr_v_e(df)*wtheta_basis(1,df,qp1,qp2)
           mr_l_at_quad = mr_l_at_quad + ( mr_cl_e(df) + mr_r_e(df) ) * &
                                         wtheta_basis(1,df,qp1,qp2)
           mr_i_at_quad = mr_i_at_quad                                  &
@@ -279,9 +297,10 @@ subroutine compute_energetics_code(                                           &
                            wtheta_basis(1,df,qp1,qp2)
         end do
         ! Temperature term
-        temperature_term = cv*exner_at_quad*theta_at_quad
+        cv_tot = cvd + mr_v_at_quad*cvv + mr_l_at_quad*cl + mr_i_at_quad*ci
+        temperature_term = cv_tot*exner_at_quad*theta_at_quad
         ! Moisture term
-        moisture_term = - ( Lv * mr_l_at_quad + (Lv + Lf) * mr_i_at_quad )
+        moisture_term = - ( Lvr * mr_l_at_quad + Lsr * mr_i_at_quad )
         ! k.e term
         u_at_quad(:) = 0.0_r_def
         do df = 1, ndf_w2
@@ -295,11 +314,12 @@ subroutine compute_energetics_code(                                           &
                                            matmul(jac(:,:,qp1,qp2),uv_at_quad))/(dj(qp1,qp2)**2)
         ke_w_term = 0.5_r_def*dot_product(matmul(jac(:,:,qp1,qp2),w_at_quad), &
                                            matmul(jac(:,:,qp1,qp2),w_at_quad))/(dj(qp1,qp2)**2)
+        one_plus_mt = 1.0_r_def + mr_v_at_quad + mr_l_at_quad + mr_i_at_quad
         do df = 1, ndf_w3
           weight = wqp_h(qp1)*wqp_v(qp2)*rho_at_quad*dj(qp1,qp2)
-          kinetic_uv_e(df) = kinetic_uv_e(df) + weight*ke_uv_term
-          kinetic_w_e(df)  = kinetic_w_e(df) + weight*ke_w_term
-          potential_e(df)  = potential_e(df) + weight*phi_at_quad
+          kinetic_uv_e(df) = kinetic_uv_e(df) + weight*ke_uv_term*one_plus_mt
+          kinetic_w_e(df)  = kinetic_w_e(df) + weight*ke_w_term*one_plus_mt
+          potential_e(df)  = potential_e(df) + weight*phi_at_quad*one_plus_mt
           internal_e(df)   = internal_e(df) + weight*temperature_term
           moist_e(df)      = moist_e(df) + weight*moisture_term
         end do

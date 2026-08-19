@@ -27,14 +27,16 @@ subroutine ls_arcld(                                                           &
 !      Convection diagnosis information (only used for A05_4A)
   ntml, cumulus, l_mixing_ratio,                                               &
 !      Prognostic Fields
-  qcf_latest,                                                                  &
+  qcf_latest, qrain_latest, qgraupel_latest,                                   &
   t_latest, q_latest, qcl_latest,                                              &
 !      Various cloud fractions
   area_cloud_fraction, bulk_cloud_fraction,                                    &
   cloud_fraction_liquid, cloud_fraction_frozen,                                &
   error_code)
 
-use planet_constants_mod, only: lcrcp
+use water_constants_mod,  only: lc, tm
+use planet_constants_mod, only: cpd => cp
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims, pdims, tdims_s
@@ -105,6 +107,14 @@ real(kind=real_umphys), intent(in) ::                                          &
                       tdims%j_start:tdims%j_end,                               &
                                   1:tdims%k_end),                              &
 !       Cloud ice content at processed levels (kg water per kg air).
+ qrain_latest(        tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                  1:tdims%k_end),                              &
+!       Rain water content at processed levels (kg water per kg air).
+ qgraupel_latest(     tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                  1:tdims%k_end),                              &
+!       Graupel content at processed levels (kg water per kg air).
    p_layer_centres(      pdims%i_start:pdims%i_end,                            &
                          pdims%j_start:pdims%j_end,                            &
                                      0:pdims%k_end),                           &
@@ -181,7 +191,12 @@ real(kind=real_umphys) ::                                                      &
 
   inverse_level,                                                               &
                      ! Set to (1. / levels_per_level)
-  delta_p        ! Layer pressure thickness * inverse_level
+  delta_p,                                                                     &
+                     ! Layer pressure thickness * inverse_level
+  cpm,                                                                         &
+                     ! Moist heat capacity at constant pressure
+
+  lrv0               ! Reference latent heat for TL/T conversion
 
 !  (b) Others.
 integer :: i,j,k      ! Loop counters: k - vertical level index.
@@ -190,6 +205,13 @@ integer :: k_index    ! Extra loop counter for large arrays.
 
 !  Local dynamic arrays-------------------------------------------------
 !    11 blocks of real workspace are required.
+real(kind=real_umphys) ::                                                      &
+  cpm_dag(             tdims%i_start:tdims%i_end,                              &
+                       tdims%j_start:tdims%j_end, 1:tdims%k_end)
+!        Moist heat capacity with qcl treated as vapour. Computed once
+!        from the invariant total-water/rain/ice/graupel input and
+!        reused throughout this routine and in LS_CLD.
+
 real(kind=real_umphys) ::                                                      &
   qsl(                 tdims%i_start:tdims%i_end,                              &
                        tdims%j_start:tdims%j_end),                             &
@@ -206,6 +228,8 @@ real(kind=real_umphys) ::                                                      &
     q_large(             tdims%i_start:tdims%i_end,                            &
                          tdims%j_start:tdims%j_end, large_levels),             &
     qcf_large(           tdims%i_start:tdims%i_end,                            &
+                         tdims%j_start:tdims%j_end, large_levels),             &
+    cpm_dag_large(       tdims%i_start:tdims%i_end,                            &
                          tdims%j_start:tdims%j_end, large_levels),             &
     cloud_fraction_large(tdims%i_start:tdims%i_end,                            &
                          tdims%j_start:tdims%j_end, large_levels),             &
@@ -244,6 +268,29 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! ----------------------------------------------------------------------
 error_code=0
 
+! ----------------------------------------------------------------------
+!  Calculate cpm_dag: moist heat capacity with qcl treated as vapour.
+!  q_latest still holds total water (QW) at this point, before LS_CLD
+!  separates it into vapour and liquid; QW is conserved by that
+!  separation, so cpm_dag remains valid for use throughout this routine.
+! ----------------------------------------------------------------------
+!$OMP PARALLEL DEFAULT(none)                                                   &
+!$OMP SHARED(cpm_dag, q_latest, qrain_latest, qcf_latest, qgraupel_latest,     &
+!$OMP        cpd, cpv_cpm, cl_cpm, ci_cpm, tdims)                              &
+!$OMP PRIVATE(i, j, k)
+!$OMP DO SCHEDULE(STATIC)
+do k = 1, tdims%k_end
+  do j = tdims%j_start, tdims%j_end
+    do i = tdims%i_start, tdims%i_end
+      cpm_dag(i,j,k) = cpd + cpv_cpm*q_latest(i,j,k)                           &
+                            + cl_cpm*qrain_latest(i,j,k)                       &
+                            + ci_cpm*(qcf_latest(i,j,k)+qgraupel_latest(i,j,k))
+    end do
+  end do
+end do
+!$OMP END DO
+!$OMP END PARALLEL
+
 ! ==Main Block==--------------------------------------------------------
 ! Subroutine structure :
 ! Loop round levels to be processed.
@@ -256,7 +303,7 @@ if (i_cld_area == acf_off) then
                rhc_row_length, rhc_rows,                                       &
                ntml,cumulus,                                                   &
                l_mixing_ratio,t_latest, bulk_cloud_fraction,                   &
-               q_latest, qcf_latest, qcl_latest,                               &
+               q_latest, qcf_latest, qcl_latest, cpm_dag,                      &
                cloud_fraction_liquid,                                          &
                cloud_fraction_frozen, error_code )
 
@@ -272,12 +319,14 @@ else if (i_cld_area == acf_cusack) then
   !       Vertical gradient area cloud option
 
   inverse_level = 1.0 / levels_per_level
+  lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
   ! Test for continuity between adjacent layers based on supersaturation
   ! (qt - qsl) / qsl : as we take differences the - qsl term drops out.
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( rhc_rows, rhc_row_length, rhcrit_large, rhcrit, tdims,           &
 !$OMP         large_levels, p_large, t_large, q_large, qcf_large,              &
+!$OMP         cpm_dag_large, cpm_dag,                                          &
 !$OMP         linked, qt_norm, p_layer_centres, t_latest, q_latest,            &
 !$OMP         qcf_latest, qsl, l_mixing_ratio)                                 &
 !$OMP private(i, j, qt_norm_next )
@@ -323,6 +372,7 @@ else if (i_cld_area == acf_cusack) then
       t_large(i,j,1) = t_latest(i,j,1)
       q_large(i,j,1) = q_latest(i,j,1)
       qcf_large(i,j,1) = qcf_latest(i,j,1)
+      cpm_dag_large(i,j,1) = cpm_dag(i,j,1)
 
       p_large(i,j,large_levels) =                                              &
         p_layer_centres(i,j,tdims%k_end)
@@ -330,6 +380,7 @@ else if (i_cld_area == acf_cusack) then
       t_large(i,j,large_levels) = t_latest(i,j,tdims%k_end)
       q_large(i,j,large_levels) = q_latest(i,j,tdims%k_end)
       qcf_large(i,j,large_levels) = qcf_latest(i,j,tdims%k_end)
+      cpm_dag_large(i,j,large_levels) = cpm_dag(i,j,tdims%k_end)
       ! Test for continuity (assumed if linked is .true.)
       qt_norm_next=(q_latest(i,j,2)+qcf_latest(i,j,2))/qsl(i,j)
       linked(i,j,1) =                                                          &
@@ -346,7 +397,8 @@ else if (i_cld_area == acf_cusack) then
 !$OMP  p_layer_centres, l_mixing_ratio, rhc_rows,                              &
 !$OMP  rhc_row_length, rhcrit_large, rhcrit, inverse_level,                    &
 !$OMP  p_layer_boundaries, p_large, t_large, q_large, q_latest,                &
-!$OMP  qcf_large, qcf_latest, linked, qt_norm_next, qt_norm, tdims,            &
+!$OMP  qcf_large, cpm_dag_large, cpm_dag, qcf_latest,                          &
+!$OMP  linked, qt_norm_next, qt_norm, tdims,                                   &
 !$OMP  ntml_large, ntml )                                                      &
 !$OMP  private(i, j, k, k_index, stretcher, delta_p, qsl)
 
@@ -413,6 +465,7 @@ else if (i_cld_area == acf_cusack) then
         t_large(i,j,k_index) = t_latest(i,j,k)
         q_large(i,j,k_index) = q_latest(i,j,k)
         qcf_large(i,j,k_index) = qcf_latest(i,j,k)
+        cpm_dag_large(i,j,k_index) = cpm_dag(i,j,k)
 
         ! Calculate increment in variable values, pressure interpolation
         ! NB: Using X_large(i,j,(k_index+1)) as store for X increments
@@ -428,6 +481,8 @@ else if (i_cld_area == acf_cusack) then
            (q_latest(i,j,(k+1)) - q_latest(i,j,(k-1)))
             qcf_large(i,j,(k_index+1)) = stretcher *                           &
            (qcf_latest(i,j,(k+1)) - qcf_latest(i,j,(k-1)))
+            cpm_dag_large(i,j,(k_index+1)) = stretcher *                       &
+           (cpm_dag(i,j,(k+1)) - cpm_dag(i,j,(k-1)))
           else
             !               Interpolate from level k-1 to k
             stretcher = delta_p /                                              &
@@ -438,6 +493,8 @@ else if (i_cld_area == acf_cusack) then
            (q_large(i,j,k_index) - q_latest(i,j,(k-1)))
             qcf_large(i,j,(k_index+1)) = stretcher *                           &
            (qcf_large(i,j,k_index) - qcf_latest(i,j,(k-1)))
+            cpm_dag_large(i,j,(k_index+1)) = stretcher *                       &
+           (cpm_dag_large(i,j,k_index) - cpm_dag(i,j,(k-1)))
           end if
 
         else
@@ -451,11 +508,14 @@ else if (i_cld_area == acf_cusack) then
            (q_latest(i,j,(k+1)) - q_large(i,j,k_index))
             qcf_large(i,j,(k_index+1)) = stretcher *                           &
            (qcf_latest(i,j,(k+1)) - qcf_large(i,j,k_index))
+            cpm_dag_large(i,j,(k_index+1)) = stretcher *                       &
+           (cpm_dag(i,j,(k+1)) - cpm_dag_large(i,j,k_index))
           else
             !               No interpolation, freeze at level k
             t_large(i,j,(k_index+1)) = 0.0
             q_large(i,j,(k_index+1)) = 0.0
             qcf_large(i,j,(k_index+1)) = 0.0
+            cpm_dag_large(i,j,(k_index+1)) = 0.0
           end if
 
         end if
@@ -475,6 +535,8 @@ else if (i_cld_area == acf_cusack) then
                                    q_large(i,j,(k_index+1))
         qcf_large(i,j,(k_index-1))=qcf_large(i,j,k_index)-                     &
                                    qcf_large(i,j,(k_index+1))
+        cpm_dag_large(i,j,(k_index-1)) = cpm_dag_large(i,j,k_index) -          &
+                                         cpm_dag_large(i,j,(k_index+1))
 
         ! Select variable values at level above layer centre
         ! NB: CEASE using X_large(i,j,(k_index+1)) as store for X increments.
@@ -484,6 +546,8 @@ else if (i_cld_area == acf_cusack) then
                                    q_large(i,j,k_index)
         qcf_large(i,j,(k_index+1))=qcf_large(i,j,(k_index+1)) +                &
                                    qcf_large(i,j,k_index)
+        cpm_dag_large(i,j,(k_index+1)) = cpm_dag_large(i,j,(k_index+1)) +      &
+                                         cpm_dag_large(i,j,k_index)
       end do
     end do
 
@@ -504,7 +568,7 @@ else if (i_cld_area == acf_cusack) then
                rhc_row_length, rhc_rows,                                       &
                ntml_large, cumulus, l_mixing_ratio,                            &
                t_large, cloud_fraction_large,                                  &
-               q_large, qcf_large, qcl_large,                                  &
+               q_large, qcf_large, qcl_large, cpm_dag_large,                   &
                cloud_fraction_liquid_large,                                    &
                cloud_fraction_frozen_large, error_code )
 
@@ -514,9 +578,9 @@ else if (i_cld_area == acf_cusack) then
 !$OMP        inverse_level, qcl_latest, qcl_large,                             &
 !$OMP        cloud_fraction_liquid, cloud_fraction_liquid_large,               &
 !$OMP        cloud_fraction_frozen, cloud_fraction_frozen_large,               &
-!$OMP        q_latest, t_latest, tdims, lcrcp, t_large, q_large,               &
-!$OMP        large_levels )                                                    &
-!$OMP private(i, j, k, k_index)
+!$OMP        q_latest, t_latest, tdims, t_large, q_large, large_levels,        &
+!$OMP        cpm_dag, cpv_cpm, cl_cpm, lrv0 )                                  &
+!$OMP private(i, j, k, k_index, cpm)
 !$OMP do SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
@@ -597,8 +661,9 @@ else if (i_cld_area == acf_cusack) then
         ! Transform q_latest from qT(vapour + liquid) to specific humidity.
         ! Transform T_latest from TL(vapour + liquid) to temperature.
         q_latest(i,j,k) = q_latest(i,j,k) - qcl_latest(i,j,k)
-        t_latest(i,j,k) = t_latest(i,j,k) +                                    &
-                            (qcl_latest(i,j,k) * lcrcp)
+        cpm = cpm_dag(i,j,k) - (cpv_cpm - cl_cpm) * qcl_latest(i,j,k)
+        t_latest(i,j,k) = (cpm_dag(i,j,k) / cpm) * t_latest(i,j,k)             &
+                        + (lrv0 / cpm) * qcl_latest(i,j,k)
       end do
     end do
 
@@ -615,7 +680,7 @@ else if (i_cld_area == acf_brooks) then
              rhc_row_length, rhc_rows,                                         &
              ntml, cumulus, l_mixing_ratio,                                    &
              t_latest, bulk_cloud_fraction,                                    &
-             q_latest, qcf_latest, qcl_latest,                                 &
+             q_latest, qcf_latest, qcl_latest, cpm_dag,                        &
              cloud_fraction_liquid,                                            &
              cloud_fraction_frozen, error_code )
 

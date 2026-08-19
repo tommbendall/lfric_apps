@@ -198,9 +198,11 @@ do loop=1,loop_max
 
   do i=1,n
     if (.not. converged(i)) then
-      g      = l(i)*qs(i) + Cp_moist(i) * tw(i)
-      dgbydt = l(i)*l(i)*qs(i) /                                               &
-               max(0.0+epsilon(0.0),R_v*tw(i)*tw(i)) + Cp_moist(i)
+      lh     = lc - L_coeff*(tw(i) - zerodegc)
+      g      = lh*qs(i) + Cp_moist(i) * tw(i)
+      dgbydt = lh*lh*qs(i) /                                                   &
+               max(0.0+epsilon(0.0),R_v*tw(i)*tw(i))                           &
+               - L_coeff*qs(i) + Cp_moist(i)
       delta_TW = (g_TW(i) - g) / dgbydt
       tw(i) = tw(i) + delta_TW
       if (abs(delta_TW) >  delta_TW_tol) then

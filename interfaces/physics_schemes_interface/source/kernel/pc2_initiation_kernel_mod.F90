@@ -29,11 +29,13 @@ private
 
 type, public, extends(kernel_type) :: pc2_initiation_kernel_type
   private
-  type(arg_type) :: meta_args(40) = (/                                   &
+  type(arg_type) :: meta_args(42) = (/                                   &
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mv_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! ml_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mi_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! ms_wth
+       arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mr_wth
+       arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! mg_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! cfl_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! cff_wth
        arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA),                    & ! bcf_wth
@@ -143,6 +145,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
                                 ml_wth,                            &
                                 mi_wth,                            &
                                 ms_wth,                            &
+                                mr_wth,                            &
+                                mg_wth,                            &
                                 cfl_wth,                           &
                                 cff_wth,                           &
                                 bcf_wth,                           &
@@ -195,7 +199,9 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     !---------------------------------------
 
     use pc2_initiation_ctl_mod,     only: pc2_initiation_ctl
-    use planet_constants_mod,       only: p_zero, kappa, lcrcp, planet_radius
+    use planet_constants_mod,       only: p_zero, kappa, cp, planet_radius
+    use water_constants_mod,        only: lc, tm
+    use lsc_cpm_mod,                only: cpv_cpm, cl_cpm, ci_cpm
     use gen_phys_inputs_mod,        only: l_mr_physics
 
     use free_tracers_inputs_mod,    only: l_wtrac, n_wtrac
@@ -218,6 +224,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     real(kind=r_def), intent(in), dimension(undf_wth) :: ml_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: mi_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: ms_wth
+    real(kind=r_def), intent(in), dimension(undf_wth) :: mr_wth
+    real(kind=r_def), intent(in), dimension(undf_wth) :: mg_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: bcf_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: cfl_wth
     real(kind=r_def), intent(in), dimension(undf_wth) :: cff_wth
@@ -272,6 +280,7 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     logical, dimension(seg_len,1) :: l_cumulus
 
     real(r_um), dimension(seg_len,1,nlayers) :: qv_work, qcl_work, qcf_work,   &
+         qrain_work, qgraupel_work,                                            &
          cfl_work, cff_work, bcf_work, t_work, theta_work, rhts, t_incr,       &
          qv_incr, qcl_incr, qcf_incr, cfl_incr, cff_incr, bcf_incr, rhcpt,     &
          zeros, tgrad_in, mix_len_in, tau_dec_in, tau_hom_in, tau_mph_in,      &
@@ -287,6 +296,7 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
     real(r_um), dimension(seg_len,1,0:nlayers) :: r_theta_levels
 
     real(r_um) :: t_n
+    real(r_um) :: Lc_full, cpm, lcrcp_moist
 
     integer(i_um) :: k, i
 
@@ -346,6 +356,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
         qv_work(i,1,k)   = mv_wth(map_wth(1,i) + k)
         qcl_work(i,1,k)  = ml_wth(map_wth(1,i) + k)
         qcf_work(i,1,k)  = ms_wth(map_wth(1,i) + k)
+        qrain_work(i,1,k)= mr_wth(map_wth(1,i) + k)
+        qgraupel_work(i,1,k)= mg_wth(map_wth(1,i) + k)
         qcf2_work(i,1,k)  = mi_wth(map_wth(1,i) + k)
 
         ! Critical relative humidity
@@ -364,7 +376,12 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
         qtts(i,1,k) = mv_n_wth(map_wth(1,i) + k) + ml_n_wth(map_wth(1,i) + k)
 
         ! Liquid temperature
-        tlts(i,1,k) = t_n - ( lcrcp * ml_n_wth(map_wth(1,i) + k) )
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t_n - tm)
+        cpm = cp + mv_n_wth(map_wth(1,i) + k) * cpv_cpm                        &
+                 + ml_n_wth(map_wth(1,i) + k) * cl_cpm                         &
+                 + (ms_wth(map_wth(1,i) + k) + mi_wth(map_wth(1,i) + k)) * ci_cpm
+        lcrcp_moist = Lc_full / cpm
+        tlts(i,1,k) = t_n - ( lcrcp_moist * ml_n_wth(map_wth(1,i) + k) )
 
       end do     ! k
     end do
@@ -443,6 +460,8 @@ subroutine pc2_initiation_code( nlayers, seg_len,                  &
                             qcl_work,                      &
                             qcf_work,                      &
                             qcf2_work,                     &
+                            qrain_work,                    &
+                            qgraupel_work,                 &
                             bcf_work,                      &
                             cfl_work,                      &
                             cff_work,                      &

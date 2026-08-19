@@ -16,8 +16,9 @@ contains
 subroutine lsp_deposition(                                                     &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, qcf, qcft, t, p,                                                     &
-                                          ! Water contents, temp, pres
+  q, qcl, qcf, qcft, t, cpm, p,                                                &
+                                          ! Water contents, temp, moist heat
+                                          ! capacity and pressure
   q_ice_1, q_ice_2,                                                            &
                                           ! Subgrid-scale water contents
   area_ice_1, area_ice_2,                                                      &
@@ -33,7 +34,7 @@ subroutine lsp_deposition(                                                     &
   rho, tcg, tcgi,                                                              &
                                           ! Parametrization information
   corr2, rocor, lheat_correc_ice, ice_nofall,                                  &
-  lfrcp, lsrcp, ice_type,                                                      &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -55,7 +56,7 @@ subroutine lsp_deposition(                                                     &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: apb1, apb2, apb3, m0, cx, constp, zerodegc, zero, half,  &
-                      one
+                      one, lc, lf, tm
 
   ! Microphysics modules- logicals and integers
 use mphys_constants_mod, only: ice_type_offset
@@ -64,6 +65,9 @@ use mphys_inputs_mod,    only: l_diff_icevt, l_proc_fluxes
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook Modules
 use yomhook,             only: lhook, dr_hook
@@ -149,11 +153,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Ice latent heat correction factor
   ice_nofall(points),                                                          &
                         ! Fraction of qcf that is not falling out
-  lfrcp,                                                                       &
-                        ! Latent heat of fusion
-                        ! /heat capacity of air (cP) / K
-  lsrcp,                                                                       &
-                        ! Latent heat of sublimation/cP / K
   one_over_tsi          ! 1/(timestep*iterations)
 logical, intent(in) ::                                                         &
    l_use_agg_vt(points)
@@ -172,6 +171,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
 !                           (for cloud fraction calculations)
     t(points),                                                                 &
                           ! Temperature / K
+    cpm(points),                                                               &
+                          ! Moist-air heat capacity at const pressure (J/kg/K)
     cf(points),                                                                &
                           ! Current cloud fraction
     cfl(points),                                                               &
@@ -243,6 +244,17 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Ice-mass that is not falling out this microphysics timestep
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Lf_full,                                                                     &
+                        ! Temperature-dependent latent heat of fusion
+  Ls_full,                                                                     &
+                        ! Temperature-dependent latent heat of sublimation
+  lfrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
 
 ! Local compression variable
 integer ::                                                                     &
@@ -552,12 +564,27 @@ do c = 1, npts
       ! Adjust liquid and vapour contents (liquid adjusts first)
       !-----------------------------------------------
 
-  qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
-  t(i) = t(i) + lfrcp * dqil
-  dqi = dqi_dep(i) + dqi_sub(i)- dqil
 
+  ! Update liquid and vapour contents
+  qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
+  dqi = dqi_dep(i) + dqi_sub(i)- dqil
   q(i) = q(i) - dqi
-  t(i) = t(i) + lsrcp * dqi
+
+  ! Update heat capacity for phase transitions
+  cpm(i) = cpm(i) - cpv_cpm * dqi - cl_cpm * dqil                              &
+                  + ci_cpm * (dqi_dep(i) + dqi_sub(i))
+
+  ! Calculate variable latent heats for fusion and sublimation
+  ! Use updated mixing ratios in cpm (post phase-change state)
+  ! so that latent heating remains consistent with constant-pressure
+  ! moist enthalpy conservation.
+  Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+  lfrcp_moist = Lf_full / cpm(i)
+  Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+  lsrcp_moist = Ls_full / cpm(i)
+
+  ! Update temperature for phase transitions
+  t(i) = t(i) + lfrcp_moist * dqil + lsrcp_moist * dqi
 
     !-----------------------------------------------
     ! Store depostion/sublimation rate

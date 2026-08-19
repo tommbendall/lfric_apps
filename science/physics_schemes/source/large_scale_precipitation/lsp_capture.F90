@@ -16,8 +16,9 @@ contains
 subroutine lsp_capture(                                                        &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  qcf, qrain, qgraup, t,                                                       &
-                                          ! Water contents and temp
+  qcf, qrain, qgraup, t, cpm,                                                  &
+                                          ! Water contents, temp and
+                                          ! moist heat capacity
   cficei,                                                                      &
                                           ! Cloud fraction information
                                           ! at start of microphysics ts
@@ -28,7 +29,7 @@ subroutine lsp_capture(                                                        &
   rho, rhor, m0, tcg, tcgi,                                                    &
                                           ! Parametrization information
   corr, dhir, ice_nofall, rain_nofall,                                         &
-  lfrcp , ice_type,                                                            &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -47,7 +48,7 @@ subroutine lsp_capture(                                                        &
   )
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
-use lsprec_mod, only: zerodegc, cx, constp, bi,                                &
+use lsprec_mod, only: zerodegc, cx, constp, bi, lf, tm,                       &
                       zero, one, two, small_number
 
 ! Microphysics modules
@@ -56,6 +57,9 @@ use mphys_inputs_mod,     only: l_mcr_qrain, l_diff_icevt,                     &
                                 graupel_option, gr_srcols,                     &
                                 l_mcr_precfrac, l_subgrid_graupel_frac,        &
                                 i_update_precfrac, i_homog_areas, i_sg_correl
+
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,              only: lhook, dr_hook
@@ -124,9 +128,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                           ! Fraction of the ice-mass that is not falling out
     rain_nofall(points),                                                       &
                           ! Fraction of the rain-mass that is not falling out
-    lfrcp,                                                                     &
-                          ! Latent heat of fusion
-                          ! / heat capacity of air / K
     one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
@@ -138,6 +139,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Graupel mixing ratio / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   rainfrac(points),                                                            &
                         ! Rain fraction
   rain_liq(points),                                                            &
@@ -215,6 +218,13 @@ real (kind=real_lsprec), parameter    :: gr_thr = 1.0e-4_real_lsprec
 
 ! Fraction of increment occuring in the ice-only vs mixed-phase cloud
 real(kind=real_lsprec) :: frac
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Lf_full,                                                                     &
+                        ! Temperature-dependent latent heat of fusion
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
 
 ! Amount of qcf that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
@@ -571,7 +581,14 @@ do c = 1, npts
   ! temperature
 
   qrain(i) = qrain(i) - dpr(i)
-  t(i)     = t(i)     + dpr(i) * lfrcp
+
+  ! Calculate variable latent heats and heat capacities
+  ! Heat capacity updated for liquid -> ice transition
+  Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+  cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * dpr(i)
+  lfrcp_moist = Lf_full / cpm(i)
+
+  t(i)     = t(i)     + dpr(i) * lfrcp_moist
 
 end do  ! Points
 

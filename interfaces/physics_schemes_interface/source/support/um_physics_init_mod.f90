@@ -84,7 +84,12 @@ module um_physics_init_mod
                                 improved_tke_diag_in   => improved_tke_diag,   &
                                 l_use_sml_dsc_fixes_in => l_use_sml_dsc_fixes, &
                                 l_converge_ga_in       => l_converge_ga,       &
-                                num_sweeps_bflux_in    => num_sweeps_bflux
+                                num_sweeps_bflux_in    => num_sweeps_bflux,    &
+                                bl_cp_in                           &
+                                  => bl_cp,                        &
+                                bl_cp_none,                        &
+                                bl_cp_dry,                         &
+                                bl_cp_moist
 
   use cloud_config_mod,          only : scheme, scheme_smith, scheme_pc2,      &
                                         scheme_bimodal,                        &
@@ -123,6 +128,10 @@ module um_physics_init_mod
                                         ent_coef_bm_in => ent_coef_bm,         &
                                     l_bm_sigma_s_grad_in => l_bm_sigma_s_grad, &
                                         l_bm_tweaks_in => l_bm_tweaks,         &
+                                        lsc_cp_in => lsc_cp,                   &
+                                        lsc_cp_none,                           &
+                                        lsc_cp_dry,                            &
+                                        lsc_cp_moist,                          &
                                         max_sigmas_in => max_sigmas,           &
                                         min_sigx_ft_in => min_sigx_ft,         &
                                         turb_var_fac_bm_in => turb_var_fac_bm, &
@@ -156,6 +165,10 @@ module um_physics_init_mod
                                      par_radius_ppn_max_in => par_radius_ppn_max, &
                                      resdep_precipramp, dx_ref_in => dx_ref,   &
                                      l_cvdiag_ctop_qmax_in => l_cvdiag_ctop_qmax, &
+                                     conv_cp_in => conv_cp,                    &
+                                     conv_cp_none,                             &
+                                     conv_cp_dry,                              &
+                                     conv_cp_moist,                            &
                                      llcs_first_outer
 
   use extrusion_config_mod,      only : domain_height, number_of_layers
@@ -192,7 +205,12 @@ module um_physics_init_mod
                                         update_precfrac_opt_homog,           &
                                         update_precfrac_opt_correl,          &
                                         heavy_rain_evap_fac_in =>            &
-                                                heavy_rain_evap_fac
+                                                heavy_rain_evap_fac,         &
+                                        lsp_cp_in                &
+                                          => lsp_cp,             &
+                                        lsp_cp_none,             &
+                                        lsp_cp_dry,              &
+                                        lsp_cp_moist
 
   use mixing_config_mod,         only : smagorinsky,                 &
                                         mixing_method => method,     &
@@ -371,7 +389,8 @@ contains
          i_interp_local_cf_dbdz, tke_diag_fac, a_ent_2, dec_thres_cloud,   &
          dec_thres_cu, near_neut_z_on_l, blend_gridindep_fa,               &
          specified_fluxes_tstar, buoy_integ_low, num_sweeps_bflux,         &
-         l_use_sml_dsc_fixes, l_converge_ga, improved_tke_diag
+         l_use_sml_dsc_fixes, l_converge_ga, improved_tke_diag, bl_cp
+    use bl_cpm_mod, only: set_bl_cp_coeffs
     use cloud_inputs_mod, only: i_cld_vn, forced_cu, i_rhcpt, i_cld_area,  &
          rhcrit, ice_fraction_method,falliceshear_method, cff_spread_rate, &
          l_subgrid_qv, ice_width, min_liq_overlap, i_eacf, not_mixph,      &
@@ -384,7 +403,7 @@ contains
          ent_coef_bm, ez_max_bm, i_bm_ez_opt, l_bm_sigma_s_grad,           &
          l_bm_tweaks, max_sigmas, min_sigx_ft, turb_var_fac_bm,            &
          l_pc2_homog_conv_pressure, l_cloud_call_b4_conv,                  &
-         i_bm_ez_orig, i_bm_ez_subcrit, i_bm_ez_entpar
+         i_bm_ez_orig, i_bm_ez_subcrit, i_bm_ez_entpar, lsc_cp
     use cloud_config_mod, only: cld_fsd_hill
     use comorph_um_namelist_mod, only: ass_min_radius, autoc_opt,            &
          cf_conv_fac, coef_auto, col_eff_coef, core_ent_fac, drag_coef_cond, &
@@ -425,7 +444,7 @@ contains
          tau_conv_prog_precip, tau_conv_prog_dtheta, tau_conv_prog_dq,     &
          prog_ent_grad, prog_ent_int, prog_ent_max, prog_ent_min,          &
          ent_fac_sh, c_mass_sh, orig_mdet_fac, i_cv_comorph,               &
-         l_cvdiag_ctop_qmax
+         l_cvdiag_ctop_qmax, conv_cp
     use cv_param_mod, only: mtrig_ntml, md_pert_efrac
     use cv_stash_flg_mod, only: set_convection_output_flags
     use cv_set_dependent_switches_mod, only: cv_set_dependent_switches
@@ -464,7 +483,7 @@ contains
         l_orograin, l_orogrime, l_orograin_block,                            &
         fcrit, nsigmasf, nscalesf, l_progn_tnuc, mp_czero, mp_tau_lim,       &
         l_proc_fluxes, l_improve_precfrac_checks, l_subgrid_graupel_frac,    &
-        l_mcr_precfrac,                                                      &
+        l_mcr_precfrac, lsp_cp,                                              &
         i_update_precfrac, i_homog_areas, i_sg_correl, heavy_rain_evap_fac
     use mphys_psd_mod, only: x1g, x2g, x4g, x1gl, x2gl, x4gl
     use mphys_switches, only: set_mphys_switches,            &
@@ -812,6 +831,16 @@ contains
       l_converge_ga       = l_converge_ga_in
       num_sweeps_bflux    = num_sweeps_bflux_in
 
+      select case (bl_cp_in)
+        case (bl_cp_none)
+          bl_cp = bl_cp_none
+        case (bl_cp_dry)
+          bl_cp = bl_cp_dry
+        case (bl_cp_moist)
+          bl_cp = bl_cp_moist
+      end select
+      call set_bl_cp_coeffs(bl_cp)
+
     end if
 
     ! ----------------------------------------------------------------
@@ -1024,6 +1053,16 @@ contains
       i_convection_vn = i_convection_vn_6a
     end if
 
+    ! Transfer the LFRic conv_cp namelist value to the UM cv_run_mod variable
+    select case (conv_cp_in)
+      case (conv_cp_none)
+        conv_cp = conv_cp_none
+      case (conv_cp_dry)
+        conv_cp = conv_cp_dry
+      case (conv_cp_moist)
+        conv_cp = conv_cp_moist
+    end select
+
     ! If using LLCS on the first outer, need to set its options
     ! N.B. don't edit the BL scheme options if doing this
     if (llcs_first_outer) then
@@ -1202,6 +1241,15 @@ contains
 
       end select
 
+      select case (lsc_cp_in)
+        case (lsc_cp_none)
+          lsc_cp = lsc_cp_none
+        case (lsc_cp_dry)
+          lsc_cp = lsc_cp_dry
+        case (lsc_cp_moist)
+          lsc_cp = lsc_cp_moist
+      end select
+
       ! Check the contents of the cloud parameters module
       call check_run_cloud()
 
@@ -1356,7 +1404,6 @@ contains
         nsigmasf       = real(nsigmasf_in, r_um)
         nscalesf       = real(nscalesf_in, r_um)
         fcrit          = real(fcrit_in, r_um)
-
       end if
 
       ! UM options needed if CASIM is being used
@@ -1485,6 +1532,20 @@ contains
                          l_tendency=.false. )
 
       end if ! microphysics_casim
+
+      ! Set microphysics heat capacity
+      select case (lsp_cp_in)
+        case (lsp_cp_none)
+          lsp_cp = lsp_cp_none
+        case (lsp_cp_dry)
+          lsp_cp = lsp_cp_dry
+        case (lsp_cp_moist)
+          lsp_cp = lsp_cp_moist
+      end select
+
+    else
+      ! Need to still set lsp_cm to pass checks
+      lsp_cp = lsp_cp_none
     end if ! microphysics == microphysics_um
 
     !---------------------------------------------------------

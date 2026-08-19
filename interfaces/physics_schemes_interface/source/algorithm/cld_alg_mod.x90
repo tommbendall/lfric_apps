@@ -13,7 +13,7 @@ module cld_alg_mod
   use integer_field_mod,             only: integer_field_type
   use field_collection_mod,          only: field_collection_type
   use mr_indices_mod,                only: nummr, imr_v, imr_cl, imr_ci,  &
-                                           imr_r, imr_s
+                                           imr_r, imr_s, imr_g
   use sci_enforce_lower_bound_kernel_mod, only: enforce_lower_bound_kernel_type
   use io_config_mod,                 only: write_conservation_diag,       &
                                            write_diag, use_xios_io,       &
@@ -172,7 +172,8 @@ contains
 
       call invoke( smith_kernel_type( theta, exner , exner_wth, rh_crit,       &
                                        ntml, cumulus, mr(imr_v), mr(imr_cl),   &
-                                       mr_ice, cf_area, cf_fro, cf_liq,    &
+                                       mr_ice, mr(imr_r), mr(imr_g),           &
+                                       cf_area, cf_fro, cf_liq,                &
                                        cf_bulk, theta_inc) )
 
       call um_sizes_init(1_i_def)
@@ -210,7 +211,8 @@ contains
                                     wvar, tau_dec_bm, tau_hom_bm, tau_mph_bm,  &
                                     height_wth, gradrinr, zh, zhsc, inv_depth, &
                                     bl_type_ind, mr(imr_v), mr(imr_cl),        &
-                                    mr_ice, cf_area, cf_fro, cf_liq,           &
+                                    mr_ice, mr(imr_r), mr(imr_g),              &
+                                    cf_area, cf_fro, cf_liq,                   &
                                     cf_bulk, theta_inc,                        &
                                     sskew_bm, svar_bm, svar_tb) )
 

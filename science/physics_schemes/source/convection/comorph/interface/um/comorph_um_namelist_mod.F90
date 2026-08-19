@@ -169,6 +169,9 @@ real(kind=real_umphys) :: vent_factor = rmdi
 ! deflection flow around hydrometeors
 real(kind=real_umphys) :: col_eff_coef = rmdi
 
+! Moist heat capacity option for CoMorph convection scheme
+integer :: conv_cp_um = imdi
+
 !------------------------------------------------------------------------------
 ! Define namelist &Run_Comorph read in from CNTLATM control file.
 !------------------------------------------------------------------------------
@@ -214,6 +217,7 @@ use comorph_constants_mod, only: par_radius_evol_const,                        &
                                  par_radius_evol_no_decrease,                  &
                                  par_radius_evol_no_detrain,                   &
                                  autoc_linear,autoc_quadratic
+use convection_config_mod, only: conv_cp, conv_cp_none, conv_cp_dry, conv_cp_moist
 
 implicit none
 
@@ -264,6 +268,9 @@ call chk_var(par_gen_core_fac,'par_gen_core_fac','[2.0:6.0]')
 call chk_var(overlap_power,'overlap_power','[1.0E-6:1.0]')
 
 call chk_var(ent_coef,'ent_coef','[0.1:0.4]')
+
+call chk_var(conv_cp, 'conv_cp', [conv_cp_none, conv_cp_dry, conv_cp_moist])
+conv_cp_um = conv_cp
 
 if (l_resdep_precipramp) call chk_var(dx_ref,'dx_ref','[100.0:1000000.0]')
 

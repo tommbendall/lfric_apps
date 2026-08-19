@@ -31,6 +31,7 @@ subroutine bdy_impl4 (                                                         &
 ! in data :
  gamma1,gamma2,rdz_charney_grid, r_rho_levels,                                 &
  dtrdz_charney_grid,ct_ctq,dqw_nt,dtl_nt,                                      &
+ cpm,                                                                          &
 ! INOUT data :
  qw,tl,fqw,ftl,fqw_star,ftl_star,                                              &
  dqw,dtl, rhokh, BL_diag,                                                      &
@@ -41,7 +42,6 @@ subroutine bdy_impl4 (                                                         &
 use atm_fields_bounds_mod, only: tdims, pdims, tdims_l
 use bl_diags_mod, only: strnewbldiag
 use model_domain_mod, only: model_type, mt_single_column
-use planet_constants_mod, only: cp => cp_bl
 use yomhook, only: lhook, dr_hook
 use parkind1, only: jprb, jpim
 !$ use omp_lib, only: omp_get_max_threads
@@ -80,8 +80,11 @@ real(kind=r_bl), intent(in) ::                                                 &
         bl_levels),                                                            &
                                       ! in NT incr to qw
  dtl_nt(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                   &
-        bl_levels)
+        bl_levels),                                                            &
                                       ! in NT incr to TL
+ cpm(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                      &
+     bl_levels)
+                                      ! in Moist heat capacity (cp + sum species)
 
 !  In/outs :-
 !     Declaration of BL diagnostics.
@@ -303,7 +306,7 @@ if ( l_correct ) then
 !$OMP do SCHEDULE(STATIC)
   do k = 2, bl_levels
     do i = tdims%i_start, tdims%i_end
-      ftl(i,j,k) = ftl(i,j,k)*cp
+      ftl(i,j,k) = ftl(i,j,k)*cpm(i,j,k)
     end do
   end do
 !$OMP end do NOWAIT

@@ -205,6 +205,7 @@ contains
       call um_sizes_init(ncells)
       call invoke( mphys_turb_gen_kernel_type(theta, mr_n(imr_v), mr_n(imr_cl),&
                                               mr_n(imr_ci), mr_n(imr_s),       &
+                                              mr_n(imr_r), mr_n(imr_g),        &
                                               ns_mphys, ni_mphys,              &
                                               cfl_in, cff_in, bcf_in,          &
                                               exner_in_wth, rho_in_wth, wvar,  &

@@ -76,7 +76,8 @@ module slow_physics_alg_mod
   use function_space_mod,            only: function_space_type
   use mesh_collection_mod,  only: mesh_collection
   ! Moisture species
-  use mr_indices_mod,            only: nummr, imr_v, imr_cl, imr_ci, imr_s, imr_r
+  use mr_indices_mod,            only: nummr, imr_v, imr_cl, imr_ci, &
+                                       imr_s, imr_r, imr_g
   use moist_dyn_mod,             only: num_moist_factors
   use sci_enforce_lower_bound_kernel_mod, &
                                  only: enforce_lower_bound_kernel_type
@@ -1228,7 +1229,8 @@ contains
                                          surface_fields, microphysics_fields, &
                                          convection_fields, aerosol_fields,   &
                                          ustar_implicit, rho, mr(imr_s),      &
-                                         mr(imr_r), t1p5m, q1p5m, qcl1p5m,    &
+                                         mr(imr_r), mr(imr_v), mr(imr_cl),    &
+                                         mr(imr_g), t1p5m, q1p5m, qcl1p5m,    &
                                          t1p5m_ssi, q1p5m_ssi, qcl1p5m_ssi,   &
                                          t1p5m_land, q1p5m_land, qcl1p5m_land)
         end if

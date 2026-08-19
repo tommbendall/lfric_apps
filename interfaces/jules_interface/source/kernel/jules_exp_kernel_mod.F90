@@ -46,7 +46,7 @@ module jules_exp_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_exp_kernel_type
     private
-    type(arg_type) :: meta_args(108) = (/                                      &
+    type(arg_type) :: meta_args(110) = (/                                      &
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! theta_in_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! exner_in_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      W3, STENCIL(REGION)),      &! u_in_w3
@@ -54,6 +54,8 @@ module jules_exp_kernel_mod
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_v_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_cl_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_cf_n
+         arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_r_n
+         arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! m_g_n
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      W3),                       &! height_w3
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      WTHETA),                   &! height_wth
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      ANY_DISCONTINUOUS_SPACE_1),&! zh_2d
@@ -176,6 +178,8 @@ contains
   !> @param[in]     m_v_n                  Vapour mixing ratio at time level n
   !> @param[in]     m_cl_n                 Cloud liquid mixing ratio at time level n
   !> @param[in]     m_cf_n                 Cloud frozen mixing ratio at time level n
+  !> @param[in]     m_r_n                  Rain mixing ratio at time level n
+  !> @param[in]     m_g_n                  Graupel mixing ratio at time level n
   !> @param[in]     height_w3              Height of density space above surface
   !> @param[in]     height_wth             Height of theta space above surface
   !> @param[in]     zh_2d                  Boundary layer depth
@@ -323,6 +327,8 @@ contains
                            m_v_n,                                 &
                            m_cl_n,                                &
                            m_cf_n,                                &
+                           m_r_n,                                 &
+                           m_g_n,                                 &
                            height_w3,                             &
                            height_wth,                            &
                            zh_2d,                                 &
@@ -469,13 +475,14 @@ contains
                                     can_rad_mod, l_acclim, l_sugar, l_red
     use jules_water_tracers_mod, only: l_wtrac_jls, n_wtrac_jls, n_evap_srce
     use nlsizes_namelist_mod, only: sm_levels, ntiles, bl_levels
-    use planet_constants_mod, only: p_zero, kappa, planet_radius, cp, g, grcp, &
-                                    c_virtual, repsilon, r, lcrcp, lsrcp, vkman
+    use planet_constants_mod, only: p_zero, kappa, planet_radius, cpd => cp, g, grcp, &
+                                    c_virtual, repsilon, r, vkman
     use rad_input_mod, only: co2_mmr
     use bl_option_mod, only: one_third, flux_bc_opt,interactive_fluxes,  &
                              specified_fluxes_only, specified_fluxes_cd, &
                              l_noice_in_turb
-    use water_constants_mod, only: lc
+    use water_constants_mod, only: lc, lf, tm
+    use jules_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
     use c_elevate, only: l_elev_absolute_height
 
     ! subroutines used
@@ -589,7 +596,8 @@ contains
     real(kind=r_def), dimension(undf_wth), intent(in)   :: theta_in_wth,       &
                                                            exner_in_wth,       &
                                                            m_v_n, m_cl_n,      &
-                                                           m_cf_n,             &
+                                                           m_cf_n, m_r_n,      &
+                                                           m_g_n,              &
                                                            height_wth,         &
                                                            cf_bulk, cf_liquid, &
                                                            ozone
@@ -704,6 +712,7 @@ contains
     !-----------------------------------------------------------------------
     real(kind=r_um), allocatable :: qs_star(:,:)
     real(r_um) :: rholem, tv1_sd, w_m, dqsdt_star, wthvbar, ch, theta1
+    real(r_um) :: cpm, cpm_dag, lrv0, lsrv0, Lc_full
     integer(i_def) :: k, i, i_tile, i_sice, n, i_snow, j, l, idiv, m, &
          land_field, ssi_pts, sea_pts
 
@@ -713,7 +722,7 @@ contains
     real(r_def) :: sw_diffuse_blue_surf
 
     ! profile fields from level 0 upwards
-    real(r_um), dimension(seg_len,1,0:1) :: p_theta_levels, q, qcl, qcf
+    real(r_um), dimension(seg_len,1,0:1) :: p_theta_levels, q, qcl, qcf, qrain, qgraupel
 
     real(r_um), dimension(co2_dim_len,co2_dim_row) :: co2
 
@@ -1356,6 +1365,9 @@ contains
       end if
     end do
 
+    lrv0  = lc + (cl_cpm - cpv_cpm) * tm
+    lsrv0 = lc + lf + (ci_cpm - cpv_cpm) * tm
+
     do i = 1, seg_len
       ! thermodynamic variables
       temperature(i,1,1) = theta_in_wth(map_wth(1,i)+k_blend_tq(i,1)) * &
@@ -1369,8 +1381,16 @@ contains
         qcf(i,1,1) = m_cf_n(map_wth(1,i)+k_blend_tq(i,1))
         bulk_cloud_fraction(i,1,1) = cf_bulk(map_wth(1,i)+k_blend_tq(i,1))
       end if
+      qrain(i,1,1)    = m_r_n(map_wth(1,i)+k_blend_tq(i,1))
+      qgraupel(i,1,1) = m_g_n(map_wth(1,i)+k_blend_tq(i,1))
+      cpm = cpd + cpv_cpm*q(i,1,1) + cl_cpm*(qcl(i,1,1) + qrain(i,1,1))         &
+                   + ci_cpm*(qcf(i,1,1) + qgraupel(i,1,1))
+      cpm_dag = cpd + cpv_cpm*(q(i,1,1) + qcl(i,1,1)) + cl_cpm*qrain(i,1,1)     &
+                   + ci_cpm*(qcf(i,1,1) + qgraupel(i,1,1))
       forcing%qw_1_ij(i,1) = q(i,1,1) + qcl(i,1,1) + qcf(i,1,1)
-      forcing%tl_1_ij(i,1) = temperature(i,1,1) - lcrcp*qcl(i,1,1) - lsrcp*qcf(i,1,1)
+      forcing%tl_1_ij(i,1) = (cpm/cpm_dag)*temperature(i,1,1)                  &
+                           - (lrv0/cpm_dag)*qcl(i,1,1)                         &
+                           - (lsrv0/cpm_dag)*qcf(i,1,1)
 
       ! pressure
       p_theta_levels(i,1,1) = p_zero*(exner_in_wth(map_wth(1,i)+k_blend_tq(i,1)))**(1.0_r_def/kappa)
@@ -1403,7 +1423,7 @@ contains
        ! IN dimensions/logicals
        1,                                                                      &
        ! IN fields
-       p_theta_levels,temperature,q,qcf,qcl,bulk_cloud_fraction,               &
+       p_theta_levels,temperature,q,qcf,qcl,qrain,qgraupel,bulk_cloud_fraction,&
        ! OUT fields
        bt,bq,bt_cld,bq_cld,bt_blend,bq_blend,a_qs,a_dqsdt,dqsdt                &
        )
@@ -1517,8 +1537,11 @@ contains
         ! w'theta' rather than rho*wtheta
         ! RHOLEM = 1.0
 
-        fqw(i,1)   = (rhostar(i,1)*flux_e)/(lc*rholem)
-        ftl(i,1)   = (rhostar(i,1)*flux_h)/(cp*rholem)
+        cpm = cpd + cpv_cpm*q(i,1,1) + cl_cpm*(qcl(i,1,1) + qrain(i,1,1))      &
+                    + ci_cpm*(qcf(i,1,1) + qgraupel(i,1,1))
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (temperature(i,1,1) - tm)
+        fqw(i,1) = (rhostar(i,1)*flux_e)/(Lc_full*rholem)
+        ftl(i,1) = (rhostar(i,1)*flux_h)/(cpm*rholem)
 
         fb_surf(i,1) = g * ( bt_blend(i,1,1)*ftl(i,1) +                        &
                              bq_blend(i,1,1)*fqw(i,1) ) /rhostar(i,1)
@@ -1563,7 +1586,8 @@ contains
 
           call qsat_mix(qs_star,fluxes%tstar_ij,forcing%pstar_ij,pdims%i_len,pdims%j_len)
 
-          dqsdt_star = repsilon * lc * qs_star(i,1) /                          &
+          Lc_full = lc - (cl_cpm - cpv_cpm) * (fluxes%tstar_ij(i,1) - tm)
+          dqsdt_star = repsilon * Lc_full * qs_star(i,1) /                     &
                        ( r * fluxes%tstar_ij(i,1) * fluxes%tstar_ij(i,1) )
 
           theta1 = temperature(i,1,1) * (p_zero/p_theta_levels(i,1,1))**kappa

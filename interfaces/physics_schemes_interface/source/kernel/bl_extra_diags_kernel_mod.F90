@@ -26,7 +26,7 @@ module bl_extra_diags_kernel_mod
   !>
   type, public, extends(kernel_type) :: bl_extra_diags_kernel_type
     private
-    type(arg_type) :: meta_args(41) = (/                                  &
+    type(arg_type) :: meta_args(44) = (/                                  &
          arg_type(GH_FIELD, GH_REAL, GH_READ, W3),                        & ! rho_in_w3
          arg_type(GH_FIELD, GH_REAL, GH_READ, W3),                        & ! wetrho_in_w3
          arg_type(GH_FIELD, GH_REAL, GH_READ, W3),                        & ! heat_flux_bl
@@ -34,6 +34,9 @@ module bl_extra_diags_kernel_mod
          arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! exner_in_wth
          arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! mci
          arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! mr
+         arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! mv
+         arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! mcl
+         arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! mg
          arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! nr_mphys
          arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! ns_mphys
          arg_type(GH_FIELD, GH_REAL, GH_READ, WTHETA),                    & ! murk
@@ -89,6 +92,9 @@ contains
   !> @param[in]     exner_in_wth           Exner
   !> @param[in]     mci                    Cloud ice mixing ratio
   !> @param[in]     mr                     Rain  mixing ratio
+  !> @param[in]     mv                     Water vapour mixing ratio
+  !> @param[in]     mcl                    Cloud liquid mixing ratio
+  !> @param[in]     mg                     Graupel mixing ratio
   !> @param[in]     nr_mphys               Rain number mixing ratio
   !> @param[in]     ns_mphys               Snow number mixing ratio
   !> @param[in]     zh                     Boundary layer depth
@@ -139,6 +145,7 @@ contains
                                   moist_flux_bl,            &
                                   exner_in_wth,             &
                                   mci, mr,                  &
+                                  mv, mcl, mg,              &
                                   nr_mphys, ns_mphys, murk, &
                                   zh,                       &
                                   t1p5m, q1p5m, qcl1p5m,    &
@@ -179,7 +186,8 @@ contains
     use fog_fr_mod,           only : fog_fr
     use mphys_constants_mod,  only : mprog_min
     use nlsizes_namelist_mod, only : row_length, rows
-    use planet_config_mod,    only : p_zero, kappa, gravity, cp
+    use planet_config_mod,    only : p_zero, kappa, gravity, cpd => cp
+    use bl_cpm_mod,           only : cpv_cpm, cl_cpm, ci_cpm
     use planet_constants_mod, only : vkman, c_virtual
     use vis_precip_mod,       only : vis_precip
     use visbty_constants_mod, only : n_vis_thresh, vis_thresh
@@ -205,6 +213,9 @@ contains
     real(kind=r_def), intent(in), dimension(undf_wth)   :: exner_in_wth
     real(kind=r_def), intent(in), dimension(undf_wth)   :: mci
     real(kind=r_def), intent(in), dimension(undf_wth)   :: mr
+    real(kind=r_def), intent(in), dimension(undf_wth)   :: mv
+    real(kind=r_def), intent(in), dimension(undf_wth)   :: mcl
+    real(kind=r_def), intent(in), dimension(undf_wth)   :: mg
     real(kind=r_def), intent(in), dimension(undf_wth)   :: nr_mphys
     real(kind=r_def), intent(in), dimension(undf_wth)   :: ns_mphys
     real(kind=r_def), intent(in), dimension(undf_wth)   :: murk
@@ -259,14 +270,17 @@ contains
     real(r_um), dimension(row_length,rows,n_vis_thresh)   :: pvis
 
     ! Local scalars
-    real(kind=r_def) :: ftl_surf, fqw_surf, &
+    real(kind=r_def) :: ftl_surf, fqw_surf, cpm_surf, &
                         wstar3_imp, std_dev, gust_contribution
 
     integer(kind=i_def) :: k, icode, i,j
 
     if ( .not. associated(wind_gust, empty_real_data) .or.                   &
          .not. associated(scale_dep_wind_gust, empty_real_data) ) then
-      ftl_surf = heat_flux_bl(map_w3(1)) / cp
+      cpm_surf = cpd + cpv_cpm*mv(map_wth(1))                                  &
+                     + cl_cpm*(mcl(map_wth(1)) + mr(map_wth(1)))               &
+                     + ci_cpm*(mci(map_wth(1)) + mg(map_wth(1)))
+      ftl_surf = heat_flux_bl(map_w3(1)) / cpm_surf
       fqw_surf = moist_flux_bl(map_w3(1))
       wstar3_imp = zh(map_2d(1)) * gravity * ( ftl_surf/t1p5m(map_2d(1)) +   &
                                                fqw_surf*c_virtual ) /        &

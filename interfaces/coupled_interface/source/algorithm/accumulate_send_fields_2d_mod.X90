@@ -33,7 +33,9 @@ module accumulate_send_fields_2d_mod
                                            first_sea_ice_tile,           &
                                            n_sea_ice_tile
   use driver_water_constants_mod,    only: latent_heat_h2o_condensation, &
-                                           latent_heat_h2o_fusion
+                                           latent_heat_h2o_fusion,       &
+                                           T_freeze_h2o
+  use jules_cpm_mod,                 only: cpv_cpm, cl_cpm, ci_cpm
 #endif
 
   implicit none
@@ -75,6 +77,8 @@ module accumulate_send_fields_2d_mod
     type( field_type )                           :: cpl_field3
     type( field_type )                           :: cpl_field4
     type( field_type )                           :: cpl_field5
+    type( field_type )                           :: cpl_field_T
+    type( field_type )                           :: cpl_field_T_si
     type( field_type )                           :: cpl_field1_si
     type( field_type )                           :: cpl_field2_si
     type( field_type )                           :: cpl_field3_si
@@ -83,6 +87,11 @@ module accumulate_send_fields_2d_mod
 
     ! Reciprocal of number of accumulated time steps
     real(r_def)                                  :: r_acc_step
+    ! Scalars for temperature-dependent latent heat calculations
+    real(r_def)                                  :: c_diff_cond
+    real(r_def)                                  :: Lc0
+    real(r_def)                                  :: c_diff_fus
+    real(r_def)                                  :: Lf0
 
     call depository%get_field("sea_ice_frac_previous",sea_ice_frac_previous_ptr)
     call depository%get_field("sea_frac_previous",sea_frac_previous_ptr)
@@ -155,6 +164,18 @@ module accumulate_send_fields_2d_mod
                 ! Add the total to the accumulation
                 inc_X_plus_Y( dep_fld, cpl_field2 ) )
         case ("lf_heatflux")
+          ! Constants for temperature-dependent condensation latent heat:
+          ! Lc_full(T) = c_diff_cond * T + Lc0 = lc + (cpv - cl) * (T - tm)
+          c_diff_cond = cpv_cpm - cl_cpm
+          Lc0 = latent_heat_h2o_condensation - c_diff_cond * T_freeze_h2o
+          ! Extract sea surface temperature into cpl_field_T
+          call cpl_field_T%initialise(vector_space=cpl_fs, name="cpl_field_T_W3")
+          call depository%get_field("tile_temperature", fld_ptr1)
+          call invoke( multi_extract_kernel_type(cpl_field_T, fld_ptr1,      &
+                                          first_sea_tile, n_sea_tile) )
+          ! Convert cpl_field_T in-place from temperature to Lc_full(T)
+          call invoke( inc_a_times_X(c_diff_cond, cpl_field_T),              &
+                       inc_a_plus_X(Lc0, cpl_field_T) )
           call depository%get_field("lw_up_tile", fld_ptr1)
           call depository%get_field("lw_down_surf", fld_ptr2)
           call depository%get_field("tile_heat_flux", fld_ptr3)
@@ -178,10 +199,9 @@ module accumulate_send_fields_2d_mod
                 ! (evap_mass = cpl_field2)
                 multi_extract_kernel_type(cpl_field2, fld_ptr4,             &
                                    first_sea_tile, n_sea_tile),             &
-                ! Convert evaporative mass flux to energy flux
+                ! Convert evaporative mass flux to energy flux using Lc_full(T)
                 ! (evap_energy = cpl_field4)
-                a_times_X(cpl_field4, latent_heat_h2o_condensation,         &
-                                   cpl_field2),                             &
+                X_times_Y(cpl_field4, cpl_field_T, cpl_field2),             &
                 ! Now we need to combine the above fluxes
                 ! net_heat_down = LW_down - LW_up - heat_flux - evap_energy
                 ! (net_heat_down = cpl_field5)
@@ -242,6 +262,19 @@ module accumulate_send_fields_2d_mod
              ! Add the total to the accumulation
              inc_X_plus_Y( dep_fld, cpl_field2 ) )
         case ("lf_topmelt")
+          ! Constants for temperature-dependent fusion latent heat:
+          ! Lf_full(T) = c_diff_fus * T + Lf0 = lf + (cl - ci) * (T - tm)
+          c_diff_fus = cl_cpm - ci_cpm
+          Lf0 = latent_heat_h2o_fusion - c_diff_fus * T_freeze_h2o
+          ! Extract sea ice surface temperature into cpl_field_T_si
+          call cpl_field_T_si%initialise(vector_space=sice_fs,               &
+                                         name="cpl_field_T_si_W3")
+          call depository%get_field("tile_temperature", fld_ptr1)
+          call invoke( multi_extract_kernel_type(cpl_field_T_si, fld_ptr1,   &
+                                  first_sea_ice_tile, n_sea_ice_tile) )
+          ! Convert cpl_field_T_si in-place from temperature to Lf_full(T)
+          call invoke( inc_a_times_X(c_diff_fus, cpl_field_T_si),            &
+                       inc_a_plus_X(Lf0, cpl_field_T_si) )
           call depository%get_field("snowice_melt", fld_ptr1)
           ! Initialise temporary fields
           call cpl_field1_si%initialise( vector_space = sice_fs, &
@@ -254,12 +287,11 @@ module accumulate_send_fields_2d_mod
           ! all tiles
           call invoke( multi_extract_kernel_type(cpl_field1_si, fld_ptr1,    &
                                        first_sea_ice_tile, n_sea_ice_tile ), &
-             ! Convert top melt into an equivalent energy flux
+             ! Convert top melt into an equivalent energy flux using Lf_full(T)
              ! (i.e. from kg m-2 s-1 to W m-2)
              ! top_melt_flux(cpl_field2_si) =
-             !                latent_heat_h2o_fusion * top_melt(cpl_field1_si)
-             a_times_X( cpl_field2_si, latent_heat_h2o_fusion,               &
-                                             cpl_field1_si ),                &
+             !        Lf_full(T) * top_melt(cpl_field1_si)
+             X_times_Y(cpl_field2_si, cpl_field_T_si, cpl_field1_si),        &
              ! Convert top melt to be as a fraction of the marine portion
              ! of the grid box
              ! top_melt_marine_fraction(cpl_field3_si) =

@@ -173,6 +173,9 @@ enum, bind(c)
                             ! gathered graupel (kg per kg air).
    t_i,                                                                        &
                          ! gathered Temperature (K).
+   cpm_i,                                                                      &
+                         ! gathered moist-air heat capacity at constant
+                         ! pressure (J/kg/K)
    uk_i,                                                                       &
                          ! gathered u wind on level k
    vk_i,                                                                       &
@@ -361,7 +364,7 @@ contains
 subroutine ls_ppnc( level, ix, n,                                              &
  lsrain,lssnow,lssnow2,lsgraup, droplet_flux,                                  &
  cf,cfl,cff,                                                                   &
- qcf,qcl,tnuc_new,t, qcf2,qrain,qgraup,                                        &
+ qcf,qcl,tnuc_new,t,cpm, qcf2,qrain,qgraup,                                    &
  n_drop_tpr, n_drop_out,                                                       &
  aerosol,                                                                      &
  hmteff, zb,                                                                   &
@@ -461,6 +464,10 @@ real(kind=real_umphys), intent(in out) ::                                      &
       t(tdims%i_start:tdims%i_end,                                             &
         tdims%j_start:tdims%j_end),                                            &
                           ! INOUT Temperature (K).
+      cpm(tdims%i_start:tdims%i_end,                                           &
+          tdims%j_start:tdims%j_end),                                          &
+                          ! INOUT Moist-air heat capacity at constant
+                          ! pressure (J/kg/K)
       aerosol(tdims%i_start:tdims%i_end,                                       &
               tdims%j_start:tdims%j_end),                                      &
                           ! INOUT Aerosol (K).
@@ -591,7 +598,7 @@ do jj = 1, n, precip_segment_size
   call ls_ppnc_gather( level, ix, ip, i1,                                      &
     lsrain,lssnow,lssnow2,lsgraup, droplet_flux,                               &
     cf,cfl,cff,                                                                &
-    qcf,qcl,tnuc_new,t, qcf2,qrain,qgraup,                                     &
+    qcf,qcl,tnuc_new,t,cpm, qcf2,qrain,qgraup,                                 &
     n_drop_tpr, n_drop_out,                                                    &
     aerosol,                                                                   &
     hmteff, zb,                                                                &
@@ -620,7 +627,7 @@ do jj = 1, n, precip_segment_size
     spr(:,lsgraup_i), spr(:,vfall_graup_i), spr(:,droplet_flux_i),             &
     spr(:,frac_ice_above_i), spr(:,frac_agg_i), spr(:,cttemp_i),               &
     spr(:,rainfrac_i), spr(:,rainfrac_impr_i),                                 &
-    spr(:,precfrac_k_i), spr(:,precfrac_fall_i), spr(:,t_i),                   &
+    spr(:,precfrac_k_i), spr(:,precfrac_fall_i), spr(:,t_i), spr(:,cpm_i),     &
     spr(:,cf_i), spr(:,cfl_i), spr(:,cff_i), spl(:,bland_i),                   &
     spr(:,psdep_i), spr(:,psaut_i), spr(:,psacw_i), spr(:,psacr_i),            &
     spr(:,psaci_i), spr(:,psmlt_i), spr(:,psmltevp_i),                         &
@@ -659,7 +666,7 @@ do jj = 1, n, precip_segment_size
   call ls_ppnc_scatter( level, ix, ip, i1,                                     &
     lsrain,lssnow,lssnow2,lsgraup, droplet_flux,                               &
     cf,cfl,cff,                                                                &
-    qcf,qcl,t, qcf2,qrain,qgraup,                                              &
+    qcf,qcl,t,cpm, qcf2,qrain,qgraup,                                          &
     n_drop_out,                                                                &
     aerosol,                                                                   &
     q,                                                                         &
@@ -695,7 +702,7 @@ end subroutine ls_ppnc
 subroutine ls_ppnc_gather( level, ix, ip, i1,                                  &
   lsrain,lssnow,lssnow2,lsgraup, droplet_flux,                                 &
   cf,cfl,cff,                                                                  &
-  qcf,qcl,tnuc_new, t, qcf2,qrain,qgraup,                                      &
+  qcf,qcl,tnuc_new, t,cpm, qcf2,qrain,qgraup,                                  &
   n_drop_tpr, n_drop_out,                                                      &
   aerosol,                                                                     &
   hmteff, zb,                                                                  &
@@ -786,6 +793,9 @@ real(kind=real_umphys), intent(in) ::                                          &
   t(tdims%i_start:tdims%i_end,                                                 &
     tdims%j_start:tdims%j_end),                                                &
               ! Temperature (K).
+  cpm(tdims%i_start:tdims%i_end,                                               &
+      tdims%j_start:tdims%j_end),                                              &
+              ! Moist-air heat capacity at constant pressure (J/kg/K)
   aerosol(tdims%i_start:tdims%i_end,                                           &
           tdims%j_start:tdims%j_end),                                          &
               ! Aerosol (K).
@@ -956,6 +966,7 @@ do i=1, ip
   end if
   spr(i,q_i)           = real(q(ii,ij), kind=real_lsprec)
   spr(i,t_i)           = real(t(ii,ij), kind=real_lsprec)
+  spr(i,cpm_i)         = real(cpm(ii,ij), kind=real_lsprec)
   spr(i,n_drop_tpr_i)  = real(n_drop_tpr(ii, ij), kind=real_lsprec)
 
   if (l_mcr_qcf2) then
@@ -1199,7 +1210,7 @@ end subroutine ls_ppnc_gather
 subroutine ls_ppnc_scatter( level, ix, ip, i1,                                 &
   lsrain,lssnow,lssnow2,lsgraup, droplet_flux,                                 &
   cf,cfl,cff,                                                                  &
-  qcf,qcl,t, qcf2,qrain,qgraup,                                                &
+  qcf,qcl,t,cpm, qcf2,qrain,qgraup,                                            &
   n_drop_out,                                                                  &
   aerosol,                                                                     &
 !--------------------------------------------------------
@@ -1260,6 +1271,9 @@ real(kind=real_umphys), intent(in out) ::                                      &
   t(tdims%i_start:tdims%i_end,                                                 &
     tdims%j_start:tdims%j_end),                                                &
               ! Temperature (K).
+  cpm(tdims%i_start:tdims%i_end,                                               &
+      tdims%j_start:tdims%j_end),                                              &
+              ! Moist-air heat capacity at constant pressure (J/kg/K)
   aerosol(tdims%i_start:tdims%i_end,                                           &
           tdims%j_start:tdims%j_end),                                          &
               ! Aerosol (K).
@@ -1339,6 +1353,7 @@ do i=1, ip
   ij         = ix(i+i1-1,2)
 
   t(ii,ij)   = real(spr(i,t_i), kind=real_umphys)
+  cpm(ii,ij) = real(spr(i,cpm_i), kind=real_umphys)
   q(ii,ij)   = real(spr(i,q_i), kind=real_umphys)
   qcf(ii,ij) = real(spr(i,qcf_i), kind=real_umphys)
   qcl(ii,ij) = real(spr(i,qcl_i), kind=real_umphys)

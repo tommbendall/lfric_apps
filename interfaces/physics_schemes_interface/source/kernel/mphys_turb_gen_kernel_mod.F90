@@ -23,12 +23,14 @@ private
 !-------------------------------------------------------------------------------
 type, public, extends(kernel_type) :: mphys_turb_gen_kernel_type
   private
-  type(arg_type) :: meta_args(22) = (/           &
+  type(arg_type) :: meta_args(24) = (/           &
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! theta
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! mr_v
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! mr_cl
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! mr_ci
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! mr_s
+       arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! mr_r
+       arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! mr_g
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! ns_mphys
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! ni_mphys
        arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA), & ! cfl
@@ -90,6 +92,8 @@ contains
                                   mr_cl,     &
                                   mr_ci,     &
                                   mr_s,      &
+                                  mr_r,      &
+                                  mr_g,      &
                                   ns_mphys,  &
                                   ni_mphys,  &
                                   cfl,       &
@@ -114,7 +118,8 @@ contains
     !---------------------------------------
     use mphys_turb_gen_mixed_phase_mod, only: mphys_turb_gen_mixed_phase
     use nlsizes_namelist_mod, only: bl_levels
-    use planet_constants_mod, only: p_zero, kappa
+    use planet_constants_mod, only: p_zero, kappa, cpd => cp
+    use lsp_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
     use microphysics_config_mod, only: microphysics_casim
 
     implicit none
@@ -128,6 +133,8 @@ contains
     real(r_def), intent(in), dimension(undf_wth) :: mr_cl
     real(r_def), intent(in), dimension(undf_wth) :: mr_ci
     real(r_def), intent(in), dimension(undf_wth) :: mr_s
+    real(r_def), intent(in), dimension(undf_wth) :: mr_r
+    real(r_def), intent(in), dimension(undf_wth) :: mr_g
     real(r_def), intent(in), dimension(undf_wth) :: ns_mphys
     real(r_def), intent(in), dimension(undf_wth) :: ni_mphys
     real(r_def), intent(in), dimension(undf_wth) :: cfl
@@ -150,11 +157,12 @@ contains
     ! local variables
     real(r_um), dimension(seg_len,1,nlayers) :: &
                                       q_work, qcl_work, qcf_work, t_work,      &
-                                      qcf2_work, cff_work, cfl_work, cf_work,  &
+                                      qcf2_work, qrain_work, qgraupel_work,    &
+                                      cff_work, cfl_work, cf_work,             &
                                       bl_w_var, rhodz_dry, rhodz_moist, deltaz,&
                                       t_inc, dqcl_mp, qcl_mpt, tau_d, inv_prt, &
                                       disprate, inv_mt, si_avg, dcfl_mp,       &
-                                      sigma2_s
+                                      sigma2_s, cpm_work
 
     real(r_um), dimension(seg_len,1,0:nlayers) :: &
                                         q_n, cfl_n, cf_n, press_wth, &
@@ -167,6 +175,9 @@ contains
       do k = 1, nlayers
         ! Only single ice, no numbers required
         qcf_work(i,1,k) = mr_s(map_wth(1,i) + k) + dmr_s(map_wth(1,i) + k)
+        qcf2_work(i,1,k) = mr_ci(map_wth(1,i) + k) + dmr_ci(map_wth(1,i) + k)
+        qrain_work(i,1,k) = mr_r(map_wth(1,i) + k)
+        qgraupel_work(i,1,k) = mr_g(map_wth(1,i) + k)
       end do
     end do
     if (microphysics_casim) then
@@ -175,7 +186,6 @@ contains
           ! Set ice and snow number, and qcf2
           snownumber(i,1,k) = ns_mphys(map_wth(1,i) + k)
           icenumber(i,1,k) = ni_mphys(map_wth(1,i) + k)
-          qcf2_work(i,1,k) = mr_ci(map_wth(1,i) + k) + dmr_ci(map_wth(1,i) + k)
         end do
       end do
     end if
@@ -223,6 +233,17 @@ contains
 
     rhodz_dry = rhodz_dry * deltaz
 
+    ! Moist-air heat capacity at constant pressure (J/kg/K)
+    j = 1
+    do i = 1, seg_len
+      do k = 1, nlayers
+        cpm_work(i,j,k) = cpd + cpv_cpm*q_work(i,j,k)                          &
+                              + cl_cpm*(qcl_work(i,j,k) + qrain_work(i,j,k))   &
+                              + ci_cpm*(qcf_work(i,j,k) + qcf2_work(i,j,k)     &
+                                        + qgraupel_work(i,j,k))
+      end do
+    end do
+
     call mphys_turb_gen_mixed_phase( q_work, t_work, qcl_work, qcf_work,     &
                                      q_inc, qcl_inc, cfl_inc,  cf_inc,       &
                                      t_inc,  dqcl_mp, bl_levels,             &
@@ -231,7 +252,8 @@ contains
                                      rhodz_dry, rhodz_moist, deltaz,         &
                                      qcl_mpt, tau_d, inv_prt, disprate,      &
                                      inv_mt, si_avg, dcfl_mp, sigma2_s,      &
-                                     qcf2_work, icenumber, snownumber )
+                                     qcf2_work, qrain_work, qgraupel_work,   &
+                                     icenumber, snownumber, cpm_work )
 
     j = 1
     do i = 1, seg_len

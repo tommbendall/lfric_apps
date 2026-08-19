@@ -31,13 +31,13 @@ module set_thermodynamic_kernel_mod
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! dz_in_wth
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! temperature_wth
       arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! moist_mass_fac
+      arg_type(GH_FIELD,  GH_REAL, GH_READ,  Wtheta                   ), & ! cpm
       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, Wtheta                   ), & ! d_mass
       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, Wtheta                   ), & ! layer_heat_capacity
       arg_type(GH_FIELD,  GH_REAL, GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! t_layer_boundaries
       arg_type(GH_SCALAR, GH_REAL, GH_READ                            ), & ! p_zero
       arg_type(GH_SCALAR, GH_REAL, GH_READ                            ), & ! kappa
-      arg_type(GH_SCALAR, GH_REAL, GH_READ                            ), & ! gravity
-      arg_type(GH_SCALAR, GH_REAL, GH_READ                            )  & ! cp
+      arg_type(GH_SCALAR, GH_REAL, GH_READ                            )  & ! gravity
       /)
     integer :: operates_on = CELL_COLUMN
   contains
@@ -56,13 +56,13 @@ contains
   !> @param[in]    dz_wtheta                  Depth of temperature space levels
   !> @param[in]    temperature_wth            Temperature in Wtheta space
   !> @param[in]    moist_mass_fac             1 + total water content
+  !> @param[in]    cpm                        Moist heat capacity
   !> @param[inout] d_mass_wtheta              Mass per square metre of Socrates layers
   !> @param[inout] layer_heat_capacity_wtheta Heat capacity of Socrates layers
   !> @param[inout] t_layer_boundaries         Temperature at layer boundaries
   !> @param[in]    p_zero                     Reference surface pressure
   !> @param[in]    kappa                      Ratio of gas constant and specific heat
   !> @param[in]    gravity                    Gravity
-  !> @param[in]    cp                         Specific heat of dry air
   !> @param[in]    ndf_w3                     No. DOFs per cell for W3 space
   !> @param[in]    undf_w3                    No. unique DOFs for W3 space
   !> @param[in]    map_w3                     Dofmap for W3 space column base cell
@@ -81,13 +81,13 @@ contains
                                      dz_wtheta, &
                                      temperature_wth, &
                                      moist_mass_fac, &
+                                     cpm, &
                                      d_mass_wtheta, &
                                      layer_heat_capacity_wtheta, &
                                      t_layer_boundaries, &
                                      p_zero, &
                                      kappa, &
                                      gravity, &
-                                     cp, &
                                      ndf_w3, &
                                      undf_w3, &
                                      map_w3, &
@@ -119,10 +119,11 @@ contains
     real(r_def),    intent(in),    dimension(undf_wtheta) :: dz_wtheta
     real(r_def),    intent(in),    dimension(undf_wtheta) :: temperature_wth
     real(r_def),    intent(in),    dimension(undf_wtheta) :: moist_mass_fac
+    real(r_def),    intent(in),    dimension(undf_wtheta) :: cpm
     real(r_def),    intent(inout), dimension(undf_wtheta) :: d_mass_wtheta
     real(r_def),    intent(inout), dimension(undf_wtheta) :: layer_heat_capacity_wtheta
     real(r_def),    intent(inout), dimension(undf_flux)   :: t_layer_boundaries
-    real(r_def),    intent(in) :: p_zero, kappa, gravity, cp
+    real(r_def),    intent(in) :: p_zero, kappa, gravity
 
     ! Internal vaiables
     integer(i_def) :: k
@@ -145,7 +146,7 @@ contains
     ! Heat capacity of layers
     do k = 1,nlayers
       layer_heat_capacity_wtheta(map_wtheta(1) + k) = &
-       d_mass_wtheta(map_wtheta(1) + k) * cp * moist_mass_fac(map_wtheta(1) + k)
+       d_mass_wtheta(map_wtheta(1) + k) * cpm(map_wtheta(1) + k) * moist_mass_fac(map_wtheta(1) + k)
     end do
 
     ! Calculate temperature at layer boundaries

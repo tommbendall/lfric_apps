@@ -24,7 +24,8 @@ subroutine mphys_turb_gen_mixed_phase( q_work, t_work, qcl_work, qcf_work,     &
                                        rhodz_dry, rhodz_moist, deltaz,         &
                                        qcl_mpt, tau_d, inv_prt, disprate,      &
                                        inv_mt, si_avg, dcfl_mp, sigma2_s ,     &
-                                       qcf2_work, icenumber, snownumber  )
+                                       qcf2_work, qrain, qgraupel,             &
+                                       icenumber, snownumber, cpm  )
 
 ! Microphysics modules
 use mphys_inputs_mod,      only: mp_dz_scal
@@ -43,8 +44,9 @@ use stochastic_physics_run_mod, only: l_rp2, i_rp_scheme, i_rp2b,              &
 ! General and constants modules
 use gen_phys_inputs_mod,   only: l_mr_physics
 use conversions_mod,       only: pi, zerodegc
-use water_constants_mod,   only: lc, lf
-use planet_constants_mod,  only: cp, r, repsilon, pref, rv, g
+use water_constants_mod,   only: lc, lf, tm
+use planet_constants_mod,  only: r, repsilon, pref, rv, g
+use lsp_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Grid bounds module
 use atm_fields_bounds_mod, only: tdims, tdims_l
@@ -110,6 +112,16 @@ real(kind=real_umphys), intent(in out) ::                                      &
                                  tdims%j_start : tdims%j_end,                  &
                                              1 : tdims%k_end )
 
+real(kind=real_umphys), intent(in) ::                                          &
+                         qrain(tdims%i_start : tdims%i_end,                    &
+                               tdims%j_start : tdims%j_end,                    &
+                                           1 : tdims%k_end )
+
+real(kind=real_umphys), intent(in) ::                                          &
+                         qgraupel(tdims%i_start : tdims%i_end,                 &
+                                  tdims%j_start : tdims%j_end,                 &
+                                              1 : tdims%k_end )
+
 real, intent(in) ::  icenumber(tdims_l%i_start:tdims_l%i_end,                  &
                                tdims_l%j_start:tdims_l%j_end,                  &
                                tdims_l%k_start:tdims_l%k_end)
@@ -118,6 +130,12 @@ real, intent(in) ::  snownumber(tdims_l%i_start:tdims_l%i_end,                 &
                                 tdims_l%j_start:tdims_l%j_end,                 &
                                 tdims_l%k_start:tdims_l%k_end)
 !                    Snow number concentration from Casim
+
+real(kind=real_umphys), intent(in out) ::                                      &
+                        cpm(     tdims%i_start : tdims%i_end,                  &
+                                 tdims%j_start : tdims%j_end,                  &
+                                             1 : tdims%k_end )
+!                    Moist-air heat capacity at constant pressure (J/kg/K)
 
 real(kind=real_umphys), intent(in out) ::                                      &
                         cff_work( tdims%i_start : tdims%i_end,                 &
@@ -285,6 +303,12 @@ real(kind=real_umphys) :: p_corr           ! pressure correction for diffusivity
 real(kind=real_umphys) :: tau_d_work
                          ! local working value of the turbulent decorrelation
                          ! timescale
+real(kind=real_umphys) :: Ls_full
+                         ! Temperature-dependent latent heat of sublimation
+real(kind=real_umphys) :: Lc_full
+                         ! Temperature-dependent latent heat of condensation
+real(kind=real_umphys) :: lcrcp_moist
+                         ! Temperature-dependent ratio of L_con to cp_moist
 
 ! Number of bins in the mixed phase calculation (balance cost vs accuracy)
 integer, parameter :: nbins_mp = 100 ! hard-wired to 100
@@ -417,16 +441,19 @@ end if
 !$OMP private(k,j,i,q_local2d,t_local2d,rho_dry,rho_air,qsi_2d,qsw_2d,mom1,    &
 !$OMP         rhice,siw,ei,t_corr,p_corr,dv,ka,bi,Ai,b0,aa,dz_scal,            &
 !$OMP         tau_d_work,fac,four_root_sigmas,fac2,deltas,ibin,sice,           &
-!$OMP         qv_excess,fdist,lami,lams)                                       &
+!$OMP         qv_excess,fdist,lami,lams,Ls_full,Lc_full,                       &
+!$OMP         lcrcp_moist)                                                     &
 !$OMP SHARED(tdims,dqcl_mp,qcl_mpt,tau_d,inv_prt,disprate,inv_mt,si_avg,       &
 !$OMP        dcfl_mp,sigma2_s,bl_levels,q_work,t_work,rhodz_dry,deltaz,        &
 !$OMP        l_mr_physics,rhodz_moist,cff_inv,cff_work,                        &
 !$OMP        p_layer_centres,grd_pts,qcf_work,cx,repsilon,t_limit,bl_w_var,    &
-!$OMP        pref,cp,constp,g,r,mp_dz_scal,siw_lim,cfl_work,q_n,cfl_n,cf_n,    &
+!$OMP        pref,constp,g,r,mp_dz_scal,siw_lim,cfl_work,q_n,cfl_n,cf_n,       &
 !$OMP        qcl_inc,q_inc,t_inc,cfl_inc,cf_inc,qcl_work,cf_work, l_casim,     &
-!$OMP        icenumber_cas, snownumber_cas, qcf2_work, ipcx, ipdx, spcx,spdx,  &
+!$OMP        icenumber_cas, snownumber_cas, qcf2_work, qrain, qgraupel,        &
+!$OMP        ipcx, ipdx, spcx,spdx,                                            &
 !$OMP        l_wtrac, wtrac_pc2, mp_czero, mp_tau_lim, Gam_1_imu_id, Gam_1_imu,&
-!$OMP        Gam_1_smu_sd, Gam_1_smu, ni_small, ns_small)
+!$OMP        Gam_1_smu_sd, Gam_1_smu, ni_small, ns_small,                      &
+!$OMP        cpv_cpm, cl_cpm, ci_cpm, cpm)
 !$OMP do SCHEDULE(STATIC)
 do k=1, tdims%k_end
   do j=tdims%j_start, tdims%j_end
@@ -548,10 +575,12 @@ do k = 1, bl_levels-1
 
         ka = air_conductivity0 * t_corr
 
-        bi = 1.0 / q_local2d(i,j) + (Lc+Lf)**2 /                               &
-             (cp * rv * t_local2d(i,j) ** 2)
+        Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
 
-        Ai = 1.0 / (rhoi *(Lc+Lf)**2 / (ka*rv*t_local2d(i,j)**2) +             &
+        bi = 1.0 / q_local2d(i,j) + Ls_full**2 /                               &
+              (cpm(i,j,k) * rv * t_local2d(i,j) ** 2)
+
+        Ai = 1.0 / (rhoi * Ls_full**2 / (ka*rv*t_local2d(i,j)**2) +            &
                   rhoi * rv * t_local2d(i,j) / (Ei*Dv))
 
         if (.not. l_casim) then
@@ -564,7 +593,7 @@ do k = 1, bl_levels-1
         end if
 
         aa = ( g / (r*t_local2d(i,j) ) *                                       &
-             ( (Lc+Lf)*r / (cp*rv*t_local2d(i,j))-1.0))
+             ( Ls_full*r / (cpm(i,j,k)*rv*t_local2d(i,j))-1.0))
 
         dz_scal = mp_dz_scal * deltaz(i,j,k)
 
@@ -628,7 +657,9 @@ do k = 1, bl_levels-1
 
             qcl_inc(i,j,k) = qcl_inc(i,j,k) + qcl_mpt(i,j,k)
             q_inc(i,j,k)   = q_inc(i,j,k)   - qcl_mpt(i,j,k)
-            t_inc(i,j,k)   = t_inc(i,j,k)   + Lc * qcl_mpt(i,j,k) / cp
+            Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
+            lcrcp_moist = Lc_full / cpm(i,j,k)
+            t_inc(i,j,k) = t_inc(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_inc(i,j,k) = min( cfl_inc(i,j,k) + dcfl_mp(i,j,k),             &
                                        1.0 - cfl_n(i,j,k)       )
@@ -638,7 +669,11 @@ do k = 1, bl_levels-1
 
             qcl_work(i,j,k) = qcl_work(i,j,k) + qcl_mpt(i,j,k)
             q_work(i,j,k)   = q_work(i,j,k)   - qcl_mpt(i,j,k)
-            t_work(i,j,k)   = t_work(i,j,k)   + Lc * qcl_mpt(i,j,k) / cp
+            Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
+            ! Update heat capacity for vapour -> liquid transition
+            cpm(i,j,k) = cpm(i,j,k) + (cl_cpm - cpv_cpm) * qcl_mpt(i,j,k)
+            lcrcp_moist  = Lc_full / cpm(i,j,k)
+            t_work(i,j,k) = t_work(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_work(i,j,k) = min( cfl_work(i,j,k) + dcfl_mp(i,j,k), 1.0)
 

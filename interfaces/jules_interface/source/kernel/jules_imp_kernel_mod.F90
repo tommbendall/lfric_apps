@@ -25,7 +25,8 @@ module jules_imp_kernel_mod
   use fs_continuity_mod,         only : W3, Wtheta
   use kernel_mod,                only : kernel_type
   use timestepping_config_mod,   only : outer_iterations
-  use water_constants_mod,       only : tfs, lc, lf
+  use water_constants_mod,       only : tfs, lc, lf, tm
+  use jules_cpm_mod,             only : cpv_cpm, cl_cpm, ci_cpm
 
   implicit none
 
@@ -38,7 +39,7 @@ module jules_imp_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_imp_kernel_type
     private
-    type(arg_type) :: meta_args(85) = (/                                          &
+    type(arg_type) :: meta_args(87) = (/                                          &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! outer
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! wetrho_in_w3
@@ -74,6 +75,8 @@ module jules_imp_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_5),&! water_extraction (kg m-2 s-1)
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_2),&! snowice_melt (kg m-2 s-1)
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_cf
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! rh_crit_wth
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! rhokh_bl
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, W3),                       &! moist_flux_bl
@@ -177,6 +180,8 @@ contains
   !> @param[in,out] water_extraction     Extraction of water from each soil layer
   !> @param[in,out] snowice_melt         Surface, canopy and sea ice, snow and ice melt rate
   !> @param[in]     m_cf                 Cloud frozen mixing ratio after advection
+  !> @param[in]     m_r                  Rain mixing ratio after advection
+  !> @param[in]     m_g                  Graupel mixing ratio after advection
   !> @param[in]     rh_crit_wth          Critical relative humidity
   !> @param[in]     rhokh_bl             Heat eddy diffusivity on BL levels
   !> @param[in,out] moist_flux_bl        Vertical moisture flux on BL levels
@@ -282,6 +287,8 @@ contains
                             water_extraction,                   &
                             snowice_melt,                       &
                             m_cf,                               &
+                            m_r,                                &
+                            m_g,                                &
                             rh_crit_wth,                        &
                             rhokh_bl,                           &
                             moist_flux_bl,                      &
@@ -369,7 +376,8 @@ contains
                                          soil_model_ecosse, l_layeredc
     use jules_water_tracers_mod, only: l_wtrac_jls, n_wtrac_jls, n_evap_srce
     use nlsizes_namelist_mod, only: sm_levels, ntiles, bl_levels
-    use planet_constants_mod, only: p_zero, kappa, planet_radius, two_omega
+    use planet_constants_mod, only: p_zero, kappa, planet_radius, two_omega,   &
+                    cpd => cp
     use rad_input_mod, only: co2_mmr
     use theta_field_sizes, only: t_i_length, t_j_length, &
                                  u_i_length,u_j_length,  &
@@ -455,7 +463,8 @@ contains
                                                            height_wth,         &
                                                            rh_crit_wth,        &
                                                            dtrdz_tq_bl,        &
-                                                           m_cf, qw_wth, tl_wth
+                                                           m_cf, m_r, m_g,     &
+                                                           qw_wth, tl_wth
 
     real(kind=r_def), dimension(undf_2d), intent(in) :: ustar,                &
                                                         soil_moist_avail
@@ -551,6 +560,8 @@ contains
     ! profile fields from level 1 upwards
     real(r_um), dimension(seg_len,1) :: rhcpt, qcf_latest, co2
 
+    real(r_um), dimension(seg_len,1) :: qrain, qgraupel, cpm_dag
+
     ! profile field on boundary layer levels
     real(r_um), dimension(seg_len,1) :: fqw, ftl, rhokh, rhokh_mix
 
@@ -593,6 +604,9 @@ contains
 
     ! fields on all points
     real(r_um), dimension(:,:), allocatable :: t1p5m_land_loc, q1p5m_land_loc
+
+    ! Temperature-dependent latent heats
+    real(r_um) :: Lc_full, Lf_full
 
     ! parameters for new BL solver
     real(r_um) :: pnonl,p1,p2
@@ -1415,6 +1429,8 @@ contains
           ntml(i,1) = 1_i_def
           ! Critical relative humidity
           rhcpt(i,1) = rh_crit_wth(map_wth(1,i) + 1)
+          qrain(i,1) = m_r(map_wth(1,i) + 1)
+          qgraupel(i,1) = m_g(map_wth(1,i) + 1)
         end do
 
         ! Grid box mean screen level diagnostics
@@ -1423,10 +1439,17 @@ contains
              .not. associated(rh1p5m, empty_real_data) .or.                    &
              .not. associated(qcl1p5m, empty_real_data) ) then
 
+          do i = 1, seg_len
+            cpm_dag(i,1) = cpd + sf_diag%q1p5m(i,1)*cpv_cpm                    &
+              + qrain(i,1)*cl_cpm                                              &
+              + (qcf_latest(i,1) + qgraupel(i,1))*ci_cpm
+          end do
+
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., sf_diag%t1p5m, work_2d_1, sf_diag%q1p5m, qcf_latest,   &
-               qcl1p5m_loc, work_2d_2, work_2d_3, error_code )
+               qcl1p5m_loc, cpm_dag,                                           &
+               work_2d_2, work_2d_3, error_code )
         end if
 
         if (.not. associated(t1p5m, empty_real_data) ) then
@@ -1459,10 +1482,17 @@ contains
              .not. associated(rh1p5m_ssi, empty_real_data) .or.                &
              .not. associated(qcl1p5m_ssi, empty_real_data) ) then
 
+          do i = 1, seg_len
+            cpm_dag(i,1) = cpd + sf_diag%q1p5m_ssi(i,1)*cpv_cpm                &
+                + qrain(i,1)*cl_cpm                                            &
+                + (qcf_latest(i,1) + qgraupel(i,1))*ci_cpm
+          end do
+
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., sf_diag%t1p5m_ssi, work_2d_1, sf_diag%q1p5m_ssi,       &
-               qcf_latest, qcl1p5m_loc, work_2d_2, work_2d_3, error_code )
+               qcf_latest, qcl1p5m_loc, cpm_dag,                               &
+               work_2d_2, work_2d_3, error_code )
         end if
 
         if (.not. associated(t1p5m_ssi, empty_real_data) ) then
@@ -1512,10 +1542,17 @@ contains
             end do
           end do
 
+          do i = 1, seg_len
+            cpm_dag(i,1) = cpd + q1p5m_land_loc(i,1)*cpv_cpm                   &
+                + qrain(i,1)*cl_cpm                                            &
+                + (qcf_latest(i,1) + qgraupel(i,1))*ci_cpm
+          end do
+
           call ls_cld(                                                         &
                forcing%pstar_ij, rhcpt, 1, 1, seg_len, 1, ntml, cumulus,       &
                .false., t1p5m_land_loc, work_2d_1, q1p5m_land_loc,             &
-               qcf_latest, qcl1p5m_loc, work_2d_2, work_2d_3, error_code )
+               qcf_latest, qcl1p5m_loc, cpm_dag,                               &
+               work_2d_2, work_2d_3, error_code )
         end if
 
         if (.not. associated(t1p5m_land, empty_real_data) ) then
@@ -1571,9 +1608,14 @@ contains
             end do
           end do
           do n = first_sea_ice_tile, first_sea_ice_tile + n_sea_ice_tile - 1
+            i_sice = n - first_sea_ice_tile + 1
             do i = 1, seg_len
               if (tile_fraction(map_tile(1,i)+n-1) > 0.0_r_def) then
-                latent_heat(map_tile(1,i)+n-1) = (lc + lf) *                  &
+                Lc_full = lc - (cl_cpm - cpv_cpm) *                            &
+                     (coast%tstar_sice_sicat(i, 1, i_sice) - tm)
+                Lf_full = lf - (ci_cpm - cl_cpm) *                             &
+                     (coast%tstar_sice_sicat(i, 1, i_sice) - tm)
+                latent_heat(map_tile(1,i)+n-1) = (Lc_full + Lf_full) *         &
                      tile_moisture_flux(map_tile(1,i)+n-1)
               end if
             end do
@@ -1720,7 +1762,9 @@ contains
         if (.not. associated(latent_heat, empty_real_data) ) then
           do i = 1, seg_len
             if (tile_fraction(map_tile(1,i)+first_sea_tile-1) > 0.0_r_def) then
-              latent_heat(map_tile(1,i)+first_sea_tile-1) = lc *              &
+              Lc_full = lc - (cl_cpm - cpv_cpm) *                              &
+                   (tile_temperature(map_tile(1,i)+first_sea_tile-1) - tm)
+              latent_heat(map_tile(1,i)+first_sea_tile-1) = Lc_full *          &
                    tile_moisture_flux(map_tile(1,i)+first_sea_tile-1)
             end if
           end do

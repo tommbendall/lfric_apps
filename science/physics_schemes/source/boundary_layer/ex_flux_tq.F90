@@ -29,13 +29,15 @@ subroutine ex_flux_tq (                                                        &
   tl, qw, rdz, rhokh, rhokhz, grad_t_adj, grad_q_adj, rhof2, rhofsc,           &
   ft_nt, fq_nt, ft_nt_dscb, fq_nt_dscb, tothf_zh, tothf_zhsc, totqf_zh,        &
   totqf_zhsc,  weight_1dbl, ntml, ntdsc, nbdsc,                                &
+  q, qcl, qcf, qrain, qgraupel, cpm_bl, cpm_dag_bl, q_tot_bl,                  &
 ! INOUT fields
   ftl, fqw, wtrac_bl                                                           &
   )
 
 use atm_fields_bounds_mod, only: pdims, tdims, scmrowlen, scmrow
 use bl_option_mod, only: flux_grad, LockWhelan2006, l_converge_ga, zero
-use planet_constants_mod, only: cp => cp_bl, grcp => grcp_bl
+use planet_constants_mod, only: g => g_bl
+use bl_cpm_mod,           only: bl_mload_switch
 use bl_diags_mod, only: strnewbldiag
 use s_scmop_mod,   only: default_streams,                                      &
     t_avg, d_bl, scmdiag_bl
@@ -144,6 +146,24 @@ real(kind=r_bl), intent(in out) ::                                             &
 !                                   FQW(,1) is total water flux
 !                                   from surface, 'E'.
 
+real(kind=r_bl), intent(in) ::                                                 &
+  q(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),            &
+                            ! in Water vapour mixing ratio (kg/kg)
+  qcl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),          &
+                            ! in Cloud liquid mixing ratio (kg/kg)
+  qcf(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),          &
+                            ! in Total cloud ice mixing ratio (kg/kg)
+  qrain(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),        &
+                            ! in Rain mixing ratio (kg/kg)
+  qgraupel(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),     &
+                            ! in Graupel mixing ratio (kg/kg)
+  cpm_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),       &
+                            ! in Moist-air heat capacity (J/kg/K)
+  cpm_dag_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels),   &
+                            ! in As cpm_bl but with qcl treated as vapour
+  q_tot_bl(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,bl_levels)
+                            ! in Total moisture (sum of all species)
+
 ! Water tracer structure containing boundary layer fields
 type(bl_wtrac_type), intent(in out) :: wtrac_bl(n_wtrac)
 
@@ -162,6 +182,8 @@ real(kind=r_bl) :: f2_ftl
 real(kind=r_bl) :: f2_fqw
 real(kind=r_bl) :: fsc_ftl
 real(kind=r_bl) :: fsc_fqw
+real(kind=r_bl) :: grcp_moist
+real(kind=r_bl) :: cpm
 
 logical :: scm_bl_diags
 
@@ -242,7 +264,7 @@ END IF
 scm_bl_diags = l_scmdiags(scmdiag_bl) .and. model_type == mt_single_column
 
 !$OMP PARALLEL DEFAULT(SHARED) private(i,j,k,i_wt,grad_ftl,grad_fqw,           &
-!$OMP non_grad_ftl,non_grad_fqw,f2_ftl,f2_fqw,fsc_ftl, fsc_fqw)
+!$OMP non_grad_ftl,non_grad_fqw,f2_ftl,f2_fqw,fsc_ftl, fsc_fqw,grcp_moist,cpm)
 
 if (scm_bl_diags) then
   ! These arrays are only for use when the SCM BL diagnostics are required.
@@ -260,7 +282,8 @@ if (scm_bl_diags) then
         fsc_fqw_scm(i,j,k)=zero
         ftl_entr_scm(i,j,k)=ftl(i,j,k)
         fqw_entr_scm(i,j,k)=fqw(i,j,k)
-        ft_nt_scm(i,j,k)=cp*ft_nt(i,j,k)
+        cpm = cpm_bl(i,j,k)
+        ft_nt_scm(i,j,k)=cpm*ft_nt(i,j,k)
       end do
     end do
   end do
@@ -289,20 +312,23 @@ do k = 2, bl_levels
   !-----------------------------------------------------------------------
   do j = pdims%j_start, pdims%j_end
     do i = pdims%i_start, pdims%i_end
+      cpm = cpm_bl(i,j,k)
+      grcp_moist = g * (1.0_r_bl + bl_mload_switch*q_tot_bl(i,j,k))            &
+                / cpm_dag_bl(i,j,k)
       grad_ftl = - rhokh(i,j,k) *                                              &
-        ( ( ( tl(i,j,k) - tl(i,j,k-1) ) * rdz(i,j,k) ) + grcp )
+        ( ( ( tl(i,j,k) - tl(i,j,k-1) ) * rdz(i,j,k) ) + grcp_moist )
       grad_fqw = - rhokh(i,j,k) *                                              &
             ( qw(i,j,k) - qw(i,j,k-1) ) * rdz(i,j,k)
 
         ! Copy down gradient flux into BL diagnostics array
       if (BL_diag%l_grad_ftl) then
-        BL_diag%grad_ftl(i,j,k) = grad_ftl*cp
+        BL_diag%grad_ftl(i,j,k) = grad_ftl*cpm
       end if
 
         ! Copy entrainment flux into BL diagnostics array before it's updated
         ! with down gradient flux
       if (BL_diag%l_ftl_e) then
-        BL_diag%ftl_e(i,j,k) = weight_1dbl(i,j,k)*ftl(i,j,k)*cp
+        BL_diag%ftl_e(i,j,k) = weight_1dbl(i,j,k)*ftl(i,j,k)*cpm
       end if
 
         ! Copy rhokhz (for nonlocal fluxes) into BL diagnostics
@@ -337,7 +363,7 @@ do k = 2, bl_levels
         fqw(i,j,k) = fqw(i,j,k) + non_grad_fqw
 
         if (BL_diag%l_non_grad_ftl) then
-          BL_diag%non_grad_ftl(i,j,k) = non_grad_ftl*cp
+          BL_diag%non_grad_ftl(i,j,k) = non_grad_ftl*cpm
         end if
 
         if (BL_diag%l_grad_t_adj .and. k==2) then

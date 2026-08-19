@@ -32,8 +32,9 @@ contains
 subroutine lsp_subgrid(                                                        &
   points,                                                                      &
                                           ! Number of points
-  q, qcf_cry, qcf_agg, qcftot, t,                                              &
-                                          ! Water contents and temp
+  q, qcf_cry, qcf_agg, qcftot, t, cpm,                                         &
+                                          ! Water contents, temp and moist
+                                          ! heat capacity
   qsl, qs,                                                                     &
                                           ! Saturated water contents
   snow_cry, snow_agg,                                                          &
@@ -58,8 +59,6 @@ subroutine lsp_subgrid(                                                        &
                                           ! for updating
   dqprec_liq, dqprec_mix, dqprec_ice, dqprec_clear, dqprec_new,                &
                                           ! Partition qrain/graup increments
-  lsrcp,                                                                       &
-                                          ! Latent heat of sublim./cp
   rhcpt,                                                                       &
                                           ! RH crit values
   wtrac_mp_cpr, wtrac_mp_cpr_old)
@@ -67,7 +66,7 @@ subroutine lsp_subgrid(                                                        &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: qcfmin, ice_width, zerodegc,                             &
-                      zero, half, one, two
+                      zero, half, one, two, lc, lf, tm
 
 use mphys_inputs_mod, only: l_mcr_precfrac, i_update_precfrac, i_homog_areas
 
@@ -84,6 +83,9 @@ use wtrac_mphys_mod,         only: mp_cpr_wtrac_type, mp_cpr_old_wtrac_type
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cpv_cpm, ci_cpm
 
 ! Dr Hook Modules
 use yomhook,           only: lhook, dr_hook
@@ -123,9 +125,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Saturated mixing ratio wrt liquid
   cfliq(points),                                                               &
                         ! Fraction of gridbox with liquid cloud
-  lsrcp,                                                                       &
-                        ! Latent heat of sublimation
-                        ! / heat capacity of air / K
   rhcpt(points)     ! RH crit values
 
 real (kind=real_lsprec), intent(in out) :: rainfrac(points)
@@ -160,6 +159,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Total ice content before advection / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   cf(points),                                                                  &
                         ! Current cloud fraction
   cff(points)       ! Current ice cloud fraction
@@ -225,6 +226,13 @@ real (kind=real_lsprec) ::                                                     &
                         ! Temporary in width of PDF calculation
   width             ! Full width of vapour distribution in ice and
                         ! clear sky.
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Ls_full,                                                                     &
+                        ! Temperature-dependent latent heat of sublimation
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
@@ -396,7 +404,13 @@ do i = 1, points
        (q_ice(i)  <=  qs(i) .and. area_mix(i)  <=  zero)                       &
        .or. (qcf_cry(i)+qcf_agg(i)) <  zero) then
       q(i) = q(i) +qcf_cry(i)+qcf_agg(i)
-      t(i) = t(i) - lsrcp * (qcf_cry(i)+qcf_agg(i))
+
+      ! Update heat capacity for ice -> vapour transition
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * (qcf_cry(i) + qcf_agg(i))
+      lsrcp_moist = Ls_full / cpm(i)
+
+      t(i) = t(i) - lsrcp_moist * (qcf_cry(i)+qcf_agg(i))
       qcf_cry(i)=zero
       qcf_agg(i)=zero
       ! Update water tracers consistently

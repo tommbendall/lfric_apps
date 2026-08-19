@@ -28,7 +28,7 @@ module bl_imp2_kernel_mod
                                         lowest_level_constant, &
                                         lowest_level_gradient, &
                                         lowest_level_flux
-  use water_constants_mod,       only : lc, lf
+  use water_constants_mod,       only : lc, lf, tm
 
   implicit none
 
@@ -41,7 +41,7 @@ module bl_imp2_kernel_mod
   !>
   type, public, extends(kernel_type) :: bl_imp2_kernel_type
     private
-    type(arg_type) :: meta_args(56) = (/                                         &
+    type(arg_type) :: meta_args(58) = (/                                         &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! outer
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! wetrho_in_wth
@@ -59,6 +59,8 @@ module bl_imp2_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! m_cl
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! m_ci
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_s
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_r
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   &! m_g
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! cf_area
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! cf_ice
          arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, WTHETA),                   &! cf_liq
@@ -214,6 +216,8 @@ contains
                           m_cl,                               &
                           m_ci,                               &
                           m_s,                                &
+                          m_r,                                &
+                          m_g,                                &
                           cf_area,                            &
                           cf_ice,                             &
                           cf_liq,                             &
@@ -274,7 +278,8 @@ contains
     use pc2_constants_mod, only: i_cld_smith, i_cld_pc2,            &
                                  pc2init_logic_smooth, acf_off, i_cld_bimodal
     use planet_constants_mod, only: p_zero, kappa, planet_radius, g => g_bl,   &
-                                    cp => cp_bl, lcrcp
+                                    cpd => cp_bl
+    use bl_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm, cpv_cpm_bl, cl_cpm_bl, ci_cpm_bl
     use timestep_mod, only: timestep
 
     ! subroutines used
@@ -333,6 +338,7 @@ contains
                                                          mix_len_bm,           &
                                                          wvar, m_ci,           &
                                                          gradrinr,             &
+                                                         m_r, m_g,             &
                                                          tau_dec_bm,           &
                                                          tau_hom_bm,           &
                                                          tau_mph_bm,           &
@@ -370,6 +376,7 @@ contains
          qcl_earliest, qcf_earliest, cf_earliest, cfl_earliest,              &
          cff_earliest, qt_force, tl_force, t_inc_pc2, q_inc_pc2, qcl_inc_pc2,&
          bcf_inc_pc2, cfl_inc_pc2, sskew, svar_turb, svar_bm, qcf_total,     &
+         qrain, qgraupel, cpm_latest, cpm_earliest, cpm_dag_earliest,        &
          ri_bm, tgrad_in, mix_len_in, tau_dec_in, tau_hom_in, tau_mph_in,    &
          wvar_in, z_rho
     real(r_bl), dimension(seg_len,1,nlayers) ::                              &
@@ -384,7 +391,7 @@ contains
     ! profile field on boundary layer levels
     real(r_bl), dimension(seg_len,1,bl_levels) :: fqw, ftl, rhokh,           &
          bq_gb, bt_gb, dtrdz_charney_grid, rdz_charney_grid, qw,             &
-         tl, dqw, dtl, fqw_star, ftl_star, ct_ctq, dqw_nt, dtl_nt
+         tl, dqw, dtl, fqw_star, ftl_star, ct_ctq, dqw_nt, dtl_nt, cpm_bl
 
     ! profile fields on u/v points and BL levels
     real(r_bl), dimension(seg_len,1,bl_levels) ::                            &
@@ -424,6 +431,8 @@ contains
     real(r_bl) :: weight1, weight2, weight3, ftl_m, fqw_m,     &
          f_buoy_m, dissip_mol, fric_heating_inc, z_blyr
 
+    real(r_um) :: cpm, cpm_dag, lrv0, lrs0
+
     real(r_um), parameter :: qcl_max_factor = 0.1_r_um
 
     integer(i_um) :: large_levels
@@ -436,6 +445,8 @@ contains
     ! Assuming map_wth(1) points to level 0
     ! and map_w3(1) points to level 1
     !-----------------------------------------------------------------------
+    lrv0 = lc + (cl_cpm - cpv_cpm) * tm
+    lrs0 = (lc + lf) + (ci_cpm - cpv_cpm) * tm
     do i = 1, seg_len
       do k = 1, nlayers
         ! height of rho levels from centre of planet
@@ -518,6 +529,17 @@ contains
       l_correct = .true.
     end if
 
+    do i = 1, seg_len
+      do k = 1, bl_levels
+        cpm_bl(i,1,k) = cpd + cpv_cpm_bl*m_v(map_wth(1,i)+k)                   &
+                            + cl_cpm_bl*(m_cl(map_wth(1,i)+k)                  &
+                                       + m_r(map_wth(1,i)+k))                  &
+                            + ci_cpm_bl*(m_ci(map_wth(1,i)+k)                  &
+                                      + m_s(map_wth(1,i)+k)                    &
+                                      + m_g(map_wth(1,i)+k))
+      end do
+    end do
+
     call bdy_impl4 (                                                         &
          ! IN levels, switches
          bl_levels,  l_correct,                                              &
@@ -525,6 +547,7 @@ contains
          gamma1, gamma2,                                                     &
          rdz_charney_grid, r_rho_levels, dtrdz_charney_grid,                 &
          ct_ctq,dqw_nt,dtl_nt,                                               &
+         cpm_bl,                                                             &
          ! INOUT data :
          qw,tl,fqw,ftl,fqw_star,ftl_star,                                    &
          dqw,dtl,rhokh,bl_diag,                                              &
@@ -576,12 +599,12 @@ contains
           weight3 = z_rho(i,1,k+1) - z_theta(i,1,k)
           ftl_m = weight2 * ftl(i,1,k+1) + weight3 * ftl(i,1,k)
           fqw_m = weight2 * fqw(i,1,k+1) + weight3 * fqw(i,1,k)
-          f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cp) +                             &
+          f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cpm_bl(i,1,k)) +                  &
                          bq_gb(i,1,k)*fqw_m )/weight1
 
           dissip_mol = dissip_u(i,1,k)+dissip_v(i,1,k) + f_buoy_m
-          fric_heating_inc = max (0.0_r_bl, timestep * dissip_mol             &
-                                           / ( cp*rho_wet_tq(i,1,k) ) )
+          fric_heating_inc = max (0.0_r_bl, timestep * dissip_mol              &
+                                           / ( cpm_bl(i,1,k)*rho_wet_tq(i,1,k) ) )
 
           ! Save level 1 heating increment for redistribution over
           ! boundary layer
@@ -596,12 +619,12 @@ contains
             ftl_m = weight2 * ftl(i,1,k+1) + weight3 * ftl(i,1,k)
             fqw_m = weight2 * fqw(i,1,k+1) + weight3 * fqw(i,1,k)
 
-            f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cp) +                           &
+            f_buoy_m = g*( bt_gb(i,1,k)*(ftl_m/cpm_bl(i,1,k)) +                &
                            bq_gb(i,1,k)*fqw_m )/weight1
 
             dissip_mol = dissip_u(i,1,k)+dissip_v(i,1,k) + f_buoy_m
-            fric_heating_incv(i,1) = max (0.0_r_bl, timestep * dissip_mol     &
-                                                   / ( cp*rho_wet_tq(i,1,k) ) )
+            fric_heating_incv(i,1) = max (0.0_r_bl, timestep * dissip_mol      &
+                                                   / ( cpm_bl(i,1,k)*rho_wet_tq(i,1,k) ) )
 
             if ( z_theta(i,1,k) <= zh(i,1) ) then
               !------------------------------------------------------
@@ -653,9 +676,18 @@ contains
       ! Create Tl and qT outside boundary layer levels
       do i = 1, seg_len
         do k = bl_levels+1, nlayers
-          t_latest(i,1,k) = theta_latest(map_wth(1,i) + k)   &
-                            * exner_in_wth(map_wth(1,i) + k) &
-                            - (lc * m_cl(map_wth(1,i) + k)) / cp
+          cpm = cpd + cpv_cpm*m_v(map_wth(1,i)+k)                              &
+                    + cl_cpm*(m_cl(map_wth(1,i)+k) + m_r(map_wth(1,i)+k))      &
+                    + ci_cpm*(m_ci(map_wth(1,i)+k) + m_s(map_wth(1,i)+k)       &
+                             + m_g(map_wth(1,i)+k))
+          cpm_dag = cpd + cpv_cpm*(m_v(map_wth(1,i)+k) + m_cl(map_wth(1,i)+k)) &
+                        + cl_cpm*m_r(map_wth(1,i)+k)                           &
+                        + ci_cpm*(m_ci(map_wth(1,i)+k) + m_s(map_wth(1,i)+k)   &
+                                  + m_g(map_wth(1,i)+k))
+          t_latest(i,1,k) = (cpm/cpm_dag)                                      &
+                            * ( theta_latest(map_wth(1,i) + k)                 &
+                              * exner_in_wth(map_wth(1,i) + k) )               &
+                            - (lrv0/cpm_dag)*m_cl(map_wth(1,i)+k)
           q_latest(i,1,k) = m_v(map_wth(1,i) + k) + m_cl(map_wth(1,i) + k)
         end do
       end do
@@ -676,7 +708,11 @@ contains
             qcl_latest(i,1,k) = m_cl(map_wth(1,i) + k)
             qcf_latest(i,1,k) = m_s(map_wth(1,i) + k)
             qcf2_latest(i,1,k) = m_ci(map_wth(1,i) + k)
+            qrain(i,1,k) = m_r(map_wth(1,i) + k)
+            qgraupel(i,1,k) = m_g(map_wth(1,i) + k)
+            qcf_total(i,1,k) = qcf_latest(i,1,k) + qcf2_latest(i,1,k)
           end do
+
         end do
         if (scheme == scheme_pc2) then
           do k = 1, nlayers
@@ -697,8 +733,20 @@ contains
         end do
 
         ! Remove qcf from T(liquid) and Q(vapour+liquid)
-        if (.not. l_noice_in_turb)                                             &
-             call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest )
+        if (.not. l_noice_in_turb) then
+          do k = 1, bl_levels
+            do i = 1, seg_len
+              ! Moist-air heat capacity at constant pressure (J/kg/K).
+              ! Maintained across the scheme and updated when moisture
+              ! changes phase
+              cpm_latest(i,1,k) = cpd + cpv_cpm*q_latest(i,1,k)                &
+                                      + cl_cpm*qrain(i,1,k)                    &
+                                      + ci_cpm*qgraupel(i,1,k)
+            end do
+          end do
+          call bl_lsp( bl_levels, qcf_latest, q_latest, t_latest,              &
+                       qcl_latest, cpm_latest )
+        end if
 
         ! Which cloud scheme are we using?
         ! 3 options are available:
@@ -745,12 +793,35 @@ contains
           ! Calculate forcing in qT and TL. Currently q_latest contains the
           ! vapour plus liquid content and q_earliest just the initial vapour
           ! content
+          ! For k in 1..bl_levels, cpm_earliest is mathematically identical
+          ! to the already-computed cpm_bl (same m_v/m_cl/m_r/m_ci/m_s/m_g
+          ! fields, numerically identical coefficients under a different
+          ! kind), so reuse it directly instead of rebuilding it from
+          ! qrain/qgraupel a second time.
+          do k = 1, bl_levels
+            do i = 1, seg_len
+              cpm_earliest(i,1,k) = real(cpm_bl(i,1,k), r_um)
+            end do
+          end do
           do k = 1, nlayers
             do i = 1, seg_len
+              if (k > bl_levels) then
+                ! No maintained field exists above bl_levels, so build
+                ! fresh from qrain/qgraupel.
+                cpm_earliest(i,1,k) = cpd + q_earliest(i,1,k)*cpv_cpm          &
+                         + (qcl_earliest(i,1,k)+qrain(i,1,k))*cl_cpm           &
+                         + (qcf_total(i,1,k)+qgraupel(i,1,k))*ci_cpm
+              end if
+              ! "Dagger" form (qcl treated as vapour too) derived as a
+              ! delta from cpm_earliest, avoiding a second rebuild.
+              cpm_dag_earliest(i,1,k) = cpm_earliest(i,1,k)                    &
+                       + (cpv_cpm - cl_cpm) * qcl_earliest(i,1,k)
               qt_force(i,1,k) = ( q_latest(i,1,k)                              &
                    - (q_earliest(i,1,k) + qcl_earliest(i,1,k)) )
-              tl_force(i,1,k) = ( t_latest(i,1,k)                              &
-                   - (t_earliest(i,1,k)- lc * qcl_earliest(i,1,k) / cp) )
+              tl_force(i,1,k) = t_latest(i,1,k)                                &
+                     - ( (cpm_earliest(i,1,k)/cpm_dag_earliest(i,1,k))         &
+                     * t_earliest(i,1,k)                                       &
+                     - (lrv0/cpm_dag_earliest(i,1,k))*qcl_earliest(i,1,k) )
             end do
           end do
 
@@ -776,8 +847,9 @@ contains
                ! INput variables
                p_theta_levels(1,1,1),                                          &
                ! INput variables
-               t_earliest, q_earliest, qcl_earliest, cf_latest,                &
-               cfl_latest, cff_latest, tl_force, qt_force,                     &
+               t_earliest, q_earliest, qcl_earliest,                           &
+               cpm_earliest,                                                   &
+               cf_latest, cfl_latest, cff_latest, tl_force, qt_force,          &
                ! OUTput variables
                t_inc_pc2, q_inc_pc2, qcl_inc_pc2, bcf_inc_pc2, cfl_inc_pc2,    &
                ! INput variables (other quantities)
@@ -817,7 +889,8 @@ contains
                      ( forced_cu >= on .and. (bl_type_3(i,1) > 0.5_r_um        &
                      .or. bl_type_4(i,1) > 0.5_r_um )                          &
                      .and. z_theta(i,1,k)  <  zlcl(i,1) )  ) then
-                  t_inc_pc2(i,1,k)   =  (-lcrcp) * qcl_earliest(i,1,k)
+                  t_inc_pc2(i,1,k)   =  (-lrv0/cpm_earliest(i,1,k))            &
+                                        * qcl_earliest(i,1,k)
                   q_inc_pc2(i,1,k)   =  qcl_earliest(i,1,k)
                   qcl_inc_pc2(i,1,k) =  (-qcl_earliest(i,1,k))
                   cfl_inc_pc2(i,1,k) =  (-cfl_earliest(i,1,k))
@@ -850,8 +923,11 @@ contains
             do i = 1, seg_len
               ! Update working version of temperature, moisture and cloud
               ! fields with increments from the PC2 homogeneous response.
-              t_latest(i,1,k)   = t_earliest(i,1,k) + tl_force(i,1,k)          &
-                   + t_inc_pc2(i,1,k)
+              ! tl_force is a T_liq increment; scale by cpm_dag/cpm to
+              ! convert to a T increment.
+              t_latest(i,1,k)   = t_earliest(i,1,k)                            &
+                   + (cpm_dag_earliest(i,1,k)/cpm_earliest(i,1,k))             &
+                   * tl_force(i,1,k) + t_inc_pc2(i,1,k)
               q_latest(i,1,k)   = q_earliest(i,1,k) + qt_force(i,1,k)          &
                    + q_inc_pc2(i,1,k)
               qcl_latest(i,1,k) = qcl_earliest(i,1,k)                          &
@@ -861,6 +937,10 @@ contains
               cf_latest(i,1,k)  =  cf_earliest(i,1,k)                          &
                    + bcf_inc_pc2(i,1,k)
               ! qcf_latest and cff_latest are not updated
+              ! Update moist-air heat capacity for the PC2 delta response
+              cpm_latest(i,1,k) = cpm_earliest(i,1,k)                          &
+                   + cpv_cpm*(qt_force(i,1,k) + q_inc_pc2(i,1,k))              &
+                   + cl_cpm*qcl_inc_pc2(i,1,k)
             end do
           end do  ! k
 
@@ -878,7 +958,8 @@ contains
                                    z_theta, qcl_inv_top,                       &
                                    cca0, ccw0, ccb0, cct0, lcbase0,            &
                                    cfl_latest, cf_latest,                      &
-                                   qcl_latest, q_latest, t_latest, l_wtrac)
+                                   qcl_latest,                                 &
+                                   q_latest, t_latest, cpm_latest, l_wtrac)
             do k = 1, nlayers
               do i = 1, seg_len
                 cca(map_wth(1,i) + k) = cca0(i,1,k)
@@ -959,7 +1040,8 @@ contains
                          rhc_row_length, rhc_rows, bl_levels,                  &
                          levels_per_level, large_levels,                       &
                          xx_cos_theta_latitude,                                &
-                         ntml, cumulus, l_mr_physics, qcf_total,               &
+                         ntml, cumulus, l_mr_physics, qcf_total, qrain,        &
+                         qgraupel,                                             &
                          t_latest, q_latest, qcl_latest,                       &
                          area_cloud_fraction, cf_latest,                       &
                          cfl_latest, cff_latest,                               &
@@ -1033,7 +1115,7 @@ contains
                        tau_dec_in, tau_hom_in, tau_mph_in, z_theta,            &
                        ri_bm, mix_len_in, zh, zhsc, dzh, bl_type_7,            &
                        nlayers, l_mr_physics, t_latest, cf_latest,             &
-                       q_latest, qcf_total, qcl_latest,                        &
+                       q_latest, qcf_total, qcl_latest, qrain, qgraupel,       &
                        cfl_latest,cff_latest,                                  &
                        sskew, svar_turb, svar_bm, entzone,                     &
                        sl_modes, qw_modes, rh_modes, sd_modes,                 &
@@ -1128,7 +1210,7 @@ contains
         do i = 1, seg_len
           dtheta_bl(map_wth(1,i)) =                                            &
                t_latest(i,1,1) / exner_in_wth(map_wth(1,i) + 1)                &
-               + ftl(i,1,1) / (cp * rhokh(i,1,1)) - theta_latest(map_wth(1,i))
+               + ftl(i,1,1) / (cpm_bl(i,1,1) * rhokh(i,1,1)) - theta_latest(map_wth(1,i))
           m_v(map_wth(1,i))  = m_v(map_wth(1,i) + 1)                           &
                + fqw(i,1,1) / rhokh(i,1,1)
         end do

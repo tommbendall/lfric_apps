@@ -22,16 +22,18 @@ subroutine pc2_arcld(                                                          &
  large_levels, levels_per_level,                                               &
 !      Prognostic Fields
  cf_area, t, cf, cfl, cff, q, qcl, qcf, rhts,                                  &
+!      Moist heat capacity field
+ cpm,                                                                          &
  tlts, qtts, ptts,                                                             &
 !      Logical control
  l_mixing_ratio)
 
-use planet_constants_mod,  only: lcrcp
+use water_constants_mod,   only: lc, tm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims, pdims_l
 use level_heights_mod,     only: r_theta_levels
-
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
 use pc2_initiate_mod, only: pc2_initiate
@@ -110,6 +112,11 @@ real(kind=real_umphys) ::                                                      &
                     tdims%j_start:tdims%j_end,                                 &
                                 1:tdims%k_end),                                &
 !       Temperature (K)
+   cpm(               tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                                  1:tdims%k_end),                              &
+!       Moist-air heat capacity at constant pressure (J/kg/K). Maintained
+!       across the scheme and updated when moisture changes phase
    cf(                tdims%i_start:tdims%i_end,                               &
                       tdims%j_start:tdims%j_end,                               &
                                   1:tdims%k_end),                              &
@@ -160,7 +167,11 @@ real(kind=real_umphys) ::                                                      &
   qt_norm_next,                                                                &
                    ! Temporary space for qT_norm
   stretcher,                                                                   &
-  delta_p          ! Layer pressure thickness * inverse_level
+  delta_p,                                                                     &
+                   ! Layer pressure thickness * inverse_level
+  cpm_dag,                                                                     &
+                   ! Modified heat capacity for TL/T conversion
+  lrv0             ! Reference latent heat for TL/T conversion
 
 real(kind=real_umphys) ::                                                      &
   qsl(              tdims%i_start:tdims%i_end,                                 &
@@ -196,6 +207,14 @@ real(kind=real_umphys) ::                                                      &
                       large_levels),                                           &
 !
     qcl_large(        tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                      large_levels),                                           &
+  !
+    qcf_large(        tdims%i_start:tdims%i_end,                               &
+                      tdims%j_start:tdims%j_end,                               &
+                      large_levels),                                           &
+  !
+    cpm_large(        tdims%i_start:tdims%i_end,                               &
                       tdims%j_start:tdims%j_end,                               &
                       large_levels),                                           &
 !
@@ -250,13 +269,15 @@ character(len=*), parameter :: RoutineName='PC2_ARCLD'
 ! ---------------------------------------------------------------------
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 inverse_level = 1.0 / levels_per_level
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! Create new arrays for TL and current qcl
 
 do k = 1, tdims%k_end
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
-      tl(i,j,k)         = t(i,j,k) - lcrcp*qcl(i,j,k)
+      cpm_dag = cpm(i,j,k) + (cpv_cpm - cl_cpm) * qcl(i,j,k)
+      tl(i,j,k) = (cpm(i,j,k) / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
       qcl_latest(i,j,k) = qcl(i,j,k)
     end do !i
   end do !j
@@ -305,6 +326,8 @@ do j = tdims%j_start, tdims%j_end
     t_large   (i,j,1) = t(i,j,1)
     q_large   (i,j,1) = q(i,j,1)
     qcl_large (i,j,1) = qcl_latest(i,j,1)
+    qcf_large (i,j,1) = qcf(i,j,1)
+    cpm_large(i,j,1) = cpm(i,j,1)
     cf_large  (i,j,1) = cf(i,j,1)
     cfl_large (i,j,1) = cfl(i,j,1)
     cff_large (i,j,1) = cff(i,j,1)
@@ -318,6 +341,8 @@ do j = tdims%j_start, tdims%j_end
     t_large   (i,j,large_levels) = t(i,j,tdims%k_end)
     q_large   (i,j,large_levels) = q(i,j,tdims%k_end)
     qcl_large (i,j,large_levels) = qcl_latest(i,j,tdims%k_end)
+    qcf_large (i,j,large_levels) = qcf(i,j,tdims%k_end)
+    cpm_large(i,j,large_levels) = cpm(i,j,tdims%k_end)
     cf_large  (i,j,large_levels) = cf(i,j,tdims%k_end)
     cfl_large (i,j,large_levels) = cfl(i,j,tdims%k_end)
     cff_large (i,j,large_levels) = cff(i,j,tdims%k_end)
@@ -389,6 +414,8 @@ do k = 2, (tdims%k_end - 1)
       t_large   (i,j,k_index) = t(i,j,k)
       q_large   (i,j,k_index) = q(i,j,k)
       qcl_large (i,j,k_index) = qcl_latest(i,j,k)
+      qcf_large (i,j,k_index) = qcf(i,j,k)
+      cpm_large(i,j,k_index) = cpm(i,j,k)
       cf_large  (i,j,k_index) = cf(i,j,k)
       cfl_large (i,j,k_index) = cfl(i,j,k)
       cff_large (i,j,k_index) = cff(i,j,k)
@@ -481,6 +508,8 @@ do k = 2, (tdims%k_end - 1)
                                       q_large(i,j,(k_index+1))
       qcl_large (i,j,(k_index-1)) = qcl_large(i,j,k_index)-                    &
                                       qcl_large(i,j,(k_index+1))
+      qcf_large (i,j,(k_index-1)) = qcf(i,j,k)
+      cpm_large(i,j,(k_index-1)) = cpm(i,j,k)
       cf_large  (i,j,(k_index-1)) = cf(i,j,k)
       cfl_large (i,j,(k_index-1)) = cfl(i,j,k)
       cff_large (i,j,(k_index-1)) = cff(i,j,k)
@@ -499,6 +528,8 @@ do k = 2, (tdims%k_end - 1)
                                       q_large(i,j,k_index)
       qcl_large (i,j,(k_index+1)) = qcl_large(i,j,(k_index+1)) +               &
                                       qcl_large(i,j,k_index)
+      qcf_large (i,j,(k_index+1)) = qcf(i,j,k)
+      cpm_large(i,j,(k_index+1)) = cpm(i,j,k)
       cf_large  (i,j,(k_index+1)) = cf(i,j,k)
       cfl_large (i,j,(k_index+1)) = cfl(i,j,k)
       cff_large (i,j,(k_index+1)) = cff(i,j,k)
@@ -547,8 +578,8 @@ end do
 
 call pc2_initiate(p_large,cumulus,rhcrit_large,                                &
   large_levels, rhc_row_length,rhc_rows,zlcl_mixed,r_large,                    &
-  t_large,cf_large,cfl_large,cff_large,q_large,qcl_large,                      &
-  rhts_large,l_mixing_ratio)
+  t_large,cf_large,cfl_large,cff_large,q_large,qcl_large,qcf_large,            &
+  rhts_large,cpm_large,l_mixing_ratio)
 
 do j = tdims%j_start, tdims%j_end
   do i = tdims%i_start, tdims%i_end
@@ -611,9 +642,11 @@ do k = 2, (tdims%k_end - 1)
       ! Update Q
       ! Update T
       ! Move qcl_latest into qcl.
-      q(i,j,k)   = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
-      t(i,j,k)   = t(i,j,k) - (qcl(i,j,k)*lcrcp) +                             &
-                              (qcl_latest(i,j,k) * lcrcp)
+      cpm_dag = cpm(i,j,k) + (cl_cpm - cpv_cpm) * (qcl_latest(i,j,k) - qcl(i,j,k))
+      q(i,j,k) = q(i,j,k) + qcl(i,j,k) - qcl_latest(i,j,k)
+      t(i,j,k) = (cpm(i,j,k) / cpm_dag) * t(i,j,k)                             &
+               + (lrv0 / cpm_dag) * (qcl_latest(i,j,k) - qcl(i,j,k))
+      cpm(i,j,k) = cpm_dag
       qcl(i,j,k) = qcl_latest(i,j,k)
 
     end do

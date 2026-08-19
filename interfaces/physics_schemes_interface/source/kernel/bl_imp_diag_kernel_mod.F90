@@ -16,14 +16,15 @@ module bl_imp_diag_kernel_mod
   use fs_continuity_mod,      only: W3, WTHETA
   use constants_mod,          only: i_def, r_def
   use kernel_mod,             only: kernel_type
-  use planet_config_mod,      only: gravity, cp
+  use planet_config_mod,      only: gravity, cpd => cp
+  use bl_cpm_mod,             only: cpv_cpm, cl_cpm, ci_cpm
 
   implicit none
   private
 
   type, public, extends(kernel_type) :: bl_imp_diag_kernel_type
     private
-    type(arg_type) :: meta_args(11) = (/                                          &
+    type(arg_type) :: meta_args(17) = (/                                          &
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! bt_bl
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! bq_bl
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       & ! ftl
@@ -34,7 +35,13 @@ module bl_imp_diag_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),& ! theta_star_surf
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),& ! qv_star_surf
          arg_type(GH_FIELD,  GH_REAL,    GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),& ! ustar_implicit
-         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_1) & ! zh
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_1),& ! zh
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! m_v
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! m_cl
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! m_ci
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! m_s
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA),                   & ! m_r
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTHETA)                    & ! m_g
          /)
     integer :: operates_on = CELL_COLUMN
   contains
@@ -58,6 +65,12 @@ contains
   !> @param[out]   qv_star_surf     Atmospheric stability via surface moist flux
   !> @param[out]   ustar_implicit   Implicit surface friction velocity
   !> @param[in]    zh               Boundary layer depth
+  !> @param[in]    m_v              Water vapour mixing ratio
+  !> @param[in]    m_cl             Cloud liquid mixing ratio
+  !> @param[in]    m_ci             Cloud ice mixing ratio
+  !> @param[in]    m_s              Snow mixing ratio
+  !> @param[in]    m_r              Rain mixing ratio
+  !> @param[in]    m_g              Graupel mixing ratio
   !> @param[in]    ndf_wth          Number of DOFs per cell for Wtheta fields
   !> @param[in]    undf_wth         Number of unique DOFs for Wtheta fields
   !> @param[in]    map_wth          Dofmap for Wtheta fields
@@ -79,6 +92,12 @@ contains
                               qv_star_surf,                         &
                               ustar_implicit,                       &
                               zh,                                   &
+                              m_v,                                  &
+                              m_cl,                                 &
+                              m_ci,                                 &
+                              m_s,                                  &
+                              m_r,                                  &
+                              m_g,                                  &
                               ndf_wth,                              &
                               undf_wth,                             &
                               map_wth,                              &
@@ -108,8 +127,14 @@ contains
     real(r_def), intent(out) :: qv_star_surf(undf_2d)
     real(r_def), intent(out) :: ustar_implicit(undf_2d)
     real(r_def), intent(in) :: zh(undf_2d)
+    real(r_def), intent(in) :: m_v(undf_wth)
+    real(r_def), intent(in) :: m_cl(undf_wth)
+    real(r_def), intent(in) :: m_ci(undf_wth)
+    real(r_def), intent(in) :: m_s(undf_wth)
+    real(r_def), intent(in) :: m_r(undf_wth)
+    real(r_def), intent(in) :: m_g(undf_wth)
     real(r_def) :: taux_surf, tauy_surf, wm
-    real(r_def) :: ftl_surf, fqw_surf, fb_surf
+    real(r_def) :: ftl_surf, fqw_surf, fb_surf, cpm_surf
     real(r_def), parameter :: one_quarter = 1.0_r_def/4.0_r_def
     real(r_def), parameter :: one_third = 1.0_r_def/3.0_r_def
     real(r_def), parameter :: c_ws = 0.25_r_def
@@ -119,7 +144,10 @@ contains
     ustar_implicit(map_2d(1)) = ( taux_surf*taux_surf + &
                                   tauy_surf*tauy_surf )**one_quarter
 
-    ftl_surf = ftl(map_w3(1)) / cp
+    cpm_surf = cpd + cpv_cpm*m_v(map_wth(1))                                   &
+                   + cl_cpm*(m_cl(map_wth(1)) + m_r(map_wth(1)))               &
+                   + ci_cpm*(m_ci(map_wth(1)) + m_s(map_wth(1)) + m_g(map_wth(1)))
+    ftl_surf = ftl(map_w3(1)) / cpm_surf
     fqw_surf = fqw(map_w3(1))
     fb_surf = gravity * ( bt_bl(map_wth(1)) * ftl_surf +   &
                           bq_bl(map_wth(1)) * fqw_surf ) / &

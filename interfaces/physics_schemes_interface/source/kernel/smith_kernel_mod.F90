@@ -25,7 +25,7 @@ module smith_kernel_mod
   !>
   type, public, extends(kernel_type) :: smith_kernel_type
     private
-    type(arg_type) :: meta_args(14) = (/                                       &
+    type(arg_type) :: meta_args(16) = (/                                       &
          arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA),                    & ! theta_in_wth
          arg_type(GH_FIELD, GH_REAL, GH_READ,      W3),                        & ! exner_in_w3
          arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA),                    & ! exner_in_wth
@@ -35,6 +35,8 @@ module smith_kernel_mod
          arg_type(GH_FIELD, GH_REAL, GH_READWRITE, WTHETA),                    & ! m_v
          arg_type(GH_FIELD, GH_REAL, GH_READWRITE, WTHETA),                    & ! m_cl
          arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA),                    & ! m_cf
+         arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA),                    & ! m_r
+         arg_type(GH_FIELD, GH_REAL, GH_READ,      WTHETA),                    & ! m_g
          arg_type(GH_FIELD, GH_REAL, GH_READWRITE, WTHETA),                    & ! cf_area
          arg_type(GH_FIELD, GH_REAL, GH_READWRITE, WTHETA),                    & ! cf_ice
          arg_type(GH_FIELD, GH_REAL, GH_READWRITE, WTHETA),                    & ! cf_liq
@@ -66,6 +68,8 @@ contains
   !> @param[in,out] m_v           Vapour mixing ratio in wth
   !> @param[in,out] m_cl          Cloud liquid mixing ratio in wth
   !> @param[in]     m_cf          Total frozen mixing ratio incl snow in wth
+  !> @param[in]     m_r           Rain mixing ratio incl snow in wth
+  !> @param[in]     m_g           Graupel mixing ratio incl snow in wth
   !> @param[in,out] cf_area       Area cloud fraction
   !> @param[in,out] cf_ice        Ice cloud fraction
   !> @param[in,out] cf_liq        Liquid cloud fraction
@@ -92,6 +96,8 @@ contains
                         m_v,          &
                         m_cl,         &
                         m_cf,         &
+                        m_r,          &
+                        m_g,          &
                         cf_area,      &
                         cf_ice,       &
                         cf_liq,       &
@@ -115,7 +121,8 @@ contains
     ! Other modules containing stuff passed to CLD
     use nlsizes_namelist_mod, only: bl_levels
     use planet_constants_mod, only: p_zero, kappa, cp
-    use water_constants_mod,  only: lc
+    use water_constants_mod,  only: lc, tm
+    use lsc_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
     use ls_arcld_mod,         only: ls_arcld
     use gen_phys_inputs_mod,  only: l_mr_physics
 
@@ -139,6 +146,8 @@ contains
     real(kind=r_def),    intent(inout), dimension(undf_wth) :: m_v
     real(kind=r_def),    intent(inout), dimension(undf_wth) :: m_cl
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_cf
+    real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_r
+    real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_g
     real(kind=r_def),    intent(inout), dimension(undf_wth) :: cf_area
     real(kind=r_def),    intent(inout), dimension(undf_wth) :: cf_ice
     real(kind=r_def),    intent(inout), dimension(undf_wth) :: cf_liq
@@ -149,11 +158,12 @@ contains
     integer(i_um) :: k, i
 
     real(r_def) :: dmv1(seg_len)
+    real(r_def) :: cpm, cpm_dag, lrv0
 
     ! profile fields from level 1 upwards
     real(r_um), dimension(seg_len,1,nlayers) ::                      &
          cf_inout, cfl_inout, cff_inout, area_cloud_fraction, rhcpt, &
-         qt, qcl_out, qcf_in,tl
+         qt, qcl_out, qcf_in, qrain_in, qgraupel_in, tl
 
     ! profile fields from level 0 upwards
     real(r_um), dimension(seg_len,1,0:nlayers) :: &
@@ -178,16 +188,25 @@ contains
     end do
 
     errorstatus=0
+    lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
     do i = 1, seg_len
       do k = 1, nlayers
         ! liquid temperature on theta levels
-        tl(i,1,k) = ( theta_in_wth(map_wth(1,i) + k)   &
-                    * exner_in_wth(map_wth(1,i)+ k)) - &
-                    (lc * m_cl(map_wth(1,i) + k)) / cp
+        cpm = cp + cpv_cpm*m_v(map_wth(1,i)+k)                                 &
+            + cl_cpm*(m_cl(map_wth(1,i)+k)+m_r(map_wth(1,i)+k))                &
+            + ci_cpm*(m_cf(map_wth(1,i)+k)+m_g(map_wth(1,i)+k))
+        cpm_dag = cp + cpv_cpm*(m_v(map_wth(1,i)+k)+m_cl(map_wth(1,i)+k))      &
+                + cl_cpm*m_r(map_wth(1,i)+k)                                   &
+                + ci_cpm*(m_cf(map_wth(1,i)+k)+m_g(map_wth(1,i)+k))
+        tl(i,1,k) = (cpm/cpm_dag) * (theta_in_wth(map_wth(1,i) + k)            &
+                  *  exner_in_wth(map_wth(1,i)+ k))                            &
+                  - (lrv0/cpm_dag) * m_cl(map_wth(1,i) + k)
         ! total water and ice water on theta levels
         qt(i,1,k) =  m_v(map_wth(1,i) + k) + m_cl(map_wth(1,i) + k)
         qcf_in(i,1,k) = m_cf(map_wth(1,i) + k)
+        qrain_in(i,1,k) = m_r(map_wth(1,i) + k)
+        qgraupel_in(i,1,k) = m_g(map_wth(1,i) + k)
         ! cloud fields
         cf_inout(i,1,k) = cf_bulk(map_wth(1,i) + k)
         cff_inout(i,1,k) = cf_ice(map_wth(1,i) + k)
@@ -220,7 +239,8 @@ contains
                  seg_len, 1, bl_levels,                               &
                  levels_per_level, large_levels,                      &
                  fv_cos_theta_latitude,                               &
-                 ntml, cumulus, l_mr_physics, qcf_in,                 &
+                 ntml, cumulus, l_mr_physics, qcf_in, qrain_in,       &
+                 qgraupel_in,                                         &
                  tl, qt, qcl_out,                                     &
                  area_cloud_fraction,  cf_inout,                      &
                  cfl_inout, cff_inout ,                               &

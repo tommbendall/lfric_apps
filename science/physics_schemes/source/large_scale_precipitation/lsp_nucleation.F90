@@ -15,8 +15,9 @@ contains
 subroutine lsp_nucleation(                                                     &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, tnuc_new, qrain, qcf, qgraup, t,                                     &
-                                          ! Water contents, temperature
+  q, qcl, tnuc_new, qrain, qcf, qgraup, t, cpm,                                &
+                                          ! Water contents, temperature and
+                                          ! moist heat capacity
   qs, qsl,                                                                     &
                                           ! Saturated quantities
   cfliq,                                                                       &
@@ -31,8 +32,6 @@ subroutine lsp_nucleation(                                                     &
                                           ! Parametrization information
   corr,  dhir, rain_nofall,                                                    &
                                           ! Parametrization information
-  lfrcp, lsrcp,                                                                &
-                                          ! Microphysical information
   hettransfer, hettransfer2, homtransfer, homtransfer2,                        &
                                           ! Mass transfer diagnostics
   one_over_tsi,                                                                &
@@ -46,7 +45,7 @@ subroutine lsp_nucleation(                                                     &
   )
 
 use lsprec_mod, only: thomo, m0, tnuc, zerodegc,                               &
-                      zero, one
+                      zero, one, lc, lf, tm
 use mphys_inputs_mod,     only: l_het_freezing_rain, l_mcr_precfrac,           &
                                 l_subgrid_graupel_frac, i_update_precfrac,     &
                                 i_homog_areas, l_progn_tnuc
@@ -54,6 +53,9 @@ use mphys_inputs_mod,     only: l_het_freezing_rain, l_mcr_precfrac,           &
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,         only: lhook, dr_hook
@@ -113,11 +115,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Thickness of model layer / timestep / m s-1
   rain_nofall(points),                                                         &
                         ! Fraction of the rain-mass that is not falling out
-  lfrcp,                                                                       &
-                          ! Latent heat of fusion
-                          ! /heat capacity of air (cP) / K
-  lsrcp,                                                                       &
-                          ! Latent heat of sublimation/cP / K
   one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
@@ -134,6 +131,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Graupel mixing ration / kg kg-1
   t(points),                                                                   &
                           ! Temperature / K
+  cpm(points),                                                                 &
+                          ! Moist-air heat capacity at const pressure (J/kg/K)
   cf(points),                                                                  &
                           ! Current cloud fraction
   cfl(points),                                                                 &
@@ -201,6 +200,17 @@ real (kind=real_lsprec) ::                                                     &
 real (kind=real_lsprec) :: tnuc_kelvin
                         ! Nucleation temperature in Kelvin
 
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Lf_full,                                                                     &
+                        ! Temperature-dependent latent heat of fusion
+  Ls_full,                                                                     &
+                        ! Temperature-dependent latent heat of sublimation
+  lfrcp_moist,                                                                 &
+                        ! Temperature-dependent ratio of L_fus to cp_moist
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
+
 ! Total increment to qrain (+qgraup) from all ice nucleation processes
 real (kind=real_lsprec) :: dqprec(points)
 
@@ -252,7 +262,13 @@ do i = 1, points
     if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = qcl(i)
 
     qcf(i) = qcf(i) + qcl(i)
-    t(i)   = t(i)   + lfrcp * qcl(i)
+
+    ! Update heat capacity for liquid -> ice transition
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * qcl(i)
+    lfrcp_moist = Lf_full / cpm(i)
+
+    t(i)   = t(i)   + lfrcp_moist * qcl(i)
     qcl(i) = zero
 
   end if ! T lt 0+thomo etc.
@@ -286,7 +302,13 @@ do i = 1, points
     if (l_wtrac) wtrac_mp_cpr_old%hom_qr(i) = qrain(i)      ! qrain -> qcf
 
     qcf(i)   = qcf(i) + qrain(i)
-    t(i)     = t(i)   + lfrcp * qrain(i)
+
+    ! Update heat capacity for rain -> ice transition
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * qrain(i)
+    lfrcp_moist = Lf_full / cpm(i)
+
+    t(i)     = t(i)   + lfrcp_moist * qrain(i)
     qrain(i) = zero
 
   end if ! T lt 0+thomo etc.
@@ -347,11 +369,19 @@ do i = 1, points
 
     end if
 
+    ! Update heat capacity for the following phase transitions
+    cpm(i) = cpm(i) - cpv_cpm * (dqi - dqil) - cl_cpm * dqil + ci_cpm * dqi
+
+    ! Latent heat terms
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+
+    lfrcp_moist = Lf_full / cpm(i)
+    lsrcp_moist = Ls_full / cpm(i)
+
+    ! Update moisture species
     qcl(i)  = qcl(i)-dqil
-    t(i)    = t(i)+lfrcp*dqil
-          ! If more ice is needed then the mass comes from vapour
-    dqi  = dqi-dqil
-    t(i) = t(i)+lsrcp*dqi
+    dqi  = dqi-dqil  ! If more ice is needed then the mass comes from vapour
     q(i) = q(i)-dqi
 
     ! Store phase changes for water tracer use
@@ -377,11 +407,11 @@ end do  ! Points
 if (l_het_freezing_rain) then
       ! Call heterogeneous freezing rain
   call lsp_het_freezing_rain(points, timestep,                                 &
-                qrain, qcf, qgraup, t,                                         &
+                qrain, qcf, qgraup, t, cpm,                                    &
                 cf, cff, rainfrac,                                             &
                 rain_liq, rain_mix, rain_ice,                                  &
                 rho, rhor, corr, dhir, rain_nofall,                            &
-                lfrcp, hettransfer2, one_over_tsi,                             &
+                hettransfer2, one_over_tsi,                                    &
                 cftransfer, cfftransfer, rf_transfer_diag                      &
                )
 end if  ! l_het_freezing_rain

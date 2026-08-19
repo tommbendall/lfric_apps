@@ -25,7 +25,7 @@ subroutine bm_ctl(                                                             &
 !      From convection diagnosis (only used if A05_4A)
  l_mixing_ratio,                                                               &
 !      Prognostic Fields
- t, cf, q, qcf, qcl,                                                           &
+ t, cf, q, qcf, qcl, qrain, qgraupel,                                          &
 !      Liquid and frozen ice cloud fractions
  cfl, cff,                                                                     &
  sskew, svar_turb, svar_bm, entzone,                                           &
@@ -40,8 +40,9 @@ use cloud_inputs_mod,      only: ice_fraction_method, cloud_top_temp,          &
                                  i_bm_ez_opt, i_bm_ez_orig, i_bm_ez_subcrit,   &
                                  i_bm_ez_entpar, turb_var_fac_bm, max_sigmas,  &
                                  min_sigx_ft, min_sigx_fac
-use planet_constants_mod,  only: g,r,lcrcp, kappa, repsilon,cp
-use water_constants_mod,   only: lc
+use planet_constants_mod,  only: g,r,kappa, repsilon,cpd => cp
+use water_constants_mod,   only: lc, tm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 use pc2_constants_mod,     only: bm_tiny
 use ereport_mod,           only: ereport
 use errormessagelength_mod,only: errormessagelength
@@ -152,13 +153,22 @@ real(kind=real_umphys) ::                                                      &
 !       On output: Temperature at processed levels (K).
 
 real(kind=real_umphys) ::                                                      &
-                      !, intent(out)
+                      !, intent(in)
+  qrain(         tdims%i_start:tdims%i_end,                                    &
+                 tdims%j_start:tdims%j_end,levels),                            &
+!       Rain mixing ratio, used for heat capacity calculation
+  qgraupel(      tdims%i_start:tdims%i_end,                                    &
+                 tdims%j_start:tdims%j_end,levels)
+!       Graupel mixing ratio, used for heat capacity calculation
+real(kind=real_umphys) ::                                                      &
+               !, intent(inout)
  cf(            tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,levels),                             &
 !       Cloud fraction at processed levels (decimal fraction).
    qcl(         tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,levels),                             &
 !       Cloud liquid water content at processed levels (kg per kg air).
+!       Used on input for EZ diagnosis and overwritten on output.
    cfl(         tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,levels),                             &
 !       Liquid cloud fraction at processed levels (decimal fraction).
@@ -185,7 +195,7 @@ real(kind=real_umphys) ::                                                      &
                 tdims%j_start:tdims%j_end,levels,3),                           &
    sd_modes(    tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,levels,3)
-!       Diagnostics of SL = T + g/cp z - Lc/cp qcl,  qw = q + qcl,
+!       Diagnostics of SL = T + g/cpd z - Lc/cpd qcl,  qw = q + qcl,
 !       RHt = qw / qsat(Tl), and local turbulent standard-deviation of RHt
 !       for the current level plus modes from above and below
 
@@ -196,14 +206,20 @@ integer :: errorstatus     !, intent(out)  0 if OK; 1 if bad arguments.
 real(kind=real_umphys) ::                                                      &
  alphal,                                                                       &
                       ! Local gradient of clausius-clapeyron
- alphl,                                                                        &
-                      ! repsilon*lc/r
  mux,                                                                          &
                       ! Local first moment of the s-distribution
  sigx ( tdims%i_start:tdims%i_end, 3 ),                                        &
                       ! Local unimodal turbulence-based variance
  alx,                                                                          &
                       ! Local latent-heat correction term
+ cpm,                                                                          &
+                      ! Local moist heat capacity
+ cpm_dag,                                                                      &
+                      ! Post-TL-conversion moist heat capacity
+ lrv0,                                                                         &
+                      ! Reference latent heat of vaporisation: lc + (cl-cpv)*tm
+ t_phys,                                                                       &
+                      ! Local physical temperature estimate for latent heat
  tlx,                                                                          &
                       ! Local liquid potential temperature
  qsl,                                                                          &
@@ -247,6 +263,13 @@ real ::                                                                        &
 !       Copy of initial t
 
 real(kind=real_umphys) ::                                                      &
+   cpm_dag_levs(tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,levels)
+!       Moist heat capacity with qcl treated as vapour, at each full level.
+!       Invariant while liquid condenses/evaporates; computed once at scheme
+!       entry and reused throughout instead of being rebuilt at each use site.
+
+real(kind=real_umphys) ::                                                      &
    qsl_lay(     tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,3),                                  &
 !       Liquid saturation specific humidity for bimodal cloud scheme on layers
@@ -262,6 +285,23 @@ real(kind=real_umphys) ::                                                      &
 !       Total water (vapour + liquid) for bimodal cloud scheme on layers
 !       (level 1 is bottom-of-EZ mode, level 2 is k-level to calculate cloud
 !       for and level 3 is mode from above inversion)
+   qv_lay_est(  tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,3),                                  &
+!       Estimated vapour mixing ratio for bimodal cloud scheme on layers
+   ql_lay_est(  tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,3),                                  &
+!       Estimated liquid mixing ratio for bimodal cloud scheme on layers
+   qrain_lay(   tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end),                                    &
+!       Rain mixing ratio for bimodal cloud scheme at current level
+   qgraupel_lay(tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end),                                    &
+!       Graupel mixing ratio for bimodal cloud scheme at current level
+   cpm_dag_lay( tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end,3),                                  &
+!       Cached moist heat capacity for each of the three modes (bottom of EZ,
+!       k-level of interest, top of EZ), computed once per mode per level and
+!       reused when the same mode's properties are needed again.
    tl_lay(      tdims%i_start:tdims%i_end,                                     &
                 tdims%j_start:tdims%j_end,3),                                  &
 !       Liquid water temperature for bimodal cloud scheme on layers
@@ -374,7 +414,7 @@ character(len=errormessagelength) :: comments
 ! ----------------------------------------------------------------------
 errorstatus=0
 
-alphl=repsilon*lc/r
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! ==Main Block==--------------------------------------------------------
 ! Subroutine structure :
@@ -391,13 +431,19 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL do                                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(none)                                                            &
-!$OMP SHARED(levels,tdims,q_in,t_in,q,t)                                       &
+!$OMP SHARED(levels,tdims,q_in,t_in,q,t,qcf,qrain,qgraupel,cpm_dag_levs,       &
+!$OMP        cpd,cpv_cpm,cl_cpm,ci_cpm)                                        &
 !$OMP private(k,j,i)
 do k = 1, levels
   do j = tdims%j_start, tdims%j_end
     do i = tdims%i_start, tdims%i_end
       q_in(i,j,k)       = q(i,j,k)
       t_in(i,j,k)       = t(i,j,k)
+      ! Moist heat capacity with qcl treated as vapour, invariant while
+      ! liquid condenses/evaporates; computed once here and reused
+      ! throughout the scheme instead of being rebuilt at each use site.
+      cpm_dag_levs(i,j,k) = cpd + cpv_cpm*q_in(i,j,k) + cl_cpm*qrain(i,j,k)    &
+                                + ci_cpm*(qcf(i,j,k) + qgraupel(i,j,k))
     end do
   end do
 end do
@@ -416,7 +462,7 @@ case ( i_bm_ez_orig, i_bm_ez_subcrit )
   ! Options using entrainment zone diagnosis on model-levels
 
   call  bm_ez_diagnosis( p_theta_levels,tgrad_bm,z_theta,ri_bm,zh,zhsc,dzh,    &
-                         bl_type_7,levels,t_in,q_in,                           &
+                         bl_type_7,levels,t_in,q_in,qcl,cpm_dag_levs,          &
                          l_mixing_ratio,kez_inv,kez_bottom,kez_top)
 
 case ( i_bm_ez_entpar )
@@ -459,11 +505,12 @@ end if
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED(levels,tdims,qcl,cfl,sskew,svar_turb,svar_bm,t_in,q_in,z_theta,   &
-!$OMP        p_theta_levels,svar_ini,l_mixing_ratio,g,cp,r,qcf,cff,cf,cfl_max, &
-!$OMP        lcrcp,kappa,repsilon,lcld,alphl,kez_top,kez_bottom,kez_inv,t,q,   &
+!$OMP        p_theta_levels,svar_ini,l_mixing_ratio,g,cpd,r,qcf,cff,cf,        &
+!$OMP        cfl_max,kappa,repsilon,lcld,kez_top,kez_bottom,kez_inv,t,q,       &
+!$OMP        qrain,qgraupel,qv_lay_est,ql_lay_est,cpm_dag_levs,                &
 !$OMP        tau_dec_bm,tau_hom_bm,tau_mph_bm,bl_w_var,l_bm_sigma_s_grad,      &
 !$OMP        i_bm_ez_opt, turb_var_fac_bm, mix_len_bm, max_sigmas,             &
-!$OMP        min_sigx_ft, min_sigx_fac,                                        &
+!$OMP        min_sigx_ft, min_sigx_fac, cpv_cpm, cl_cpm, ci_cpm, lrv0,         &
 !$OMP        tl_above, qt_above, wvar_above, tau_dec_above, tau_hom_above,     &
 !$OMP        dtldz_above, dqtdz_above,                                         &
 !$OMP        tl_below, qt_below, wvar_below, tau_dec_below, tau_hom_below,     &
@@ -472,8 +519,9 @@ end if
 !$OMP        sl_modes, qw_modes, rh_modes, sd_modes, entzone)                  &
 !$OMP private(j,i,k,kk,qsl,alphal,alx,qnx,tlx,mux,sigx,qc_points,idx,          &
 !$OMP         tl_lay,ql_lay,qsl_lay,qsi_lay,tdc_lay,inv_thm_lay,inv_tmp_lay,   &
-!$OMP         wvar_lay, qsl_v, qsi_v, km1, kp1, kkm1, kkp1,                    &
-!$OMP         dtldz_lay, dqtdz_lay, tmp, l_set_modes)
+!$OMP         wvar_lay,qsl_v,qsi_v,km1,kp1,kkm1,kkp1,                          &
+!$OMP         dtldz_lay,dqtdz_lay,tmp,cpm,cpm_dag,t_phys,l_set_modes,          &
+!$OMP         qrain_lay,qgraupel_lay,cpm_dag_lay)
 
 !$OMP do SCHEDULE(STATIC)
 do k = 1, levels
@@ -518,6 +566,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       ql_lay(i,j,1)      = 0.0
       qsl_lay(i,j,1)     = 0.0
       qsi_lay(i,j,1)     = 0.0
+      qv_lay_est(i,j,1)  = 0.0
+      ql_lay_est(i,j,1)  = 0.0
       tdc_lay(i,j,1)     = bm_tiny
       inv_thm_lay(i,j,1) = bm_tiny
       inv_tmp_lay(i,j,1) = bm_tiny
@@ -529,6 +579,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       ql_lay(i,j,3)      = 0.0
       qsl_lay(i,j,3)     = 0.0
       qsi_lay(i,j,3)     = 0.0
+      qv_lay_est(i,j,3)  = 0.0
+      ql_lay_est(i,j,3)  = 0.0
       tdc_lay(i,j,3)     = bm_tiny
       inv_thm_lay(i,j,3) = bm_tiny
       inv_tmp_lay(i,j,3) = bm_tiny
@@ -550,6 +602,10 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
 
       tl_lay(i,j,2)      = t_in(i,j,k)
       ql_lay(i,j,2)      = q_in(i,j,k)
+      qv_lay_est(i,j,2)  = q_in(i,j,k) - qcl(i,j,k)
+      ql_lay_est(i,j,2)  = qcl(i,j,k)
+      qrain_lay(i,j)     = qrain(i,j,k)
+      qgraupel_lay(i,j)  = qgraupel(i,j,k)
       tdc_lay(i,j,2)     = max(tau_dec_bm(i,j,k),bm_tiny)
       inv_thm_lay(i,j,2) = 1.0/max(tau_hom_bm(i,j,k),bm_tiny)
       inv_tmp_lay(i,j,2) = 1.0/max(tau_mph_bm(i,j,k),bm_tiny)
@@ -578,18 +634,27 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       qsl_lay(i,j,2) = qsl_v(i)
       qsi_lay(i,j,2) = qsi_v(i)
 
-      alphal = alphl * qsl_v(i) / (t_in(i,j,k) * t_in(i,j,k))
-      alx  = 1.0 / (1.0 + (lcrcp * alphal))
+      alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(t_in(i,j,k) - tm))         &
+             * qsl_v(i) / (r * t_in(i,j,k) * t_in(i,j,k))
+      ! Mode 2 (current level) moist heat capacity is exactly the invariant
+      ! full-level field computed once at scheme entry.
+      cpm_dag_lay(i,j,2) = cpm_dag_levs(i,j,k)
+      cpm_dag = cpm_dag_lay(i,j,2)
+      cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,2)
+      t_phys = (cpm_dag / cpm) * t_in(i,j,k)                                   &
+             + (lrv0 / cpm) * ql_lay_est(i,j,2)
+      alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                           &
+                  * (t_phys - tm)) / cpm) * alphal))
 
       if ( l_bm_sigma_s_grad ) then
         ! Account for local gradients in calculation of sigma_S
         sigx(i,2) = alx * sqrt(svar_ini(i,j,2))                                &
-                        * abs( alphal*( g/cp + dtldz_lay(i,j,2) )              &
+                        * abs( alphal*( g/cpd + dtldz_lay(i,j,2) )             &
                              - dqtdz_lay(i,j,2) ) * turb_var_fac_bm
       else
         ! Don't account for local gradients
         sigx(i,2) = alx * sqrt(svar_ini(i,j,2))                                &
-                        * alphal*g/cp * turb_var_fac_bm
+                        * alphal*g/cpd * turb_var_fac_bm
       end if
 
       ! Impose minimum variance
@@ -647,6 +712,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           end if
           tl_lay(i,j,3)      = tlx
           ql_lay(i,j,3)      = qt_above(i,j,k)
+          qv_lay_est(i,j,3)  = qt_above(i,j,k)
+          ql_lay_est(i,j,3)  = 0.0
           wvar_lay(i,j,3)    = max(wvar_above(i,j,k),bm_tiny)
           tdc_lay(i,j,3)     = max(tau_dec_above(i,j,k),bm_tiny)
           inv_thm_lay(i,j,3) = 1.0/max(tau_hom_above(i,j,k),bm_tiny)
@@ -665,6 +732,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           end if
           tl_lay(i,j,1)      = tlx
           ql_lay(i,j,1)      = qt_below(i,j,k)
+          qv_lay_est(i,j,1)  = qt_below(i,j,k)
+          ql_lay_est(i,j,1)  = 0.0
           wvar_lay(i,j,1)    = max(wvar_below(i,j,k),bm_tiny)
           tdc_lay(i,j,1)     = max(tau_dec_below(i,j,k),bm_tiny)
           inv_thm_lay(i,j,1) = 1.0/max(tau_hom_below(i,j,k),bm_tiny)
@@ -698,6 +767,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           end if
           tl_lay(i,j,3)      = tlx
           ql_lay(i,j,3)      = q_in(i,j,kk)
+          qv_lay_est(i,j,3)  = q_in(i,j,kk) - qcl(i,j,kk)
+          ql_lay_est(i,j,3)  = qcl(i,j,kk)
           wvar_lay(i,j,3)    = max(bl_w_var(i,j,kk),bm_tiny)
           tdc_lay(i,j,3)     = max(tau_dec_bm(i,j,kk),bm_tiny)
           inv_thm_lay(i,j,3) = 1.0/max(tau_hom_bm(i,j,kk),bm_tiny)
@@ -722,6 +793,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
           end if
           tl_lay(i,j,1)      = tlx
           ql_lay(i,j,1)      = q_in(i,j,kk)
+          qv_lay_est(i,j,1)  = q_in(i,j,kk) - qcl(i,j,kk)
+          ql_lay_est(i,j,1)  = qcl(i,j,kk)
           wvar_lay(i,j,1)    = max(bl_w_var(i,j,kk),bm_tiny)
           tdc_lay(i,j,1)     = max(tau_dec_bm(i,j,kk),bm_tiny)
           inv_thm_lay(i,j,1) = 1.0/max(tau_hom_bm(i,j,kk),bm_tiny)
@@ -747,18 +820,30 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
 
         ! Calculate dqs/dT
         qsl = qsl_lay(i,j,3)
-        alphal = alphl*qsl / (tl_lay(i,j,3)*tl_lay(i,j,3))
-        alx = 1.0 / (1.0 + (lcrcp * alphal))
+        alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,3) - tm))     &
+               * qsl / (r * tl_lay(i,j,3)*tl_lay(i,j,3))
+        ! Mode 3 (above inversion) moist heat capacity: mode-specific total
+        ! water combined with current-level rain/graupel/ice, cached for
+        ! reuse in the diagnostics block below.
+        cpm_dag_lay(i,j,3) = cpd + cpv_cpm*ql_lay(i,j,3)                       &
+                                 + cl_cpm*qrain_lay(i,j)                       &
+                                 + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        cpm_dag = cpm_dag_lay(i,j,3)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,3)
+        t_phys = (cpm_dag / cpm) * tl_lay(i,j,3)                               &
+               + (lrv0 / cpm) * ql_lay_est(i,j,3)
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
+               * (t_phys - tm)) / cpm) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
           ! Account for local gradients in calculation of sigma_S
           sigx(i,3) = alx * sqrt(svar_ini(i,j,3))                              &
-                          * abs( alphal*( g/cp + dtldz_lay(i,j,3) )            &
+                          * abs( alphal*( g/cpd + dtldz_lay(i,j,3) )           &
                                - dqtdz_lay(i,j,3) ) * turb_var_fac_bm
         else
           ! Don't account for local gradients
           sigx(i,3) = alx * sqrt(svar_ini(i,j,3))                              &
-                          * alphal*g/cp * turb_var_fac_bm
+                          * alphal*g/cpd * turb_var_fac_bm
         end if
         ! Impose minimum variance
         tmp = min_sigx_fac * max( ql_mean(i,j,k) - ql_lay(i,j,3), 0.0 )
@@ -775,18 +860,30 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         !--------------------------------------------------------------------
 
         qsl = qsl_lay(i,j,1)
-        alphal = alphl*qsl / (tl_lay(i,j,1)*tl_lay(i,j,1))
-        alx = 1.0 / (1.0 + (lcrcp * alphal))
+        alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,1) - tm))     &
+               * qsl / (r * tl_lay(i,j,1)*tl_lay(i,j,1))
+        ! Mode 1 (bottom of EZ) moist heat capacity: mode-specific total
+        ! water combined with current-level rain/graupel/ice, cached for
+        ! reuse in the diagnostics block below.
+        cpm_dag_lay(i,j,1) = cpd + cpv_cpm*ql_lay(i,j,1)                       &
+                                 + cl_cpm*qrain_lay(i,j)                       &
+                                 + ci_cpm*(qcf(i,j,k) + qgraupel_lay(i,j))
+        cpm_dag = cpm_dag_lay(i,j,1)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,1)
+        t_phys = (cpm_dag / cpm) * tl_lay(i,j,1)                               &
+               + (lrv0 / cpm) * ql_lay_est(i,j,1)
+        alx = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                          &
+               * (t_phys - tm)) / cpm) * alphal))
 
         if ( l_bm_sigma_s_grad ) then
           ! Account for local gradients in calculation of sigma_S
           sigx(i,1) = alx * sqrt(svar_ini(i,j,1))                              &
-                          * abs( alphal*( g/cp + dtldz_lay(i,j,1) )            &
+                          * abs( alphal*( g/cpd + dtldz_lay(i,j,1) )           &
                                - dqtdz_lay(i,j,1) ) * turb_var_fac_bm
         else
           ! Don't account for local gradients
           sigx(i,1) = alx * sqrt(svar_ini(i,j,1))                              &
-                          * alphal*g/cp * turb_var_fac_bm
+                          * alphal*g/cpd * turb_var_fac_bm
         end if
         ! Impose minimum variance
         tmp = min_sigx_fac * max( ql_mean(i,j,k) - ql_lay(i,j,1), 0.0 )
@@ -809,9 +906,18 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
       do i = tdims%i_start, tdims%i_end
 
         ! Copy properties of middle mode, from current level
-        alphal = alphl * qsl_lay(i,j,2) / (tl_lay(i,j,2) * tl_lay(i,j,2))
-        alx  = 1.0 / (1.0 + (lcrcp * alphal))
-        sl_modes(i,j,k,2) = tl_lay(i,j,2) + (g/cp) * z_theta(i,j,k)
+        alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,2) - tm))     &
+               * qsl_lay(i,j,2) / (r * tl_lay(i,j,2) * tl_lay(i,j,2))
+        ! Reuse mode 2 moist heat capacity cached above.
+        cpm_dag = cpm_dag_lay(i,j,2)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,2)
+        t_phys = (cpm_dag / cpm) * tl_lay(i,j,2)                               &
+               + (lrv0 / cpm) * ql_lay_est(i,j,2)
+        alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                         &
+              * (t_phys - tm)) / cpm) * alphal))
+        sl_modes(i,j,k,2) = tl_lay(i,j,2)                                      &
+          + (g*(1.0 + ql_lay(i,j,2) + qcf(i,j,k)                               &
+              + qrain_lay(i,j) + qgraupel_lay(i,j)) / cpm_dag) * z_theta(i,j,k)
         qw_modes(i,j,k,2) = ql_lay(i,j,2)
         rh_modes(i,j,k,2) = ql_lay(i,j,2) / qsl_lay(i,j,2)
         sd_modes(i,j,k,2) = sigx(i,2) / ( alx * qsl_lay(i,j,2) )
@@ -819,16 +925,34 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
         if ( l_set_modes(i) ) then
           ! Modes from above and below defined;
           ! Copy properties of mode from below
-          alphal = alphl * qsl_lay(i,j,1) / (tl_lay(i,j,1) * tl_lay(i,j,1))
-          alx  = 1.0 / (1.0 + (lcrcp * alphal))
-          sl_modes(i,j,k,1) = tl_lay(i,j,1) + (g/cp) * z_theta(i,j,k)
+          alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,1) - tm))   &
+                 * qsl_lay(i,j,1) / (r * tl_lay(i,j,1) * tl_lay(i,j,1))
+          ! Reuse mode 1 moist heat capacity cached above.
+          cpm_dag = cpm_dag_lay(i,j,1)
+          cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,1)
+          t_phys = (cpm_dag / cpm) * tl_lay(i,j,1)                             &
+                 + (lrv0 / cpm) * ql_lay_est(i,j,1)
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
+                  * (t_phys - tm)) / cpm) * alphal))
+          sl_modes(i,j,k,1) = tl_lay(i,j,1)                                    &
+            + (g*(1.0 + ql_lay(i,j,1) + qcf(i,j,k)                             &
+                + qrain_lay(i,j) + qgraupel_lay(i,j)) / cpm_dag) * z_theta(i,j,k)
           qw_modes(i,j,k,1) = ql_lay(i,j,1)
           rh_modes(i,j,k,1) = ql_lay(i,j,1) / qsl_lay(i,j,1)
           sd_modes(i,j,k,1) = sigx(i,1) / ( alx * qsl_lay(i,j,1) )
           ! Copy properties of mode from above
-          alphal = alphl * qsl_lay(i,j,3) / (tl_lay(i,j,3) * tl_lay(i,j,3))
-          alx  = 1.0 / (1.0 + (lcrcp * alphal))
-          sl_modes(i,j,k,3) = tl_lay(i,j,3) + (g/cp) * z_theta(i,j,k)
+          alphal = repsilon * (lc - (cl_cpm - cpv_cpm)*(tl_lay(i,j,3) - tm))   &
+                 * qsl_lay(i,j,3) / (r * tl_lay(i,j,3) * tl_lay(i,j,3))
+          ! Reuse mode 3 moist heat capacity cached above.
+          cpm_dag = cpm_dag_lay(i,j,3)
+          cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_lay_est(i,j,3)
+          t_phys = (cpm_dag / cpm) * tl_lay(i,j,3)                             &
+                 + (lrv0 / cpm) * ql_lay_est(i,j,3)
+          alx  = 1.0 / (1.0 + (((lc - (cl_cpm - cpv_cpm)                       &
+                      * (t_phys - tm)) / cpm) * alphal))
+          sl_modes(i,j,k,3) = tl_lay(i,j,3)                                    &
+            + (g*(1.0 + ql_lay(i,j,3) + qcf(i,j,k)                             &
+                + qrain_lay(i,j) + qgraupel_lay(i,j)) / cpm_dag) * z_theta(i,j,k)
           qw_modes(i,j,k,3) = ql_lay(i,j,3)
           rh_modes(i,j,k,3) = ql_lay(i,j,3) / qsl_lay(i,j,3)
           sd_modes(i,j,k,3) = sigx(i,3) / ( alx * qsl_lay(i,j,3) )
@@ -887,6 +1011,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
                   qsl_lay(:,:,:),                                              &
                   qsi_lay(:,:,:),                                              &
                   ql_lay(:,:,:),                                               &
+                  qv_lay_est(:,:,:),                                           &
+                  ql_lay_est(:,:,:),                                           &
                   tl_lay(:,:,:),                                               &
                   inv_thm_lay(:,:,:),                                          &
                   tdc_lay(:,:,:),                                              &
@@ -896,7 +1022,8 @@ do k = levels, 1, -1  ! this loop needs to work downwards for the calculation
                   qcl(1,1,k),qcf(1,1,k),cfl(1,1,k),cff(1,1,k),cf(1,1,k),       &
                   cfl_max(1,1),q(1,1,k),t(1,1,k),                              &
                   sskew(1,1,k),svar_turb(1,1,k),svar_bm(1,1,k),                &
-                  idx,qc_points,l_mixing_ratio )
+                  idx,qc_points,l_mixing_ratio,                                &
+                  cpm_dag_lay(:,:,:) )
 
   end if ! Qc_points_if
 

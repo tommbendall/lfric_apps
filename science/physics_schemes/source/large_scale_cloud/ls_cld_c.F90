@@ -19,17 +19,18 @@ contains
 !  Large-scale Cloud Scheme Compression routine (Cloud points only).
 ! Subroutine Interface:
 subroutine ls_cld_c(                                                           &
- p_f,rhcrit,qsl_f,qn_f,q_f,t_f,                                                &
- qcl_f,cf_f,grid_qc_f,bs_f,                                                    &
+ p_f,rhcrit,qsl_f,qn_f,q_f,qv_l_est_f,ql_l_est_f,t_f,                          &
+ cpm_dag_f,qcl_f,cf_f,grid_qc_f,bs_f,                                          &
  indx,points,rhc_row_length,rhc_rows,                                          &
  bl_levels,k, l_mixing_ratio)
 
-use water_constants_mod,  only: lc
-use planet_constants_mod, only: lcrcp, r, repsilon
+use water_constants_mod,  only: lc, tm
+use planet_constants_mod, only: r, repsilon
 use yomhook,              only: lhook, dr_hook
 use parkind1,             only: jprb, jpim
 use atm_fields_bounds_mod,only: tdims
 use cloud_inputs_mod,     only: i_eacf, all_clouds
+use lsc_cpm_mod,          only: cpv_cpm, cl_cpm
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
 implicit none
@@ -78,6 +79,22 @@ real(kind=real_umphys) ::                                                      &
                   tdims%j_start:tdims%j_end)
 !       Normalised super/subsaturation ( = QC/BS).
 
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+ qv_l_est_f(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end),                                  &
+!       Estimated vapour mixing ratio for this level.
+ ql_l_est_f(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end)
+!       Estimated liquid mixing ratio for this level.
+
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+ cpm_dag_f(     tdims%i_start:tdims%i_end,                                     &
+                tdims%j_start:tdims%j_end)
+!       Moist heat capacity with qcl treated as vapour:
+!       cpd + qw*cpv_cpm + qrain*cl_cpm + (qcf+qgraupel)*ci_cpm
+
 logical ::                                                                     &
                       !, intent(in)
  l_mixing_ratio   !  Use mixing ratio formulation
@@ -125,6 +142,18 @@ real(kind=real_umphys) ::                                                      &
                        ! LOCAL AL (see equation P292.6).
  alphal,                                                                       &
                        ! LOCAL ALPHAL (see equation P292.5).
+ Lc_full,                                                                      &
+                       ! Temperature-dependent latent heat of condensation
+ cpm,                                                                          &
+                       ! Moist air heat capacity at constant pressure
+ lcrcp_moist,                                                                  &
+                       ! L_con / cp_moist
+ cpm_dag,                                                                      &
+                       ! Modified heat capacity for TL/T conversion
+ lrv0,                                                                         &
+                       ! Reference latent heat for TL/T conversion
+ t_phys,                                                                       &
+                       ! Estimated physical temperature derived from TL
  qn_adj,                                                                       &
  rhcritx          ! scalar copy of RHCRIT(I,J)
 integer ::                                                                     &
@@ -172,6 +201,7 @@ else
   multrhc = 0
 end if
 alphl=repsilon*lc/r
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 !        RHCRITX = RHCRIT(1,1)
 ! Points_do1:
@@ -191,8 +221,13 @@ do i = 1, points
   !    CAUTION: Q_F acts as QW (input value) until update in final section
   ! ----------------------------------------------------------------------
 
-  alphal = alphl * qsl_f(ii,ij) / (t_f(ii,ij) * t_f(ii,ij)) !P292.5
-  al = 1.0 / (1.0 + (lcrcp * alphal))                    ! P292.6
+  cpm_dag = cpm_dag_f(ii,ij)
+  cpm = cpm_dag - (cpv_cpm - cl_cpm) * ql_l_est_f(ii,ij)
+  t_phys = (cpm_dag / cpm) * t_f(ii,ij) + (lrv0 / cpm) * ql_l_est_f(ii,ij)
+  Lc_full = lc - (cl_cpm - cpv_cpm) * (t_phys - tm)
+  lcrcp_moist = Lc_full / cpm
+  alphal = repsilon * Lc_full * qsl_f(ii,ij) / (r * t_f(ii,ij) * t_f(ii,ij))
+  al = 1.0 / (1.0 + (lcrcp_moist * alphal))
   alphal_nm1(i) = alphal
 
   ! Rhcrit_if1:
@@ -268,7 +303,12 @@ do i = 1, points
   ! 3.3 Calculate 1st approx. to temperature, adjusting for latent heating
   ! ----------------------------------------------------------------------
 
-  t(i) = t_f(ii,ij) + lcrcp*qcl_f(ii,ij)
+  ! Recover T from TL using the exact moist formula:
+  ! T = (cpm_dag/cpm)*TL + (lrv0/cpm)*qcl
+  ! cpm_dag treats qcl as vapour
+  cpm_dag = cpm_dag_f(ii,ij)
+  cpm = cpm_dag - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
+  t(i) = (cpm_dag/cpm)*t_f(ii,ij) + (lrv0/cpm)*qcl_f(ii,ij)
 end do ! Points_do1
 
 ! ----------------------------------------------------------------------
@@ -302,7 +342,10 @@ if (its  >=  2) then
         alphal = (qs - qsl_f(ii,ij)) / (t(i) - t_f(ii,ij))
         alphal = wtn * alphal + (1.0 - wtn) * alphal_nm1(i)
         alphal_nm1(i) = alphal
-        al = 1.0 / (1.0 + (lcrcp * alphal))
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
+        cpm = cpm_dag_f(ii,ij) - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
+        lcrcp_moist = Lc_full / cpm
+        al = 1.0 / (1.0 + (lcrcp_moist * alphal))
         ! Rhcrit_if2:
         if (rhcritx  <   1.0) then
           bs(i) = (1.0-rhcritx) * al * qsl_f(ii,ij)
@@ -327,8 +370,12 @@ if (its  >=  2) then
         ! 4.3 Calculate Nth approx. to temperature, adjusting for latent heating
         ! ----------------------------------------------------------------------
 
-        t(i) = t_f(ii,ij) + lcrcp * qcl_f(ii,ij)
-
+        ! Recover T from TL using the exact moist formula:
+        ! T = (cpm_dag/cpm)*TL + (lrv0/cpm)*qcl
+        ! cpm_dag treats qcl as vapour
+        cpm_dag = cpm_dag_f(ii,ij)
+        cpm = cpm_dag - (cpv_cpm - cl_cpm) * qcl_f(ii,ij)
+        t(i) = (cpm_dag/cpm)*t_f(ii,ij) + (lrv0/cpm)*qcl_f(ii,ij)
       end if ! T_if
     end do ! Points_do2
   end do ! Its_do

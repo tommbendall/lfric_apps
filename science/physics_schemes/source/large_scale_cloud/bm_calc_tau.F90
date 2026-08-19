@@ -12,11 +12,12 @@ character(len=*), parameter, private ::                                        &
 
 contains
 
-subroutine bm_calc_tau( q, theta, exner_theta, qcf, bl_levels,                 &
-                        cff, p_theta_levels, bl_w_var,                         &
+subroutine bm_calc_tau( q, qcf, qcf2, ql_tot_in, qi_tot_in, cpm,               &
+                        theta, exner_theta, bl_levels, cff, p_theta_levels,    &
+                        bl_w_var,                                              &
                         elm, mix_len_bm, rho_dry, rho_moist,                   &
                         icenumber, snownumber,                                 &
-                        tau_dec, tau_hom, tau_mph, qcf2)
+                        tau_dec, tau_hom, tau_mph)
 
 !Microphysics modules
 use mphys_constants_mod,   only: cx, constp, mp_smallnum, mp_one_third
@@ -33,7 +34,8 @@ use stochastic_physics_run_mod, only: l_rp2, i_rp_scheme, i_rp2b,              &
 use gen_phys_inputs_mod,   only: l_mr_physics
 use conversions_mod,       only: pi
 use water_constants_mod,   only: lc, lf, tm
-use planet_constants_mod,  only: cp, repsilon, rv, pref
+use planet_constants_mod,  only: repsilon, rv, pref
+use lsp_cpm_mod,           only: cpv_cpm, ci_cpm
 
 ! Grid bounds module
 use atm_fields_bounds_mod, only: tdims,tdims_l,tdims_s
@@ -89,6 +91,19 @@ real, intent(in) ::  qcf2(tdims_l%i_start:tdims_l%i_end,                       &
                          tdims_l%j_start:tdims_l%j_end,                        &
                                          tdims_l%k_end)
 !                    Cloud ice content (kg per kg air)
+real, intent(in) ::  ql_tot_in(tdims_l%i_start:tdims_l%i_end,                  &
+                               tdims_l%j_start:tdims_l%j_end,                  &
+                               tdims_l%k_start:tdims_l%k_end)
+!                    Total liquid content used for moist heat capacity (kg/kg)
+real, intent(in) ::  qi_tot_in(tdims_l%i_start:tdims_l%i_end,                  &
+                               tdims_l%j_start:tdims_l%j_end,                  &
+                               tdims_l%k_start:tdims_l%k_end)
+!                    Total ice content used for moist heat capacity (kg/kg)
+
+real, intent(in) ::  cpm(tdims_l%i_start:tdims_l%i_end,                        &
+                         tdims_l%j_start:tdims_l%j_end,                        &
+                         tdims_l%k_start:tdims_l%k_end)
+!                    Moist-air specific heat at constant pressure (J/kg/K)
 
 real, intent(in) ::  cff(tdims_l%i_start:tdims_l%i_end,                        &
                          tdims_l%j_start:tdims_l%j_end,                        &
@@ -177,6 +192,7 @@ real :: p_corr           ! pressure correction for diffusivity
 real :: qsi
 real :: qkw              ! 3 x vertical velocity variance
 real :: dissp            ! Eddy dissipation rate
+real :: Ls_full          ! Temperature-dependent latent heat of sublimation
 
 integer :: i             ! Loop counter in x direction
 integer :: j             ! Loop counter in y direction
@@ -296,15 +312,15 @@ end if
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP private(k,j,i,t_corr,ka,bi,ai,ei,dv,p_corr,b0,qsi,qkw,dissp,             &
-!$OMP         lami,lams,mix_len)                                               &
+!$OMP         lami,lams,mix_len,Ls_full)                                       &
 !$OMP SHARED(tdims,q,theta,rho_dry,rho_moist,cff_inv,l_mr_physics,tau_mph,     &
 !$OMP        cff,qcf,q_local2d,qcf_local2d,t_local2d,rho_air,repsilon,         &
-!$OMP        cp,constp,pref,p_theta_levels,cx,bl_w_var,                        &
+!$OMP        constp,pref,p_theta_levels,cx,bl_w_var,                           &
 !$OMP        elm,mix_len_bm,tau_dec,tau_hom,exner_theta,bl_levels,             &
 !$OMP        l_casim, qcf2, icenumber_cas, snownumber_cas, spcx,spdx,ipcx,ipdx,&
 !$OMP        mp_czero,mp_tau_lim, ni_small, gam_1_imu_id, gam_1_imu, imu,      &
 !$OMP        ns_small, gam_1_smu_sd, gam_1_smu, smu, qi_small, qs_small,       &
-!$OMP        i_bm_ez_opt, mom1)
+!$OMP        i_bm_ez_opt, mom1, ql_tot_in, qi_tot_in,cpv_cpm,ci_cpm,cpm)
 do k = 1, bl_levels
   do j = tdims%j_start, tdims%j_end
 !$OMP do SCHEDULE(STATIC)
@@ -419,11 +435,13 @@ do k = 1, bl_levels
         dv = air_diffusivity0 * t_corr * p_corr
         ka = air_conductivity0 * t_corr
 
-        bi = 1.0 / q_local2d(i,j) + (Lc+Lf)**2 /                               &
-             (cp * rv * t_local2d(i,j) ** 2)
+        Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
 
-        ai = 1.0 / (rhoi *(Lc+Lf)**2 / (ka*rv*t_local2d(i,j)**2) +             &
-                  rhoi * rv * t_local2d(i,j) / (ei*dv))
+        bi = 1.0 / q_local2d(i,j) + Ls_full**2 /                               &
+             (cpm(i,j,k) * rv * t_local2d(i,j) ** 2)
+
+        ai = 1.0 / (rhoi * Ls_full**2 / (ka*rv*t_local2d(i,j)**2) +            &
+             rhoi * rv * t_local2d(i,j) / (ei*dv))
 
         if (.not. l_casim) then
           b0 = 4.0 * pi * constp(35) * rhoi * Ai / rho_air(i,j)

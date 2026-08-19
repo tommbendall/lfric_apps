@@ -15,6 +15,7 @@ casim:
     - src/aggregation.F90
     - src/autoconversion.F90
     - src/breakup.F90
+    - src/casim_cpm_mod.F90
     - src/casim_moments_mod.F90
     - src/casim_parent.F90
     - src/casim_reflec_mod.F90

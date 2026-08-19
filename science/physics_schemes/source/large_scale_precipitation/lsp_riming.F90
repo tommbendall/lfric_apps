@@ -28,14 +28,15 @@ contains
 subroutine lsp_riming(                                                         &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  qcl, qcf, t,                                                                 &
-                                          ! Water contents and temp
+  q, qcl, qcf, t, cpm,                                                         &
+                                          ! Water contents, temp and moist
+                                          ! heat capacity
   area_liq, area_mix, cfliq, cficei,                                           &
                                           ! Cloud fraction information
                                           ! at start of microphysics ts
   rho, m0, tcg, tcgi, corr, ice_nofall,                                        &
                                           ! Parametrization information
-  lfrcp , ice_type,                                                            &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -51,7 +52,7 @@ subroutine lsp_riming(                                                         &
 ! Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: cx, constp,qclmin_rime, area_ratio_prefac,               &
                                area_ratio_expn, zerodegc,                      &
-                               one
+                               one, lf, tm
 
   ! Microphysics modules
 use mphys_constants_mod, only: ice_type_offset
@@ -61,6 +62,8 @@ use science_fixes_mod,   only: l_fix_riming
 
 use um_types,            only: real_lsprec
 
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
 use wtrac_mphys_mod,         only: mp_cpr_old_wtrac_type
@@ -114,6 +117,8 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
+  q(points),                                                                   &
+                        ! Vapour content / kg kg-1
   area_liq(points),                                                            &
                         ! Fraction of gridbox with liquid-only cloud
   area_mix(points),                                                            &
@@ -134,9 +139,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                           ! Fall velocity correction factor (no units)
     ice_nofall(points),                                                        &
                           ! Fraction of qcf that is not falling out
-    lfrcp,                                                                     &
-                          ! Latent heat of fusion
-                          ! / heat capacity of air / K
     one_over_tsi
                           ! 1/(timestep*iterations)
 
@@ -147,6 +149,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Ice water content    / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   ptransfer(points) ! Mass rimed in this timestep / kg kg-1
 
 logical, intent(in) ::                                                         &
@@ -197,6 +201,13 @@ real (kind=real_lsprec) :: qcl_min_threshold
 
 ! Amount of qcf that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Lf_full,                                                                     &
+                        ! Temperature-dependent latent heat of fusion
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
 
 ! Threshold cloud-fraction below-which to skip riming
 real (kind=real_lsprec), parameter :: cloud_tol_riming = 0.001_real_lsprec
@@ -352,7 +363,15 @@ do i = 1, points
         ! Update water contents
         !-----------------------------------------------
     qcf(i) = qcf(i) + dqi
-    t(i)   = t(i) + lfrcp * dqi
+
+    ! Update heat capacity for liquid -> ice phase transition
+    cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * dqi
+
+    ! Calculate variable latent heats
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    lfrcp_moist = Lf_full / cpm(i)
+
+    t(i)   = t(i) + lfrcp_moist * dqi
     qcl(i) = qclnew
     if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = dqi
 
@@ -369,14 +388,15 @@ end subroutine lsp_riming
 subroutine lsp_riming_sphere(                                                  &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  qcl, qcf, t,                                                                 &
-                                          ! Water contents and temp
+  q, qcl, qcf, t, cpm,                                                         &
+                                          ! Water contents, temp and moist
+                                          ! heat capacity
   area_liq, area_mix, cfliq, cficei,                                           &
                                           ! Cloud fraction information
                                           ! at start of microphysics ts
   rho, m0, tcg, tcgi, corr, ice_nofall,                                        &
                                           ! Parametrization information
-  lfrcp , ice_type,                                                            &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -387,7 +407,7 @@ subroutine lsp_riming_sphere(                                                  &
   l_use_agg_vt                                                                 &
   )
 
-use lsprec_mod,         only: cx, constp, zerodegc, zero
+use lsprec_mod,         only: cx, constp, zerodegc, zero, lf, tm
 
   ! Microphysics modules
 use mphys_constants_mod, only: ice_type_offset
@@ -398,6 +418,9 @@ use mphys_inputs_mod,    only: l_diff_icevt
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,             only: lhook, dr_hook
@@ -444,6 +467,8 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
+  q(points),                                                                   &
+                        ! Vapour content / kg kg-1
   area_liq(points),                                                            &
                         ! Fraction of gridbox with liquid-only cloud
   area_mix(points),                                                            &
@@ -464,9 +489,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                           ! Fall velocity correction factor (no units)
     ice_nofall(points),                                                        &
                           ! Fraction of ice mass that is not falling out
-    lfrcp,                                                                     &
-                          ! Latent heat of fusion
-                          ! / heat capacity of air / K
     one_over_tsi
                           ! 1/(timestep*iterations)
 
@@ -477,6 +499,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Ice water content    / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   ptransfer(points) ! Mass rimed in this timestep / kg kg-1
 
 logical, intent(in) ::                                                         &
@@ -504,6 +528,13 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Ice mass that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Lf_full,                                                                     &
+                        ! Temperature-dependent latent heat of fusion
+  lfrcp_moist
+                        ! Temperature-dependent ratio of L_fus to cp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
@@ -602,7 +633,14 @@ do i = 1, points
         ! Update water contents
         !-----------------------------------------------
     qcf(i) = qcf(i) + dqi
-    t(i)   = t(i) + lfrcp * dqi
+
+    ! Update heat capacity for liquid -> ice phase transition
+    cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * dqi
+
+    ! Calculate variable latent heat
+    Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
+    lfrcp_moist = Lf_full / cpm(i)
+    t(i)   = t(i) + lfrcp_moist * dqi
     qcl(i) = qclnew
 
   end if ! qcf_nofall(i) >  m0 etc.
@@ -615,13 +653,13 @@ end subroutine lsp_riming_sphere
 
 
 subroutine lsp_riming_graupel( points, timestep_mp, one_over_tsi,              &
-                               qrain, qcl, qgraup, t, cfliq,                   &
+                               q, qrain, qcl, qgraup, t, cpm, cfliq,           &
                                rho, tcgg, tcggi, corr, pgacw,                  &
                                rainfraci, rain_liq, rain_mix, graup_nofall,    &
                                dqprec_liq, dqprec_mix, precfrac_k )
 
 use um_types,         only: real_lsprec
-use lsprec_mod,       only: zero, one, m0, lfrcp, small_number
+use lsprec_mod,       only: zero, one, m0, small_number
 use mphys_inputs_mod, only: not_generic_size_dist, i_update_precfrac,          &
                             i_homog_areas, i_sg_correl
 use lsp_combine_precfrac_mod, only: lsp_combine_precfrac
@@ -640,6 +678,7 @@ real (kind=real_lsprec), intent(in) :: timestep_mp
 real (kind=real_lsprec), intent(in) :: one_over_tsi
 
 ! Rain water content
+real (kind=real_lsprec), intent(in) :: q(points)
 real (kind=real_lsprec), intent(in) :: qrain(points)
 ! Grid-mean liquid cloud mass
 real (kind=real_lsprec), intent(in out) :: qcl(points)
@@ -647,6 +686,8 @@ real (kind=real_lsprec), intent(in out) :: qcl(points)
 real (kind=real_lsprec), intent(in out) :: qgraup(points)
 ! Temperature
 real (kind=real_lsprec), intent(in out) :: t(points)
+! Moist-air heat capacity at constant pressure (J/kg/K)
+real (kind=real_lsprec), intent(in out) :: cpm(points)
 ! Liquid cloud fraction
 real (kind=real_lsprec), intent(in) :: cfliq(points)
 
@@ -727,9 +768,9 @@ end do
 
 ! Call riming routine
 call lsp_riming_sphere(points, timestep_mp,                                    &
-                       qcl, qgraup, t,                                         &
+                       q, qcl, qgraup, t, cpm,                                 &
                        cfliq_norim, cfliq_rim, cfliq, rainfraci,               &
-                       rho, m0, tcgg, tcggi, corr, graup_nofall, lfrcp, 3,     &
+                       rho, m0, tcgg, tcggi, corr, graup_nofall, 3,            &
                        not_generic_size_dist,                                  &
                        pgacw, one_over_tsi,                                    &
                        l_use_agg_vt                                            &

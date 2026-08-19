@@ -23,12 +23,15 @@ module bm_tau_kernel_mod
   !>
   type, public, extends(kernel_type) :: bm_tau_kernel_type
     private
-    type(arg_type) :: meta_args(16) = (/                &
+      type(arg_type) :: meta_args(19) = (/              &
          arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! m_v
-         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! theta_in_wth
-         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! exner_in_wth
+         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! m_cl
+         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! m_r
          arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! m_ci
          arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! m_s
+         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! m_g
+         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! theta_in_wth
+         arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! exner_in_wth
          arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! ns_mphys
          arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! ni_mphys
          arg_type(GH_FIELD, GH_REAL, GH_READ,  WTHETA), & ! cf_ice
@@ -57,10 +60,13 @@ contains
   !>          cloud scheme, as described in UMDP39
   !> @param[in]     nlayers       Number of layers
   !> @param[in]     m_v           Vapour mixing ratio in wth
-  !> @param[in]     theta_in_wth  Predicted theta in its native space
-  !> @param[in]     exner_in_wth  Exner Pressure in the theta space
+  !> @param[in]     m_cl          Liquid cloud mixing ratio in wth
+  !> @param[in]     m_r           Rain mixing ratio in wth
   !> @param[in]     m_ci          Cloud ice mixing ratio in wth
   !> @param[in]     m_s           Snow mixing ratio in wth
+  !> @param[in]     m_g           Graupel mixing ratio in wth
+  !> @param[in]     theta_in_wth  Predicted theta in its native space
+  !> @param[in]     exner_in_wth  Exner Pressure in the theta space
   !> @param[in]     ns_mphys      Cloud ice number mixing ratio in wth
   !> @param[in]     ni_mphys      Snow number mixing ratio in wth
   !> @param[in]     cf_ice        Ice cloud fraction
@@ -79,10 +85,13 @@ contains
   subroutine bm_tau_code(nlayers,       &
                          seg_len,       &
                          m_v,           &
-                         theta_in_wth,  &
-                         exner_in_wth,  &
+                         m_cl,          &
+                         m_r,           &
                          m_ci,          &
                          m_s,           &
+                         m_g,           &
+                         theta_in_wth,  &
+                         exner_in_wth,  &
                          ns_mphys,      &
                          ni_mphys,      &
                          cf_ice,        &
@@ -106,9 +115,10 @@ contains
     ! Other modules containing stuff passed to CLD
     use cloud_config_mod,     only: bm_ez_opt, bm_ez_opt_entpar
     use nlsizes_namelist_mod, only: bl_levels
-    use planet_constants_mod, only: p_zero, kappa
+    use planet_constants_mod, only: p_zero, kappa, cpd => cp
     use microphysics_config_mod, only: microphysics_casim
     use bm_calc_tau_mod,      only: bm_calc_tau
+    use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
     use variable_precision,   only: wp
 
     implicit none
@@ -128,8 +138,11 @@ contains
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: exner_in_wth
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: theta_in_wth
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_v
+    real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_cl
+    real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_r
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_ci
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_s
+    real(kind=r_def),    intent(in),    dimension(undf_wth) :: m_g
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: ns_mphys
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: ni_mphys
     real(kind=r_def),    intent(in),    dimension(undf_wth) :: cf_ice
@@ -143,9 +156,9 @@ contains
     integer(i_um) :: k, i
 
     ! profile fields from level 1 upwards
-    real(r_um), dimension(seg_len,1,nlayers) :: cff, q, theta, qcf, qcf2,      &
-         rho_dry_theta, rho_wet_tq, exner_theta_levels, wvar_in, mix_len_in,   &
-         tau_dec_out, tau_hom_out, tau_mph_out
+    real(r_um), dimension(seg_len,1,nlayers) :: cff, q, ql_tot_in, qi_tot_in,  &
+          theta, qcf, qcf2, rho_dry_theta, rho_wet_tq, exner_theta_levels,     &
+          wvar_in, mix_len_in, tau_dec_out, tau_hom_out, tau_mph_out, cpm_work
 
     real(r_um), dimension(seg_len,1,bl_levels) :: elm_in
 
@@ -175,6 +188,11 @@ contains
         theta(i,1,k) = theta_in_wth(map_wth(1,i) + k)
         exner_theta_levels(i,1,k) = exner_in_wth(map_wth(1,i)+ k)
         q(i,1,k) =  m_v(map_wth(1,i) + k)
+        ql_tot_in(i,1,k) = m_cl(map_wth(1,i) + k) + m_r(map_wth(1,i) + k)
+        qi_tot_in(i,1,k) = m_s(map_wth(1,i) + k) + m_g(map_wth(1,i) + k) + m_ci(map_wth(1,i) + k)
+        ! moist-air specific heat at constant pressure
+        cpm_work(i,1,k) = cpd + cpv_cpm * q(i,1,k)                             &
+                        + cl_cpm * ql_tot_in(i,1,k) + ci_cpm * qi_tot_in(i,1,k)
         ! cloud fields
         cff(i,1,k) = cf_ice(map_wth(1,i) + k)
         ! turbulence fields
@@ -206,10 +224,11 @@ contains
       end do
     end do
 
-    call bm_calc_tau(q, theta, exner_theta_levels, qcf, bl_levels, cff, &
-                    p_theta_levels, wvar_in, elm_in, mix_len_in, rho_dry_theta,&
-                    rho_wet_tq, icenumber, snownumber, tau_dec_out,     &
-                    tau_hom_out, tau_mph_out, qcf2)
+    call bm_calc_tau(q, qcf, qcf2, ql_tot_in, qi_tot_in, cpm_work, theta,      &
+                     exner_theta_levels, bl_levels, cff, p_theta_levels,       &
+                     wvar_in, elm_in, mix_len_in, rho_dry_theta, rho_wet_tq,   &
+                     icenumber, snownumber, tau_dec_out, tau_hom_out,          &
+                     tau_mph_out)
 
     ! update output fields
     !-----------------------------------------------------------------------

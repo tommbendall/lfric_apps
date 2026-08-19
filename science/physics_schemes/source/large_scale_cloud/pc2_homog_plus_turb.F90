@@ -23,7 +23,7 @@ subroutine pc2_homog_plus_turb(                                                &
 !   Timestep
  timestep,                                                                     &
 !   Prognostic Fields
- t, cf, cfl, cff, q, qcl,                                                      &
+ t, cf, cfl, cff, q, qcl, qrain, qcf, qgraupel,                                &
 !   Forcing quantities for driving the homogeneous forcing
  dtdt, dqdt, dldt, dpdt,                                                       &
 !   Other quantities for the turbulence
@@ -31,8 +31,8 @@ subroutine pc2_homog_plus_turb(                                                &
 !   Model switches
  l_mixing_ratio)
 
-use water_constants_mod,   only: lc
-use planet_constants_mod,  only: lcrcp, r, repsilon
+use water_constants_mod,   only: lc, tm
+use planet_constants_mod,  only: lcrcp, r, repsilon, cpd => cp
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
 use atm_fields_bounds_mod, only: pdims, tdims
@@ -42,6 +42,7 @@ use pc2_constants_mod,     only: dbsdtbs_exp, pdf_power,                       &
                                  i_pc2_homog_g_rev
 use cloud_inputs_mod,      only: l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph,     &
                                  i_pc2_homog_g_method
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 use science_fixes_mod,     only: l_pc2_homog_turb_q_neg
 use qsat_mod,              only: qsat_wat, qsat_wat_mix
 use pc2_total_cf_mod,      only: pc2_total_cf
@@ -144,6 +145,25 @@ real(kind=real_umphys) ::                                                      &
        nlevels)
 !    Liquid content (kg water per kg air)
 
+real(kind=real_umphys) ::                                                      &
+               !, intent(in)
+   qrain(         tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  nlevels),                                                    &
+!    Rain water content (kg water per kg air)
+
+               !, intent(in)
+   qcf(           tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  nlevels),                                                    &
+!    Frozen condensate content (kg water per kg air)
+
+               !, intent(in)
+   qgraupel(      tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  nlevels)
+!    Graupel content (kg water per kg air)
+
 !    External functions:
 
 !    Local parameters and other physical constants-----------------------
@@ -181,6 +201,17 @@ real(kind=real_umphys) ::                                                      &
                 ! (1-CFL(i,j,k))**PDF_MERGE_POWER
  qc,                                                                           &
                 ! aL (q + l - qsat(TL) )  (kg kg-1)
+ Lc_full,                                                                      &
+                ! Temperature-dependent latent heat of condensation (J/kg)
+ cpm,                                                                          &
+                ! Moist-air specific heat at constant pressure (J/kg/K)
+ cpm_dag,                                                                      &
+                ! Modified moist heat capacity for TL/T conversion:
+                ! cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
+ lrv0,                                                                         &
+                ! Reference latent heat of vaporisation: lc + (cl_cpm - cpv_cpm)*tm (J/kg)
+ lcrcp_moist,                                                                  &
+                ! L_con / cp_moist (K)
  sd             ! Saturation deficit (= aL (q - qsat(T)) )  (kg kg-1)
 
 ! Variables for PDF integral method
@@ -252,6 +283,7 @@ character(len=*), parameter :: RoutineName='PC2_HOMOG_PLUS_TURB'
 
 if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 
 ! ==Main Block==--------------------------------------------------------
 
@@ -264,7 +296,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP  j, k, c_1, deltacl_c, cfl_to_m, sky_to_m,                               &
 !$OMP  sde, cfc, s1, s2, cfl1, cfc1, qcl1, sde1, cfl2, cfc2, qcl2, sde2,       &
 !$OMP  w1, w2, dqcfac, cfl_diff, qcl_diff, a_coef, b_coef, c_coef, qsl_new,    &
-!$OMP  alpha_lcrcp, p2al )
+!$OMP  alpha_lcrcp, p2al, Lc_full, cpm, cpm_dag, lcrcp_moist)
 do k = 1, nlevels
 
   ! Copy points into compressed arrays
@@ -293,6 +325,14 @@ do k = 1, nlevels
   do j = tdims%j_start, tdims%j_end
 
     do i = tdims%i_start, tdims%i_end
+
+      ! Provide safe defaults for all branches before cloud-regime tests.
+      g_mqc = 0.0
+      Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+      cpm = cpd + q(i,j,k)*cpv_cpm                                             &
+          + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                                 &
+          + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
+      lcrcp_moist = Lc_full / cpm
 
       ! There is no need to perform the total cloud fraction calculation in
       ! this subroutine if there is no, or full, liquid cloud cover.
@@ -323,8 +363,8 @@ do k = 1, nlevels
         ! Need to estimate the rate of change of saturated specific humidity
         ! with respect to temperature (alpha) first, then use this to calculate
         ! factor aL. Also estimate the rate of change of qsat with pressure.
-        alpha=repsilon*lc*qsl_t/(r*t(i,j,k)**2)
-        al=1.0/(1.0+lcrcp*alpha)
+        alpha=repsilon*Lc_full*qsl_t/(r*t(i,j,k)**2)
+        al=1.0/(1.0+lcrcp_moist*alpha)
         alpha_p = -qsl_t/p_theta_levels(i,j,k)
 
         ! Calculate the saturation deficit SD
@@ -372,8 +412,9 @@ do k = 1, nlevels
                     -alpha_p*dpdt(i,j,k) ) + dldt(i,j,k)
 
         ! Calculate Saturated Specific Humidity with respect to liquid water
-        ! wet bulb temperature.
-        tl = t(i,j,k)-lcrcp*qcl(i,j,k)
+        ! for TL. Use moist T->TL formula.
+        cpm_dag = cpm + (cpv_cpm - cl_cpm) * qcl(i,j,k)
+        tl = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else
@@ -478,9 +519,10 @@ do k = 1, nlevels
                   if (cfc2<0.0) w2 = min(w2, max( cfc1/cfl_diff-smallp, 0.0))
                 end if
                 w1 = 1.0 - w2
+
                 ! Don't allow s1 > al qsat(T) (implies -ive q in the tail)
                 qsl_new = qsl_tl + alpha*dtdt(i,j,k) + alpha_p*dpdt(i,j,k)
-                alpha_lcrcp = alpha*lcrcp
+                alpha_lcrcp = alpha*lcrcp_moist
                 p2al = (pdf_power+2.0) / al
                 if ( p2al * (w1*sde1 + w2*sde2) / (w1*cfc1 + w2*cfc2)          &
                    > qsl_new + alpha_lcrcp*(w1*qcl1 + w2*qcl2) ) then
@@ -555,8 +597,9 @@ do k = 1, nlevels
           call qsat_wat(qsl_t, t(i,j,k), p_theta_levels(i,j,k))
         end if
 
-        alpha=repsilon*lc*qsl_t/(r*t(i,j,k)**2)
-        al=1.0/(1.0+lcrcp*alpha)
+        Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
+        alpha = repsilon*Lc_full*qsl_t/(r*t(i,j,k)**2)
+        al = 1.0/(1.0+lcrcp_moist*alpha)
         alpha_p = -qsl_t/p_theta_levels(i,j,k)
         deltal=al * (dqdt(i,j,k)-alpha*dtdt(i,j,k)                             &
                      -alpha_p*dpdt(i,j,k)) + dldt(i,j,k)
@@ -603,8 +646,8 @@ do k = 1, nlevels
                   - (deltal - dldt(i,j,k))
 
       ! Update temperature due to latent heating
-      t(i,j,k)   = t(i,j,k)   + dtdt(i,j,k)                                    &
-                    + lcrcp * (deltal - dldt(i,j,k))
+      t(i,j,k) = t(i,j,k) + dtdt(i,j,k)                                        &
+                 + lcrcp_moist * (deltal - dldt(i,j,k))
 
       if (l_wtrac) wtrac_pc2%q_cond(i,j,k) = deltal
     end do !i

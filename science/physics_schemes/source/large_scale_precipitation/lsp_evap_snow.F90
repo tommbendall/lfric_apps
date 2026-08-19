@@ -16,8 +16,9 @@ contains
 subroutine lsp_evap_snow(                                                      &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, q_ice, qcf, qcft, t, p,                                                   &
+  q, q_ice, qcf, qcft, t, p, cpm,                                              &
                                           ! Water contents, temp, pres
+                                          ! and moist heat capacity
   esw, qsl,                                                                    &
                                           ! Saturated quantities
   area_ice, cficei,                                                            &
@@ -29,7 +30,7 @@ subroutine lsp_evap_snow(                                                      &
   rho, tcg, tcgi,                                                              &
                                           ! Parametrization information
   corr2, rocor, ice_nofall, lheat_correc_liq,                                  &
-  lsrcp, ice_type,                                                             &
+  ice_type,                                                                    &
                                           ! Microphysical information
   l_psd,                                                                       &
                                           ! Code options
@@ -47,7 +48,7 @@ subroutine lsp_evap_snow(                                                      &
 
 !Use in reals in lsprec precision, both microphysics related and general atmos
 use lsprec_mod, only: apb4, apb5, apb6, m0, cx, constp, zerodegc,              &
-                      zero
+                      zero, lc, lf, tm
 
   ! Microphysics Modules- logicals and integers
 use mphys_constants_mod, only: ice_type_offset
@@ -56,6 +57,9 @@ use mphys_inputs_mod,    only: l_diff_icevt
 ! Use in kind for large scale precip, used for compressed variables passed down
 ! from here
 use um_types,             only: real_lsprec
+
+! Constants for heat capacity calculations
+use lsp_cpm_mod,         only: cpv_cpm, ci_cpm
 
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
@@ -125,14 +129,13 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Fraction of qcf that is not falling out
   lheat_correc_liq(points),                                                    &
                                ! Liquid latent heat correction factor
-  lsrcp,                                                                       &
-                        ! Latent heat of sublimation
-                        ! /heat capacity of air (cP) / K
   one_over_tsi          ! 1/(timestep*iterations)
 
 real (kind=real_lsprec), intent(in out) ::                                     &
   q(points),                                                                   &
                         ! Vapour content / kg kg-1
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   qcf(points),                                                                 &
                         ! Ice water content in ice category to be
 !                           updated    / kg kg-1
@@ -188,6 +191,13 @@ real (kind=real_lsprec) ::                                                     &
 
 ! Amount of qcf that is not falling out
 real (kind=real_lsprec) :: qcf_nofall(points)
+
+! Local variables for temperature-dependent moist heat capacity
+real (kind=real_lsprec) ::                                                     &
+  Ls_full,                                                                     &
+                        ! Temperature-dependent latent heat of sublimation
+  lsrcp_moist
+                        ! Temperature-dependent ratio of L_sub to cp_moist
 
 integer(kind=jpim), parameter :: zhook_in  = 0
 integer(kind=jpim), parameter :: zhook_out = 1
@@ -312,7 +322,14 @@ do i = 1, points
 
     qcf(i) = qcf(i) - dpr
     q(i)   = q(i)   + dpr
-    t(i)   = t(i)   - dpr*lsrcp
+
+    ! Calculate variable latent heats and heat capacities
+    Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+    ! Update heat capacity for the ice -> vapour transition
+    cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * dpr
+    lsrcp_moist = Ls_full / cpm(i)
+
+    t(i)   = t(i)   - dpr*lsrcp_moist
     if (l_wtrac)  wtrac_mp_cpr_old%qchange(i) = dpr
 
   end if  ! qcf_nofall gt m0 etc.

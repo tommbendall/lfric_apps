@@ -22,7 +22,6 @@ module update_energy_correction_alg_mod
 
   ! Configuration modules
   use extrusion_config_mod, only: planet_radius
-  use planet_config_mod,    only: cv
 
   implicit none
 
@@ -34,7 +33,7 @@ contains
   subroutine update_energy_correction_alg( config,                      &
                                            temperature_correction_rate, &
                                            accumulated_fluxes,          &
-                                           total_dry_mass,              &
+                                           total_cv_mass,               &
                                            dt, mesh, twod_mesh,         &
                                            total_energy,                &
                                            total_energy_previous )
@@ -45,7 +44,7 @@ contains
 
     real( kind=r_def ), intent(inout) :: temperature_correction_rate
     type( field_type ), intent(in)    :: accumulated_fluxes
-    real( kind=r_def ), intent(in)    :: total_dry_mass, dt
+    real( kind=r_def ), intent(in)    :: total_cv_mass, dt
 
     type( mesh_type ), intent(in), pointer :: mesh
     type( mesh_type ), intent(in), pointer :: twod_mesh
@@ -77,7 +76,7 @@ contains
     if ( encorr_usage == encorr_usage_diag ) then
       energy_corr_previous = 0.0_r_def
     else
-      energy_corr_previous = cv * total_dry_mass *                           &
+      energy_corr_previous = total_cv_mass *                                   &
                              temperature_correction_rate * correction_period
     end if
 
@@ -87,9 +86,9 @@ contains
     surf_heat = energy_discrepancy / ( correction_period * area )
 
     temperature_correction_rate = -energy_discrepancy /                        &
-                                   ( cv * total_dry_mass * correction_period )
+                                   (total_cv_mass * correction_period )
 
-    write(log_scratch_space, '(''total_dry_mass = '', e30.22)') total_dry_mass
+    write(log_scratch_space, '(''total_cv_mass = '', e30.22)') total_cv_mass
     call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
     write(log_scratch_space, '(''energy_discrepancy = '', e30.22)') &
