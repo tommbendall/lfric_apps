@@ -228,6 +228,30 @@
         "lfric_atm_nwp_gal9_coarse_aero_threaded-C48_MG_ex1a_gnu_fast-debug-32bit",
         "ex1a_omp_C48_cce",
     ],
+    "lfric_atm_c896": [
+        "lfric_atm_nwp_gal9-C896_MG_april_ex1a_cce_production-32bit"
+    ],
+    "lfric_atm_c896_control": [
+        "lfric_atm_nwp_gal9-C896_MG_april_1_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_2_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_3_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_4_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_5_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_6_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_7_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_8_ex1a_cce_production-32bit",
+    ],
+    "lfric_atm_c896_nudging": [
+        "lfric_atm_nwp_gal9-C896_MG_april_1_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_2_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_3_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_4_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_5_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_6_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_7_nudging_ex1a_cce_production-32bit",
+        "lfric_atm_nwp_gal9-C896_MG_april_8_nudging_ex1a_cce_production-32bit",
+    ],
+
     "ex1a_omp_developer": [
         "ex1a_omp_C12_cce",
         "ex1a_omp_C48_cce",
