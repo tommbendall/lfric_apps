@@ -251,6 +251,9 @@
         "lfric_atm_nwp_gal9-C896_MG_april_7_nudging_ex1a_cce_production-32bit",
         "lfric_atm_nwp_gal9-C896_MG_april_8_nudging_ex1a_cce_production-32bit",
     ],
+    "lfric_atm_c896_nudging_short": [
+        "lfric_atm_nwp_gal9-C896_MG_april_1_nudging_short_ex1a_cce_production-32bit",
+    ],
 
     "ex1a_omp_developer": [
         "ex1a_omp_C12_cce",
