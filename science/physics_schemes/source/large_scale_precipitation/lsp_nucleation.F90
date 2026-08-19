@@ -15,8 +15,9 @@ contains
 subroutine lsp_nucleation(                                                     &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, tnuc_new, qrain, qcf, qcf2, qgraup, t,                               &
-                                          ! Water contents, temperature
+  q, qcl, tnuc_new, qrain, qcf, qgraup, t, cpm,                                &
+                                          ! Water contents, temperature and
+                                          ! moist heat capacity
   qs, qsl,                                                                     &
                                           ! Saturated quantities
   cfliq,                                                                       &
@@ -54,7 +55,6 @@ use mphys_inputs_mod,     only: l_het_freezing_rain, l_mcr_precfrac,           &
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
 use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook modules
@@ -127,12 +127,12 @@ real (kind=real_lsprec), intent(in out) ::                                     &
   qcf(points),                                                                 &
                         ! Ice water content in ice category to be
 !                           updated    / kg kg-1
-  qcf2(points),                                                                &
-                        ! Ice water content in second category / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel mixing ration / kg kg-1
   t(points),                                                                   &
                           ! Temperature / K
+  cpm(points),                                                                 &
+                          ! Moist-air heat capacity at const pressure (J/kg/K)
   cf(points),                                                                  &
                           ! Current cloud fraction
   cfl(points),                                                                 &
@@ -206,8 +206,6 @@ real (kind=real_lsprec) ::                                                     &
                         ! Temperature-dependent latent heat of fusion
   Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lfrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_fus to cp_moist
   lsrcp_moist
@@ -265,12 +263,10 @@ do i = 1, points
 
     qcf(i) = qcf(i) + qcl(i)
 
-    ! Calculate variable latent heats and heat capacties for fusion
+    ! Update heat capacity for liquid -> ice transition
     Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lfrcp_moist = Lf_full / cpm
+    cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * qcl(i)
+    lfrcp_moist = Lf_full / cpm(i)
 
     t(i)   = t(i)   + lfrcp_moist * qcl(i)
     qcl(i) = zero
@@ -307,12 +303,10 @@ do i = 1, points
 
     qcf(i)   = qcf(i) + qrain(i)
 
-    ! Calculate variable latent heats and heat capacties for fusion
+    ! Update heat capacity for rain -> ice transition
     Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lfrcp_moist = Lf_full / cpm
+    cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * qrain(i)
+    lfrcp_moist = Lf_full / cpm(i)
 
     t(i)     = t(i)   + lfrcp_moist * qrain(i)
     qrain(i) = zero
@@ -375,27 +369,19 @@ do i = 1, points
 
     end if
 
-    qcl(i)  = qcl(i)-dqil
+    ! Update heat capacity for the following phase transitions
+    cpm(i) = cpm(i) - cpv_cpm * (dqi - dqil) - cl_cpm * dqil + ci_cpm * dqi
 
-    ! Calculate variable latent heats and heat capacties for fusion
+    ! Latent heat terms
     Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lfrcp_moist = Lf_full / cpm
-
-    t(i)    = t(i)+lfrcp_moist*dqil
-          ! If more ice is needed then the mass comes from vapour
-    dqi  = dqi-dqil
-
-    ! Calculate variable latent heats and heat capacties for sublimation
     Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lsrcp_moist = Ls_full / cpm
 
-    t(i) = t(i)+lsrcp_moist*dqi
+    lfrcp_moist = Lf_full / cpm(i)
+    lsrcp_moist = Ls_full / cpm(i)
+
+    ! Update moisture species
+    qcl(i)  = qcl(i)-dqil
+    dqi  = dqi-dqil  ! If more ice is needed then the mass comes from vapour
     q(i) = q(i)-dqi
 
     ! Store phase changes for water tracer use
@@ -421,7 +407,7 @@ end do  ! Points
 if (l_het_freezing_rain) then
       ! Call heterogeneous freezing rain
   call lsp_het_freezing_rain(points, timestep,                                 &
-                q, qcl, qrain, qcf, qcf2, qgraup, t,                           &
+                qrain, qcf, qgraup, t, cpm,                                    &
                 cf, cff, rainfrac,                                             &
                 rain_liq, rain_mix, rain_ice,                                  &
                 rho, rhor, corr, dhir, rain_nofall,                            &

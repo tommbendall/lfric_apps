@@ -32,8 +32,9 @@ contains
 subroutine lsp_subgrid(                                                        &
   points,                                                                      &
                                           ! Number of points
-  q, qcl, qrain, qgraup, qcf_cry, qcf_agg, qcftot, t,                          &
-                                          ! Water contents and temp
+  q, qcf_cry, qcf_agg, qcftot, t, cpm,                                         &
+                                          ! Water contents, temp and moist
+                                          ! heat capacity
   qsl, qs,                                                                     &
                                           ! Saturated water contents
   snow_cry, snow_agg,                                                          &
@@ -84,8 +85,7 @@ use wtrac_mphys_mod,         only: mp_cpr_wtrac_type, mp_cpr_old_wtrac_type
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,         only: cpv_cpm, ci_cpm
 
 ! Dr Hook Modules
 use yomhook,           only: lhook, dr_hook
@@ -151,12 +151,6 @@ real (kind=real_lsprec), intent(out) :: dqprec_new(points)
 real (kind=real_lsprec), intent(in out) ::                                     &
   q(points),                                                                   &
                         ! Vapour content / kg kg-1
-  qcl(points),                                                                 &
-                        ! Cloud liquid content / kg kg-1
-  qrain(points),                                                               &
-                        ! Rain content / kg kg-1
-  qgraup(points),                                                              &
-                        ! Graupel content / kg kg-1
   qcf_cry(points),                                                             &
                         ! Ice crystal content / kg kg-1
   qcf_agg(points),                                                             &
@@ -165,6 +159,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Total ice content before advection / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   cf(points),                                                                  &
                         ! Current cloud fraction
   cff(points)       ! Current ice cloud fraction
@@ -235,8 +231,6 @@ real (kind=real_lsprec) ::                                                     &
 real (kind=real_lsprec) ::                                                     &
   Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lsrcp_moist
                         ! Temperature-dependent ratio of L_sub to cp_moist
 
@@ -411,12 +405,10 @@ do i = 1, points
        .or. (qcf_cry(i)+qcf_agg(i)) <  zero) then
       q(i) = q(i) +qcf_cry(i)+qcf_agg(i)
 
-      ! Calculate variable latent heats and heat capacties
+      ! Update heat capacity for ice -> vapour transition
       Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf_cry(i) + qcf_agg(i) + qgraup(i))
-      lsrcp_moist = Ls_full / cpm
+      cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * (qcf_cry(i) + qcf_agg(i))
+      lsrcp_moist = Ls_full / cpm(i)
 
       t(i) = t(i) - lsrcp_moist * (qcf_cry(i)+qcf_agg(i))
       qcf_cry(i)=zero

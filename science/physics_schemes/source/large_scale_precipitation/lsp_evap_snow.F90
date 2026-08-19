@@ -16,8 +16,9 @@ contains
 subroutine lsp_evap_snow(                                                      &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, qrain, qgraup, q_ice, qcf, qcft, t, p,                               &
+  q, q_ice, qcf, qcft, t, p, cpm,                                              &
                                           ! Water contents, temp, pres
+                                          ! and moist heat capacity
   esw, qsl,                                                                    &
                                           ! Saturated quantities
   area_ice, cficei,                                                            &
@@ -58,8 +59,7 @@ use mphys_inputs_mod,    only: l_diff_icevt
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,         only: cpv_cpm, ci_cpm
 
 ! Water tracers
 use free_tracers_inputs_mod, only: l_wtrac
@@ -105,12 +105,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Timestep / s
   p(points),                                                                   &
                         ! Air pressure / N m-2
-  qcl(points),                                                                 &
-                        ! Cloud liquid content / kg kg-1
-  qrain(points),                                                               &
-                        ! Rain content / kg kg-1
-  qgraup(points),                                                              &
-                        ! Graupel content / kg kg-1
   q_ice(points),                                                               &
                         ! Vapour content in ice partition / kg kg-1
   esw(points),                                                                 &
@@ -140,6 +134,8 @@ real (kind=real_lsprec), intent(in) ::                                         &
 real (kind=real_lsprec), intent(in out) ::                                     &
   q(points),                                                                   &
                         ! Vapour content / kg kg-1
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   qcf(points),                                                                 &
                         ! Ice water content in ice category to be
 !                           updated    / kg kg-1
@@ -200,8 +196,6 @@ real (kind=real_lsprec) :: qcf_nofall(points)
 real (kind=real_lsprec) ::                                                     &
   Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lsrcp_moist
                         ! Temperature-dependent ratio of L_sub to cp_moist
 
@@ -329,12 +323,11 @@ do i = 1, points
     qcf(i) = qcf(i) - dpr
     q(i)   = q(i)   + dpr
 
-    ! Calculate variable latent heats and heat capacties
+    ! Calculate variable latent heats and heat capacities
     Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcft(i) + qgraup(i))
-    lsrcp_moist = Ls_full / cpm
+    ! Update heat capacity for the ice -> vapour transition
+    cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * dpr
+    lsrcp_moist = Ls_full / cpm(i)
 
     t(i)   = t(i)   - dpr*lsrcp_moist
     if (l_wtrac)  wtrac_mp_cpr_old%qchange(i) = dpr

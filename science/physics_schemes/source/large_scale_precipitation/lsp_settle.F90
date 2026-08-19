@@ -16,8 +16,9 @@ contains
 subroutine lsp_settle(                                                         &
   points, one_over_tsi,                                                        &
                                           ! Number of points and tstep
-  q, qcl, qcf, qcf2, qrain, qgraup, t, droplet_flux,                          &
-                                          ! Water contents and temp.
+  q, qcl, t, cpm, droplet_flux,                                                &
+                                          ! Water contents, temp. and moist
+                                          ! heat capacity.
   bland,                                                                       &
                                           ! Control logicals
   cfliq,                                                                       &
@@ -37,8 +38,7 @@ use lsprec_mod, only: mprog_min, mprog_abs, ntot_land, ntot_sea,               &
                       zero, one, lc, tm
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,         only: cpv_cpm, cl_cpm
 
 !Microphysics modules- logicals and integers
 use mphys_inputs_mod,    only: l_droplet_tpr
@@ -109,16 +109,10 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Vapour content / kg kg-1
   qcl(points),                                                                 &
                         ! Liquid water content / kg kg-1
-  qcf(points),                                                                 &
-                        ! Ice aggregate content / kg kg-1
-  qcf2(points),                                                                &
-                        ! Ice crystal content / kg kg-1
-  qrain(points),                                                               &
-                        ! Rain content / kg kg-1
-  qgraup(points),                                                              &
-                        ! Graupel content / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   droplet_flux(points),                                                        &
                             ! On input: Flux of water into layer
                             ! On output: Flux of water out of layer
@@ -154,10 +148,10 @@ real (kind=real_lsprec) ::                                                     &
                         ! Change in qcl this timestep / kg kg-1
   dq,                                                                          &
                         ! Change in q this timestep / kg kg-1
+  qcl_old,                                                                     &
+                        ! Value of qcl before this timestep's settling
   Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lcrcp_moist      ! Temperature-dependent ratio of L_con to cp_moist
 
 real (kind=real_lsprec), parameter ::                                          &
@@ -221,6 +215,7 @@ if ( i_fix_mphys_drop_settle == second_fix ) then
       dqcl = (flux_into_cloud(i)-fqirqi(i))*dhi(i)*rhor(i)
       dq   =  flux_into_clear_sky * dhi(i) * rhor(i)
 
+      qcl_old = qcl(i)
       if (qcl(i) + dqcl < mprog_abs) then
         ! Below our tolerance threshold, therefore assume all qcl
         ! is removed from the grid box (i.e. dqcl equal and opposite to qcl)
@@ -254,11 +249,10 @@ if ( i_fix_mphys_drop_settle == second_fix ) then
       !------------------------------------------------
       ! Adjust vapour content and temperature
       !------------------------------------------------
+      ! Update heat capacity
+      cpm(i) = cpm(i) + cpv_cpm * dq + cl_cpm * (qcl(i) - qcl_old)
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lcrcp_moist = Lc_full / cpm
+      lcrcp_moist = Lc_full / cpm(i)
 
       q(i)   = q(i) + dq
       t(i)   = t(i) - lcrcp_moist * dq
@@ -317,6 +311,7 @@ else if ( i_fix_mphys_drop_settle == first_fix ) then
       dqcl = (flux_into_cloud(i)-fqirqi(i))*dhi(i)*rhor(i)
       dq   =  flux_into_clear_sky * dhi(i) * rhor(i)
 
+      qcl_old = qcl(i)
       if (qcl(i) - dqcl < mprog_abs) then
         ! Below our tollerance threshold, therefore assume all qcl
         ! is removed from the grid box (i.e. dqcl equal and opposite to qcl)
@@ -349,11 +344,10 @@ else if ( i_fix_mphys_drop_settle == first_fix ) then
       !------------------------------------------------
       ! Adjust vapour content and temperature
       !------------------------------------------------
+      ! Update heat capacity
+      cpm(i) = cpm(i) + cpv_cpm * dq + cl_cpm * (qcl(i) - qcl_old)
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lcrcp_moist = Lc_full / cpm
+      lcrcp_moist = Lc_full / cpm(i)
 
       q(i)   = q(i) + dq
       t(i)   = t(i) - lcrcp_moist * dq
@@ -444,11 +438,10 @@ else ! No drop settle fix.
     !------------------------------------------------
 
     qcl(i) = qcl(i) + dqcl
+    ! Update heat capacity
+    cpm(i) = cpm(i) + cpv_cpm * dq + cl_cpm * dqcl
     Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lcrcp_moist = Lc_full / cpm
+    lcrcp_moist = Lc_full / cpm(i)
 
     q(i)   = q(i) + dq
     t(i)   = t(i) - lcrcp_moist * dq

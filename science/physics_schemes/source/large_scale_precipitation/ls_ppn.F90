@@ -38,7 +38,7 @@ subroutine ls_ppn(                                                             &
   cf, cfl, cff, precfrac,                                                      &
   rhcrit, f_arr, cos_theta_latitude,                                           &
   lspice_dim1,lspice_dim2,lspice_dim3,                                         &
-  rho_r2, rho_dry, q, qcf, qcl, t,                                             &
+  rho_r2, rho_dry, q, qcf, qcl, t, cpm,                                        &
   qcf2, qrain, qgraup,                                                         &
 !------------------------------------
 ! Wind field for lateral displacement
@@ -239,6 +239,11 @@ real(kind=real_umphys), intent(in out) ::                                      &
     tdims%j_start:tdims%j_end,                                                 &
     1:tdims%k_end ),                                                           &
                                        ! Temperature (K).
+ cpm( tdims%i_start:tdims%i_end,                                               &
+      tdims%j_start:tdims%j_end,                                               &
+      1:tdims%k_end ),                                                         &
+                                       ! Moist-air heat capacity at constant
+                                       ! pressure (J/kg/K)
  aerosol( tdims%i_start:tdims%i_end,                                           &
           tdims%j_start:tdims%j_end,                                           &
           1:tdims%k_end )
@@ -810,7 +815,7 @@ do it = 1, niters_mp ! Substep outside of column
       call ls_ppnc(k,ix,n,                                                     &
                    lsrain,lssnow,lssnow2,lsgraup,droplet_flux,                 &
                    cf(1,1,k),cfl(1,1,k),cff(1,1,k),                            &
-                   qcf(1,1,k),qcl(1,1,k),tnuc_new(1,1,k),t(1,1,k),             &
+                   qcf(1,1,k),qcl(1,1,k),tnuc_new(1,1,k),t(1,1,k),cpm(1,1,k),  &
                    qcf2(1,1,k),qrain(1,1,k),qgraup(1,1,k),                     &
                    n_drop_tpr(1,1,k), n_drop_3d(1,1,k),                        &
                    aerosol(1,1,k),                                             &

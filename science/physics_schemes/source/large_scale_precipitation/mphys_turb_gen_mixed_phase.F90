@@ -25,7 +25,7 @@ subroutine mphys_turb_gen_mixed_phase( q_work, t_work, qcl_work, qcf_work,     &
                                        qcl_mpt, tau_d, inv_prt, disprate,      &
                                        inv_mt, si_avg, dcfl_mp, sigma2_s ,     &
                                        qcf2_work, qrain, qgraupel,             &
-                                       icenumber, snownumber  )
+                                       icenumber, snownumber, cpm  )
 
 ! Microphysics modules
 use mphys_inputs_mod,      only: mp_dz_scal
@@ -45,7 +45,7 @@ use stochastic_physics_run_mod, only: l_rp2, i_rp_scheme, i_rp2b,              &
 use gen_phys_inputs_mod,   only: l_mr_physics
 use conversions_mod,       only: pi, zerodegc
 use water_constants_mod,   only: lc, lf, tm
-use planet_constants_mod,  only: cpd => cp, r, repsilon, pref, rv, g
+use planet_constants_mod,  only: r, repsilon, pref, rv, g
 use lsp_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Grid bounds module
@@ -130,6 +130,12 @@ real, intent(in) ::  snownumber(tdims_l%i_start:tdims_l%i_end,                 &
                                 tdims_l%j_start:tdims_l%j_end,                 &
                                 tdims_l%k_start:tdims_l%k_end)
 !                    Snow number concentration from Casim
+
+real(kind=real_umphys), intent(in out) ::                                      &
+                        cpm(     tdims%i_start : tdims%i_end,                  &
+                                 tdims%j_start : tdims%j_end,                  &
+                                             1 : tdims%k_end )
+!                    Moist-air heat capacity at constant pressure (J/kg/K)
 
 real(kind=real_umphys), intent(in out) ::                                      &
                         cff_work( tdims%i_start : tdims%i_end,                 &
@@ -301,8 +307,6 @@ real(kind=real_umphys) :: Ls_full
                          ! Temperature-dependent latent heat of sublimation
 real(kind=real_umphys) :: Lc_full
                          ! Temperature-dependent latent heat of condensation
-real(kind=real_umphys) :: cpm
-                         ! Temperature-dependent moist specific heat capacity
 real(kind=real_umphys) :: lcrcp_moist
                          ! Temperature-dependent ratio of L_con to cp_moist
 
@@ -437,7 +441,7 @@ end if
 !$OMP private(k,j,i,q_local2d,t_local2d,rho_dry,rho_air,qsi_2d,qsw_2d,mom1,    &
 !$OMP         rhice,siw,ei,t_corr,p_corr,dv,ka,bi,Ai,b0,aa,dz_scal,            &
 !$OMP         tau_d_work,fac,four_root_sigmas,fac2,deltas,ibin,sice,           &
-!$OMP         qv_excess,fdist,lami,lams,Ls_full,Lc_full,cpm,                 &
+!$OMP         qv_excess,fdist,lami,lams,Ls_full,Lc_full,                       &
 !$OMP         lcrcp_moist)                                                     &
 !$OMP SHARED(tdims,dqcl_mp,qcl_mpt,tau_d,inv_prt,disprate,inv_mt,si_avg,       &
 !$OMP        dcfl_mp,sigma2_s,bl_levels,q_work,t_work,rhodz_dry,deltaz,        &
@@ -449,7 +453,7 @@ end if
 !$OMP        ipcx, ipdx, spcx,spdx,                                            &
 !$OMP        l_wtrac, wtrac_pc2, mp_czero, mp_tau_lim, Gam_1_imu_id, Gam_1_imu,&
 !$OMP        Gam_1_smu_sd, Gam_1_smu, ni_small, ns_small,                      &
-!$OMP        cpd, cpv_cpm, cl_cpm, ci_cpm)
+!$OMP        cpv_cpm, cl_cpm, ci_cpm, cpm)
 !$OMP do SCHEDULE(STATIC)
 do k=1, tdims%k_end
   do j=tdims%j_start, tdims%j_end
@@ -572,13 +576,9 @@ do k = 1, bl_levels-1
         ka = air_conductivity0 * t_corr
 
         Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t_local2d(i,j) - tm)
-        cpm = cpd + cpv_cpm * q_work(i,j,k)                                    &
-              + cl_cpm * (qcl_work(i,j,k) + qrain(i,j,k))                      &
-              + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k)                   &
-                          + qgraupel(i,j,k))
 
         bi = 1.0 / q_local2d(i,j) + Ls_full**2 /                               &
-              (cpm * rv * t_local2d(i,j) ** 2)
+              (cpm(i,j,k) * rv * t_local2d(i,j) ** 2)
 
         Ai = 1.0 / (rhoi * Ls_full**2 / (ka*rv*t_local2d(i,j)**2) +            &
                   rhoi * rv * t_local2d(i,j) / (Ei*Dv))
@@ -593,7 +593,7 @@ do k = 1, bl_levels-1
         end if
 
         aa = ( g / (r*t_local2d(i,j) ) *                                       &
-             ( Ls_full*r / (cpm*rv*t_local2d(i,j))-1.0))
+             ( Ls_full*r / (cpm(i,j,k)*rv*t_local2d(i,j))-1.0))
 
         dz_scal = mp_dz_scal * deltaz(i,j,k)
 
@@ -658,11 +658,7 @@ do k = 1, bl_levels-1
             qcl_inc(i,j,k) = qcl_inc(i,j,k) + qcl_mpt(i,j,k)
             q_inc(i,j,k)   = q_inc(i,j,k)   - qcl_mpt(i,j,k)
             Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
-            cpm = cpd + cpv_cpm * q_work(i,j,k)                                &
-                      + cl_cpm * (qcl_work(i,j,k) + qrain(i,j,k))              &
-                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k)           &
-                                  + qgraupel(i,j,k))
-            lcrcp_moist = Lc_full / cpm
+            lcrcp_moist = Lc_full / cpm(i,j,k)
             t_inc(i,j,k) = t_inc(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_inc(i,j,k) = min( cfl_inc(i,j,k) + dcfl_mp(i,j,k),             &
@@ -674,11 +670,9 @@ do k = 1, bl_levels-1
             qcl_work(i,j,k) = qcl_work(i,j,k) + qcl_mpt(i,j,k)
             q_work(i,j,k)   = q_work(i,j,k)   - qcl_mpt(i,j,k)
             Lc_full = lc - (cl_cpm - cpv_cpm) * (t_work(i,j,k) - tm)
-            cpm = cpd + cpv_cpm * q_work(i,j,k)                                &
-                      + cl_cpm * (qcl_work(i,j,k) + qrain(i,j,k))              &
-                      + ci_cpm * (qcf_work(i,j,k) + qcf2_work(i,j,k)           &
-                                  + qgraupel(i,j,k))
-            lcrcp_moist  = Lc_full / cpm
+            ! Update heat capacity for vapour -> liquid transition
+            cpm(i,j,k) = cpm(i,j,k) + (cl_cpm - cpv_cpm) * qcl_mpt(i,j,k)
+            lcrcp_moist  = Lc_full / cpm(i,j,k)
             t_work(i,j,k) = t_work(i,j,k) + lcrcp_moist * qcl_mpt(i,j,k)
 
             cfl_work(i,j,k) = min( cfl_work(i,j,k) + dcfl_mp(i,j,k), 1.0)

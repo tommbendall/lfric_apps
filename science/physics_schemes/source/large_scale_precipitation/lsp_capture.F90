@@ -16,8 +16,9 @@ contains
 subroutine lsp_capture(                                                        &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, qcf, qcf2, qrain, qgraup, t,                                         &
-                                          ! Water contents and temp
+  qcf, qrain, qgraup, t, cpm,                                                  &
+                                          ! Water contents, temp and
+                                          ! moist heat capacity
   cficei,                                                                      &
                                           ! Cloud fraction information
                                           ! at start of microphysics ts
@@ -58,8 +59,7 @@ use mphys_inputs_mod,     only: l_mcr_qrain, l_diff_icevt,                     &
                                 i_update_precfrac, i_homog_areas, i_sg_correl
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,         only: cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,              only: lhook, dr_hook
@@ -108,10 +108,6 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
-  q(points),                                                                   &
-                        ! Vapour mixing ratio / kg kg-1
-  qcl(points),                                                                 &
-                        ! Cloud liquid mixing ratio / kg kg-1
   cficei(points),                                                              &
                         ! 1/Fraction of gridbox with ice cloud
     rho(points),                                                               &
@@ -137,14 +133,14 @@ real (kind=real_lsprec), intent(in) ::                                         &
 real (kind=real_lsprec), intent(in out) ::                                     &
   qcf(points),                                                                 &
                         ! Ice water content    / kg kg-1
-  qcf2(points),                                                                &
-                        ! Second ice category mixing ratio / kg kg-1
   qrain(points),                                                               &
                         ! Rain mixing ratio / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel mixing ratio / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   rainfrac(points),                                                            &
                         ! Rain fraction
   rain_liq(points),                                                            &
@@ -227,8 +223,6 @@ real(kind=real_lsprec) :: frac
 real (kind=real_lsprec) ::                                                     &
   Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lfrcp_moist
                         ! Temperature-dependent ratio of L_fus to cp_moist
 
@@ -588,12 +582,11 @@ do c = 1, npts
 
   qrain(i) = qrain(i) - dpr(i)
 
-  ! Calculate variable latent heats and heat capacties
+  ! Calculate variable latent heats and heat capacities
+  ! Heat capacity updated for liquid -> ice transition
   Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cpm = cpd + cpv_cpm * q(i)                                                   &
-            + cl_cpm * (qcl(i) + qrain(i))                                     &
-            + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-  lfrcp_moist = Lf_full / cpm
+  cpm(i) = cpm(i) + (ci_cpm - cl_cpm) * dpr(i)
+  lfrcp_moist = Lf_full / cpm(i)
 
   t(i)     = t(i)     + dpr(i) * lfrcp_moist
 

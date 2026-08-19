@@ -16,8 +16,9 @@ contains
 subroutine lsp_melting(                                                        &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, q_ice, qgraup, qcf, qcft, qrain, qsl,                                &
-                                          ! Water contents
+  q, q_ice, qgraup, qcf, qcft, qrain, qsl, cpm,                                &
+                                          ! Water contents and
+                                          ! moist heat capacity
   t, p,                                                                        &
                                           ! Temperature and pressure
   area_liq, area_mix, area_ice, area_clear,                                    &
@@ -70,8 +71,7 @@ use free_tracers_inputs_mod, only: l_wtrac
 use wtrac_mphys_mod,         only: mp_cpr_old_wtrac_type
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,         only: cl_cpm, ci_cpm
 
 ! Dr Hook Modules
 use yomhook,             only: lhook, dr_hook
@@ -118,8 +118,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Timestep / s
   q(points),                                                                   &
                         ! Gridbox mean vapour content / kg kg-1
-  qcl(points),                                                                 &
-                        ! Gridbox mean cloud liquid content / kg kg-1
   q_ice(points),                                                               &
                         ! Vapour content in ice partition / kg kg-1
   qgraup(points),                                                              &
@@ -167,6 +165,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Rain mixing ratio / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   cf(points),                                                                  &
                         ! Current cloud fraction
   cff(points),                                                                 &
@@ -245,8 +245,6 @@ real (kind=real_lsprec) :: qcf_nofall(points)
 real (kind=real_lsprec) ::                                                     &
   Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lfrcp_moist
                         ! Temperature-dependent ratio of L_fus to cp_moist
 
@@ -437,12 +435,9 @@ do c = 1, npts
       !-----------------------------------------------
       ! Solve implicitly in terms of temperature
 
-  ! Calculate variable latent heats and heat capacties
+  ! Calculate variable latent heats and heat capacities
   Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cpm = cpd + cpv_cpm * q(i)                                                   &
-            + cl_cpm * (qcl(i) + qrain(i))                                     &
-            + ci_cpm * (qcft(i) + qgraup(i))
-  lfrcp_moist = Lf_full / cpm
+  lfrcp_moist = Lf_full / cpm(i)
 
   dpr(i) = temp7(i) * (one-one/(one+dpr(i)*lfrcp_moist))/lfrcp_moist
 
@@ -457,6 +452,8 @@ do c = 1, npts
   qcf(i)   = qcf(i)   - dpr(i)
   qrain(i) = qrain(i) + dpr(i)
   t(i)     = t(i)     - dpr(i) * lfrcp_moist
+  ! Update cpm(i) for the ice -> rain melting transition.
+  cpm(i) = cpm(i) + (cl_cpm - ci_cpm) * dpr(i)
 
 end do
 

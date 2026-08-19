@@ -21,7 +21,7 @@ subroutine lsp_ice(                                                            &
   snow_cry, vf_cry, grauprate, vf_graup, droplet_flux,                         &
   frac_ice_above, frac_agg, cttemp,                                            &
   rainfrac, rainfrac_impr, precfrac_k, precfrac_fall,                          &
-  t,cfkeep,cfliqkeep,cficekeep,bland,                                          &
+  t,cpm,cfkeep,cfliqkeep,cficekeep,bland,                                      &
   psdep,psaut,psacw,psacr,psaci,psmlt,psmltevp,                                &
   praut,pracw,prevp,                                                           &
   pgaut,pgacw,pgacs,pgmlt,                                                     &
@@ -44,7 +44,6 @@ use lsprec_mod,           only: lcrcp, lfrcp, timestep, m0, t_scaling,         &
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
 use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
 
   ! General atmosphere modules- logicals and integers
@@ -207,8 +206,10 @@ real (kind=real_lsprec), intent(in out) ::                                     &
 !         Rain (kg water per kg air).
     qgraup(points),                                                            &
 !         Graupel (kg water per kg air).
-    t(points)
+    t(points),                                                                 &
 !         Temperature at this level (K).
+    cpm(points)
+!         Moist-air heat capacity at constant pressure (J/kg/K)
 
 !     Hydrometeor flux between layers (kg m-2 s-1)
 !     On input: Hydrometeor flux entering this layer from above.
@@ -399,8 +400,6 @@ real (kind=real_lsprec) ::                                                     &
                         ! Temperature-dependent latent heat of condensation
   Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lcrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_con to cp_moist
   lsrcp_moist
@@ -427,6 +426,7 @@ real (kind=real_lsprec) ::                                                     &
         ql_orog1(points),                                                      &
         t1a(points),                                                           &
         t1b(points),                                                           &
+        cpm1b(points),                                                         &
         qrain1a(points),                                                       &
         qrain1b(points),                                                       &
         qsnow1a(points),                                                       &
@@ -737,7 +737,7 @@ if ( sediment_loc == all_sed_start .or. sediment_loc == fall_end               &
      .or. sediment_loc == rain_sed_end ) then
 
   call lsp_settle(points, one_over_tsi,                                        &
-                  q, qcl, qcf, qcf2, qrain, qgraup, t, droplet_flux, bland,    &
+                  q, qcl, t, cpm, droplet_flux, bland,                         &
                   cfliq, rho, rhor, corr2,                                     &
                   dhi, dhir,                                                   &
                   n_drop_tpr,                                                  &
@@ -886,7 +886,7 @@ end if  ! ( l_proc_fluxes )
 !        Subgrid-scale set-up calculations and tidy-ups
 ! ======================================================================
 call lsp_subgrid(points,                                                       &
-                q, qcl, qrain, qgraup, qcf_cry, qcf_agg, qcf_tot, t,           &
+                q, qcf_cry, qcf_agg, qcf_tot, t, cpm,                          &
                 qsl, qs, snow_cry, snow_agg, cry_nofall, agg_nofall,           &
                 q_ice, q_clear, q_ice_1, q_ice_2,                              &
                 area_liq,area_mix,area_ice,area_clear,                         &
@@ -905,7 +905,7 @@ call lsp_subgrid(points,                                                       &
 if (l_crystals) then
        ! Call nucleation with the crystals ice category (qcf_cry)
   call lsp_nucleation(points, timestep,                                        &
-                q, qcl, tnuc_new, qrain, qcf_cry, qcf_agg, qgraup, t,          &
+                q, qcl, tnuc_new, qrain, qcf_cry, qgraup, t, cpm,              &
                 qs, qsl,                                                       &
                 cfliq,                                                         &
                 area_liq, area_mix,                                            &
@@ -922,7 +922,7 @@ if (l_crystals) then
 else
        ! Call nucleation with the only ice category (qcf_agg)
   call lsp_nucleation(points, timestep,                                        &
-                q, qcl, tnuc_new, qrain, qcf_agg, qcf_cry, qgraup, t,          &
+                q, qcl, tnuc_new, qrain, qcf_agg, qgraup, t, cpm,              &
                 qs, qsl,                                                       &
                 cfliq,                                                         &
                 area_liq, area_mix,                                            &
@@ -955,7 +955,7 @@ if (l_crystals) then
   end do
 
   call lsp_deposition(points, timestep_mp,                                     &
-                  q, qcl, qrain, qgraup, qcf_cry, qcft, t, p,                  &
+                  q, qcl, qcf_cry, qcft, t, cpm, p,                            &
                   q_ice_1, q_ice_2,                                            &
                   area_ice_1, area_ice_2,                                      &
                   esi, qs, qsl,                                                &
@@ -982,7 +982,7 @@ do i = 1, points
 end do
 
 call lsp_deposition(points, timestep_mp,                                       &
-                q, qcl, qrain, qgraup, qcf_agg, qcft, t, p,                    &
+                q, qcl, qcf_agg, qcft, t, cpm, p,                              &
                 q_ice_1, q_ice_2,                                              &
                 area_ice_1, area_ice_2,                                        &
                 esi, qs, qsl,                                                  &
@@ -1044,7 +1044,7 @@ end if  ! l_mcr_qcf2
 if (l_crystals) then
   if (l_shape_rime) then
     call lsp_riming(points, timestep_mp,                                       &
-                    q, qcl, qrain, qcf_cry, qcf_agg, qgraup, t,                &
+                    q, qcl, qcf_cry, t, cpm,                                   &
                     area_liq, area_mix, cfliq, cficei,                         &
                     rho, m0, tcgc, tcgci, corr, cry_nofall, 0,                 &
                     not_generic_size_dist,                                     &
@@ -1054,7 +1054,7 @@ if (l_crystals) then
                          )
   else
     call lsp_riming_sphere(points, timestep_mp,                                &
-                           q, qcl, qrain, qcf_cry, qcf_agg, qgraup, t,         &
+                           q, qcl, qcf_cry, t, cpm,                            &
                            area_liq, area_mix, cfliq, cficei,                  &
                            rho, m0, tcgc, tcgci, corr, cry_nofall, 0,          &
                            not_generic_size_dist,                              &
@@ -1113,6 +1113,7 @@ if (l_orograin .and. l_orogrime) then
     qsnow1b(i) = qcf_agg(i)
     t1a(i) = t(i)
     t1b(i) = t(i)
+    cpm1b(i) = cpm(i)
     psacw1a(i) = psacw(i)
     psacw1b(i) = psacw(i)
     !     Save ql_orog for accretion enhancement test
@@ -1130,7 +1131,7 @@ if (l_orograin .and. l_orogrime) then
   if (l_shape_rime) then
 
     call lsp_riming(points, timestep_mp,                                       &
-                    q, qcl, qrain, qcf_agg, qcf_cry, qgraup, t,                &
+                    q, qcl, qcf_agg, t, cpm,                                   &
                     area_liq, area_mix, cfliq, cficei,                         &
                     rho, m0, tcg, tcgi, corr, agg_nofall, 1,                   &
                     l_psd,                                                     &
@@ -1147,7 +1148,7 @@ if (l_orograin .and. l_orogrime) then
     end if
 
     call lsp_riming(points, timestep_mp,                                       &
-                    q, ql_orog, qrain, qsnow1b, qcf_cry, qgraup, t1b,          &
+                    q, ql_orog, qsnow1b, t1b, cpm1b,                           &
                     area_liq_orog, area_mix_orog, cf_orog, cficei,             &
                     rho, m0, tcg, tcgi, corr, agg_nofall, 1,                   &
                     l_psd,                                                     &
@@ -1159,7 +1160,7 @@ if (l_orograin .and. l_orogrime) then
   else
 
     call lsp_riming_sphere(points, timestep_mp,                                &
-                     q, qcl, qrain, qcf_agg, qcf_cry, qgraup, t,               &
+                     q, qcl, qcf_agg, t, cpm,                                  &
                      area_liq, area_mix, cfliq, cficei,                        &
                      rho, m0, tcg, tcgi, corr, agg_nofall, 1,                  &
                      l_psd,                                                    &
@@ -1170,7 +1171,7 @@ if (l_orograin .and. l_orogrime) then
 
 
     call lsp_riming_sphere(points, timestep_mp,                                &
-                     q, ql_orog, qrain, qsnow1b, qcf_cry, qgraup, t1b,         &
+                     q, ql_orog, qsnow1b, t1b, cpm1b,                          &
                      area_liq_orog, area_mix_orog, cf_orog, cficei,            &
                      rho, m0, tcg, tcgi, corr, agg_nofall, 1,                  &
                      l_psd,                                                    &
@@ -1197,14 +1198,10 @@ if (l_orograin .and. l_orogrime) then
 
       !       Add LH for cond+freezing of rimed orog water
 
-    ! Calculate variable latent heats and heat capacties for sublimation
+    ! Calculate variable latent heat for sublimation
       Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = (                                                                  &
-          cpd + cpv_cpm * q(i)                                                 &
-          + cl_cpm * (qcl(i) + qrain(i))                                       &
-          + ci_cpm * (qcf_agg(i) + qcf_cry(i) + qgraup(i))                     &
-      )
-      lsrcp_moist = Ls_full / cpm
+      cpm(i) = cpm(i) + (ci_cpm - cpv_cpm) * dqsnow(i)
+      lsrcp_moist = Ls_full / cpm(i)
       t(i) = t(i) + (dqsnow(i) * lsrcp_moist)
 
       !       Add mass transfer
@@ -1227,7 +1224,7 @@ else  ! seeder feeder off
 
   if (l_shape_rime) then
     call lsp_riming(points, timestep_mp,                                       &
-                 q, qcl, qrain, qcf_agg, qcf_cry, qgraup, t,                   &
+                 q, qcl, qcf_agg, t, cpm,                                      &
                  area_liq, area_mix, cfliq, cficei,                            &
                  rho, m0, tcg, tcgi, corr, agg_nofall, 1,                      &
                  l_psd,                                                        &
@@ -1245,7 +1242,7 @@ else  ! seeder feeder off
 
   else
     call lsp_riming_sphere(points, timestep_mp,                                &
-                        q, qcl, qrain, qcf_agg, qcf_cry, qgraup, t,            &
+                        q, qcl, qcf_agg, t, cpm,                               &
                         area_liq, area_mix, cfliq, cficei,                     &
                         rho, m0, tcg, tcgi, corr, agg_nofall, 1,               &
                         l_psd,                                                 &
@@ -1300,7 +1297,7 @@ if ( l_mcr_qgraup ) then
     ! Call wrapper routine which sets up the right area fraction variables
     ! to account for the graupel fraction (lsp_riming_sphere is called inside)
     call lsp_riming_graupel( points, timestep_mp, one_over_tsi,                &
-                             q, qrain, qcl, qgraup, qcf_tot, t, cfliq,         &
+                             q, qrain, qcl, qgraup, t, cpm, cfliq,             &
                              rho, tcgg, tcggi, corr, pgacw,                    &
                              rainfraci, rain_liq, rain_mix, graup_nofall,      &
                              dqprec_liq, dqprec_mix, precfrac_k )
@@ -1318,7 +1315,7 @@ if ( l_mcr_qgraup ) then
     ! double-counting in the heat capacity calculation
     zero_field = zero
     call lsp_riming_sphere(points, timestep_mp,                                &
-                           q, qcl, qrain, qgraup, qcf_tot, zero_field, t,      &
+                           q, qcl, qgraup, t, cpm,                             &
                            area_liq, area_mix, cfliq, cficei,                  &
                            rho, m0, tcgg, tcggi, corr, graup_nofall, 3,        &
                            not_generic_size_dist,                              &
@@ -1410,7 +1407,7 @@ end if  ! l_mcr_graup
 ! ======================================================================
 if (l_crystals) then
   call lsp_capture(points, timestep_mp,                                        &
-                   q, qcl, qcf_cry, qcf_agg, qrain, qgraup, t, cficei,         &
+                   qcf_cry, qrain, qgraup, t, cpm, cficei,                     &
                    rainfrac,rain_liq,rain_mix,rain_ice,rain_clear,             &
                    rho, rhor, m0, tcgc, tcgci,                                 &
                    corr, dhir, cry_nofall, rain_nofall,                        &
@@ -1427,10 +1424,8 @@ end if
 !               COLLECTION OF RAIN BY SNOW AGGREGATES (PSACR)
 ! ======================================================================
 call lsp_capture(points, timestep_mp,                                          &
-                 ! Note swap in arguments of qcf_agg and qcf_cry:
-                 ! the first argument is the ice category to be acted upon,
-                 ! the second is just used for calculating the heat capacity
-                 q, qcl, qcf_agg, qcf_cry, qrain, qgraup, t, cficei,           &
+                 ! Note the ice category to be acted upon is qcf_agg
+                 qcf_agg, qrain, qgraup, t, cpm, cficei,                       &
                  rainfrac,rain_liq,rain_mix,rain_ice,rain_clear,               &
                  rho, rhor, m0, tcg, tcgi,                                     &
                  corr, dhir, agg_nofall, rain_nofall,                          &
@@ -1460,8 +1455,8 @@ if (l_crystals) then
   end do
 
   call lsp_evap_snow(points, timestep_mp,                                      &
-                     q, qcl, qrain, qgraup, q_ice, qcf_cry, qcft,              &
-                     t, p, esw, qsl,                                           &
+                     q, q_ice, qcf_cry, qcft,                                  &
+                     t, p, cpm, esw, qsl,                                      &
                      area_ice, cficei, cfkeep, cficekeep,                      &
                      rho, tcgc, tcgci,                                         &
                      corr2, rocor, cry_nofall, lheat_correc_liq,               &
@@ -1482,8 +1477,8 @@ do i = 1, points
 end do
 
 call lsp_evap_snow(points, timestep_mp,                                        &
-                   q, qcl, qrain, qgraup, q_ice, qcf_agg, qcft,                &
-                   t, p, esw, qsl,                                             &
+                   q, q_ice, qcf_agg, qcft,                                    &
+                   t, p, cpm, esw, qsl,                                        &
                    area_ice, cficei, cfkeep, cficekeep,                        &
                    rho, tcg, tcgi,                                             &
                    corr2, rocor, agg_nofall, lheat_correc_liq, 1,              &
@@ -1513,7 +1508,7 @@ if (l_crystals) then
   end do
 
   call lsp_melting(points, timestep_mp,                                        &
-                   q, qcl, q_ice, qgraup, qcf_cry, qcft, qrain, qsl, t, p,     &
+                   q, q_ice, qgraup, qcf_cry, qcft, qrain, qsl, cpm, t, p,     &
                    area_liq, area_mix, area_ice, area_clear,                   &
                    cficei, frac_ice_above,                                     &
                    rainfrac, rain_liq, rain_mix,                               &
@@ -1539,7 +1534,7 @@ do i = 1, points
 end do
 
 call lsp_melting(points, timestep_mp,                                          &
-                 q, qcl, q_ice, qgraup, qcf_agg, qcft, qrain, qsl, t, p,       &
+                 q, q_ice, qgraup, qcf_agg, qcft, qrain, qsl, cpm, t, p,       &
                  area_liq, area_mix, area_ice, area_clear,                     &
                  cficei, frac_ice_above,                                       &
                  rainfrac, rain_liq, rain_mix,                                 &
@@ -1574,7 +1569,7 @@ if (l_mcr_qgraup) then
     ! set equal to the prognostic precipitation fraction,
     ! which includes graupel) instead of cfice
     call lsp_melting(points, timestep_mp,                                      &
-                     q, qcl, q_ice, qgraup, qgraup, qcft, qrain, qsl, t, p,    &
+                     q, q_ice, qgraup, qgraup, qcft, qrain, qsl, cpm, t, p,    &
                      area_liq, area_mix, area_ice, area_clear,                 &
                      rainfraci, frac_ice_above,                                &
                      rainfrac, rain_liq, rain_mix,                             &
@@ -1593,7 +1588,7 @@ if (l_mcr_qgraup) then
     ! No sub-grid graupel fraction; passing in cfice for fraction but
     ! the checking on ice_type=3 inside should prevent it from being used.
     call lsp_melting(points, timestep_mp,                                      &
-                     q, qcl, q_ice, qgraup, qgraup, qcft, qrain, qsl, t, p,    &
+                     q, q_ice, qgraup, qgraup, qcft, qrain, qsl, cpm, t, p,    &
                      area_liq, area_mix, area_ice, area_clear,                 &
                      cficei, frac_ice_above,                                   &
                      rainfrac, rain_liq, rain_mix,                             &
@@ -1614,8 +1609,8 @@ end if  ! l_mcr_qgraup
 ! ======================================================================
 !                   EVAPORATION OF RAINDROPS (PREVP)
 ! ======================================================================
-call lsp_evap(points, timestep_mp, p, q, qcl, qrain, t,                        &
-              qcf_tot, qgraup, q_ice, q_clear,                                 &
+call lsp_evap(points, timestep_mp, p, q, qcl, qrain, t, cpm,                   &
+              qgraup, q_ice, q_clear,                                          &
               rainfrac, rain_liq, rain_mix,                                    &
               rain_ice, rain_clear,                                            &
               rho, corr, corr2, rocor,                                         &
@@ -1708,14 +1703,10 @@ if (l_orograin) then
       qrain(i) = qrain(i) + dqrain(i)
       q(i) = q(i) - dqrain(i)
 
-      ! Calculate variable latent heats and heat capacties for condensation
+      ! Calculate variable latent heat for condensation
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = (                                                                  &
-          cpd + cpv_cpm * q(i)                                                 &
-          + cl_cpm * (qcl(i) + qrain(i))                                       &
-          + ci_cpm * (qcf_agg(i) + qcf_cry(i) + qgraup(i))                     &
-      )
-      lcrcp_moist = Lc_full / cpm
+      cpm(i) = cpm(i) + (cl_cpm - cpv_cpm) * dqrain(i)
+      lcrcp_moist = Lc_full / cpm(i)
 
       t(i) = t(i) + (dqrain(i) * lcrcp_moist)
       if (l_wtrac) wtrac_mp_cpr_old%qchange(i) = dqrain(i)
@@ -1818,7 +1809,7 @@ end if
 ! ======================================================================
 !              AUTOCONVERSION OF CLOUD LIQUID to RAIN (PRAUT)
 ! ======================================================================
-call lsp_autoc(points, timestep_mp, q, qcf_tot, qgraup, qcl, qrain, t, p,      &
+call lsp_autoc(points, timestep_mp, qgraup, qcl, qrain, t, p, cpm,             &
                cfliq, rhcpt,                                                   &
                area_liq, area_mix, area_ice, rainfrac,                         &
                rain_liq, rain_mix, rain_ice, rain_clear, rain_new,             &
@@ -1874,7 +1865,7 @@ if ( sediment_loc == all_sed_end .or. sediment_loc == warm_sed_end ) then
   ! performed above.
 
   call lsp_settle(points, one_over_tsi,                                        &
-                  q, qcl, qcf, qcf2, qrain, qgraup, t, droplet_flux, bland,    &
+                  q, qcl, t, cpm, droplet_flux, bland,                         &
                   cfliq, rho, rhor, corr2,                                     &
                   dhi, dhir,                                                   &
                   n_drop_tpr,                                                  &
@@ -2058,7 +2049,7 @@ end if
 !              NUMERICAL TIDYING UP OF SMALL VALUES
 ! ======================================================================
 call lsp_tidy(points, one_over_tsi,                                            &
-             q, qcl, qcf, qcf2, qrain, qgraup, t,                              &
+             q, qcl, qcf, qcf2, qrain, qgraup, t, cpm,                         &
              area_liq, area_mix, area_ice,                                     &
              cfice, cficei, cfkeep, cfliqkeep, cficekeep,                      &
              rainfrac, rain_liq, rain_mix, rain_ice, rain_clear,               &

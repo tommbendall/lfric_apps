@@ -118,7 +118,8 @@ contains
     !---------------------------------------
     use mphys_turb_gen_mixed_phase_mod, only: mphys_turb_gen_mixed_phase
     use nlsizes_namelist_mod, only: bl_levels
-    use planet_constants_mod, only: p_zero, kappa
+    use planet_constants_mod, only: p_zero, kappa, cpd => cp
+    use lsp_cpm_mod, only: cpv_cpm, cl_cpm, ci_cpm
     use microphysics_config_mod, only: microphysics_casim
 
     implicit none
@@ -161,7 +162,7 @@ contains
                                       bl_w_var, rhodz_dry, rhodz_moist, deltaz,&
                                       t_inc, dqcl_mp, qcl_mpt, tau_d, inv_prt, &
                                       disprate, inv_mt, si_avg, dcfl_mp,       &
-                                      sigma2_s
+                                      sigma2_s, cpm_work
 
     real(r_um), dimension(seg_len,1,0:nlayers) :: &
                                         q_n, cfl_n, cf_n, press_wth, &
@@ -232,6 +233,17 @@ contains
 
     rhodz_dry = rhodz_dry * deltaz
 
+    ! Moist-air heat capacity at constant pressure (J/kg/K)
+    j = 1
+    do i = 1, seg_len
+      do k = 1, nlayers
+        cpm_work(i,j,k) = cpd + cpv_cpm*q_work(i,j,k)                          &
+                              + cl_cpm*(qcl_work(i,j,k) + qrain_work(i,j,k))   &
+                              + ci_cpm*(qcf_work(i,j,k) + qcf2_work(i,j,k)     &
+                                        + qgraupel_work(i,j,k))
+      end do
+    end do
+
     call mphys_turb_gen_mixed_phase( q_work, t_work, qcl_work, qcf_work,     &
                                      q_inc, qcl_inc, cfl_inc,  cf_inc,       &
                                      t_inc,  dqcl_mp, bl_levels,             &
@@ -241,7 +253,7 @@ contains
                                      qcl_mpt, tau_d, inv_prt, disprate,      &
                                      inv_mt, si_avg, dcfl_mp, sigma2_s,      &
                                      qcf2_work, qrain_work, qgraupel_work,   &
-                                     icenumber, snownumber )
+                                     icenumber, snownumber, cpm_work )
 
     j = 1
     do i = 1, seg_len

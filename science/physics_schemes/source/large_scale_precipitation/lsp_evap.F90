@@ -16,7 +16,7 @@ contains
 subroutine lsp_evap(                                                           &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  p, q, qcl, qrain, t, qcft, qgraup, q_ice, q_clear,                           &
+  p, q, qcl, qrain, t, cpm, qgraup, q_ice, q_clear,                            &
                                           ! Water contents and temp
   rainfrac, rain_liq, rain_mix,                                                &
                                           ! Rain fractions for updating
@@ -42,8 +42,7 @@ use lsprec_mod,         only: apb4, apb5, apb6, qcfmin, m0, cx, constp,        &
                               zero, one, lc, tm
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,          only: cpv_cpm, cl_cpm
 
   ! Microphysics modules
 use mphys_inputs_mod,    only: l_warm_new, l_mcr_qrain, l_mcr_precfrac,        &
@@ -92,8 +91,6 @@ real (kind=real_lsprec), intent(in) ::                                         &
                         ! Air pressure / N m-2
   qcl(points),                                                                 &
                         ! Liquid cloud content / kg kg-1
-  qcft(points),                                                                &
-                        ! Total cloud-ice content / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel content / kg kg-1
   q_ice(points),                                                               &
@@ -132,6 +129,10 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Vapour content / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure
+                        ! (J/kg/K). Maintained across the scheme and
+                        ! updated when moisture changes phase.
   ptransfer(points),                                                           &
                         ! Evaporation rate / kg kg-1 s-1
   rftransfer(points),                                                          &
@@ -178,8 +179,6 @@ real (kind=real_lsprec) ::                                                     &
                         ! Subsaturation in gridbox / kg kg-1
   Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lcrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_con to cp_moist
 
@@ -244,13 +243,13 @@ do i = 1, points
     dpr(i) = qrain(i)
 
     Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcft(i) + qgraup(i))
-    lcrcp_moist = Lc_full / cpm
+    lcrcp_moist = Lc_full / cpm(i)
 
     t(i)   = t(i) - lcrcp_moist * dpr(i)
     q(i)   = q(i) + dpr(i)
+    ! Finalise cpm(i) for the rain->vapour phase change now that q/qrain
+    ! are about to be updated.
+    cpm(i) = cpm(i) + (cpv_cpm - cl_cpm) * dpr(i)
     qrain(i) = zero
 
       ! Store evaporation rate
@@ -448,14 +447,14 @@ do c = 1, npts
       ! Update values of rain, vapour and temperature
       !-----------------------------------------------
   Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-  cpm = cpd + cpv_cpm * q(i)                                                   &
-            + cl_cpm * (qcl(i) + qrain(i))                                     &
-            + ci_cpm * (qcft(i) + qgraup(i))
-  lcrcp_moist = Lc_full / cpm
+  lcrcp_moist = Lc_full / cpm(i)
 
   qrain(i) = qrain(i) - dpr(i)
   q(i)     = q(i)     + dpr(i)
   t(i)     = t(i)     - dpr(i) * lcrcp_moist
+  ! Finalise cpm(i) for the rain->vapour phase change now that q/qrain
+  ! have been updated.
+  cpm(i) = cpm(i) + (cpv_cpm - cl_cpm) * dpr(i)
 
 end do
 

@@ -16,8 +16,9 @@ contains
 subroutine lsp_deposition(                                                     &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcl, qrain, qgraup, qcf, qcft, t, p,                                      &
-                                          ! Water contents, temp, pres
+  q, qcl, qcf, qcft, t, cpm, p,                                                &
+                                          ! Water contents, temp, moist heat
+                                          ! capacity and pressure
   q_ice_1, q_ice_2,                                                            &
                                           ! Subgrid-scale water contents
   area_ice_1, area_ice_2,                                                      &
@@ -66,7 +67,6 @@ use mphys_inputs_mod,    only: l_diff_icevt, l_proc_fluxes
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
 use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 ! Dr Hook Modules
@@ -113,10 +113,6 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
-  qrain(points),                                                               &
-                        ! Rain content / kg kg-1
-  qgraup(points),                                                              &
-                        ! Graupel content / kg kg-1
   p(points),                                                                   &
                         ! Air pressure / N m-2
   esi(points),                                                                 &
@@ -175,6 +171,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
 !                           (for cloud fraction calculations)
     t(points),                                                                 &
                           ! Temperature / K
+    cpm(points),                                                               &
+                          ! Moist-air heat capacity at const pressure (J/kg/K)
     cf(points),                                                                &
                           ! Current cloud fraction
     cfl(points),                                                               &
@@ -253,8 +251,6 @@ real (kind=real_lsprec) ::                                                     &
                         ! Temperature-dependent latent heat of fusion
   Ls_full,                                                                     &
                         ! Temperature-dependent latent heat of sublimation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lfrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_fus to cp_moist
   lsrcp_moist
@@ -568,33 +564,27 @@ do c = 1, npts
       ! Adjust liquid and vapour contents (liquid adjusts first)
       !-----------------------------------------------
 
-  qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
 
-  ! Calculate variable latent heats and heat capacties for fusion
+  ! Update liquid and vapour contents
+  qcl(i) = qcl(i) - dqil  ! Bergeron Findeisen acts first
+  dqi = dqi_dep(i) + dqi_sub(i)- dqil
+  q(i) = q(i) - dqi
+
+  ! Update heat capacity for phase transitions
+  cpm(i) = cpm(i) - cpv_cpm * dqi - cl_cpm * dqil                              &
+                  + ci_cpm * (dqi_dep(i) + dqi_sub(i))
+
+  ! Calculate variable latent heats for fusion and sublimation
   ! Use updated mixing ratios in cpm (post phase-change state)
   ! so that latent heating remains consistent with constant-pressure
   ! moist enthalpy conservation.
   Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-  cpm = cpd + cpv_cpm * q(i)                                                   &
-            + cl_cpm * (qcl(i) + qrain(i))                                     &
-            + ci_cpm * (qcft(i) + qgraup(i))
-  lfrcp_moist = Lf_full / cpm
-
-  t(i) = t(i) + lfrcp_moist * dqil
-  dqi = dqi_dep(i) + dqi_sub(i)- dqil
-
-  q(i) = q(i) - dqi
-
-  ! Calculate variable latent heats and heat capacties for sublimation
-  ! Recompute cpm after vapour update for consistency with
-  ! the new moisture state before applying the temperature increment.
+  lfrcp_moist = Lf_full / cpm(i)
   Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-  cpm = cpd + cpv_cpm * q(i)                                                   &
-            + cl_cpm * (qcl(i) + qrain(i))                                     &
-            + ci_cpm * (qcft(i) + qgraup(i))
-  lsrcp_moist = Ls_full / cpm
+  lsrcp_moist = Ls_full / cpm(i)
 
-  t(i) = t(i) + lsrcp_moist * dqi
+  ! Update temperature for phase transitions
+  t(i) = t(i) + lfrcp_moist * dqil + lsrcp_moist * dqi
 
     !-----------------------------------------------
     ! Store depostion/sublimation rate

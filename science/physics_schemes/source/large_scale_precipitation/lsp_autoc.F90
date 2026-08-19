@@ -16,8 +16,9 @@ contains
 subroutine lsp_autoc(                                                          &
   points, timestep,                                                            &
                                           ! Number of points and tstep
-  q, qcf, qgraup, qcl, qrain, t, p,                                            &
-                                          ! Water contents, temp and p
+  qgraup, qcl, qrain, t, p, cpm,                                               &
+                                          ! Water contents, temp, p and
+                                          ! moist heat capacity
   cfliq, rhcpt,                                                                &
                                           ! Cloud fraction information
                                           ! at start of microphysics ts
@@ -68,8 +69,7 @@ use gen_phys_inputs_mod,  only: l_mr_physics
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
-use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,          only: cpv_cpm, cl_cpm
 
 use qsat_mod,             only: qsat_wat, qsat_wat_mix
 
@@ -130,16 +130,15 @@ integer, intent(in) ::                                                         &
 real (kind=real_lsprec), intent(in) ::                                         &
   timestep,                                                                    &
                         ! Timestep / s
-  q(points),                                                                   &
-                        ! Vapour content / kg kg-1
-  qcf(points),                                                                 &
-                        ! Cloud ice content / kg kg-1
   qgraup(points),                                                              &
                         ! Graupel content / kg kg-1
   p(points),                                                                   &
                         ! Air pressure / N m-2
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure
+                        ! (J/kg/K). Maintained across the scheme.
   cfliq(points),                                                               &
                         ! Fraction of gridbox with liquid cloud
     area_liq(points),                                                          &
@@ -252,8 +251,6 @@ real (kind=real_lsprec) ::                                                     &
                         ! dqsat/dT at T_L / kg kg-1 K-1
   Lc_full,                                                                     &
                         ! Temperature-dependent latent heat of condensation
-  cpm,                                                                         &
-                        ! Temperature-dependent moist heat capacity
   a_l,                                                                         &
                         ! 1 / (1 + L/cp alpha)
   sigma_s,                                                                     &
@@ -565,10 +562,7 @@ else ! original autoconversion etc
       !-----------------------------------------------
     do i = 1, points
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qgraup(i))
-      lcrcp_moist(i) = Lc_full / cpm
+      lcrcp_moist(i) = Lc_full / cpm(i)
       t_l(i) = t(i) - (lcrcp_moist(i) * qcl(i))
     end do
 

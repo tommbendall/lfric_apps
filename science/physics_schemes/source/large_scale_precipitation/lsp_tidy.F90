@@ -18,8 +18,9 @@ subroutine lsp_tidy(                                                           &
                                           ! Number of points
   one_over_tsi,                                                                &
                                           ! 1/(timestep*iterations)
-  q, qcl, qcf, qcf2, qrain, qgraup, t,                                         &
-                                          ! Water contents and temp
+  q, qcl, qcf, qcf2, qrain, qgraup, t, cpm,                                    &
+                                          ! Water contents, temp
+                                          ! and moist heat capacity
   area_liq, area_mix, area_ice,                                                &
                                           ! Cloud fraction information
   cfice, cficei,                                                               &
@@ -67,7 +68,6 @@ use lsp_combine_precfrac_mod, only: lsp_combine_precfrac
 use um_types,         only: real_lsprec
 
 ! Constants for heat capacity calculations
-use planet_constants_mod, only: cpd => cp
 use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
 
 use science_fixes_mod, only: l_fix_tidy_rainfracs
@@ -164,6 +164,8 @@ real (kind=real_lsprec), intent(in out) ::                                     &
                         ! Graupel mixing ratio / kg kg-1
   t(points),                                                                   &
                         ! Temperature / K
+  cpm(points),                                                                 &
+                        ! Moist-air heat capacity at constant pressure (J/kg/K)
   cttemp(points),                                                              &
                         ! Ice-cloud top temperature / K
   cf(points),                                                                  &
@@ -265,8 +267,6 @@ real (kind=real_lsprec) ::                                                     &
                         ! Temperature-dependent latent heat of sublimation
   Lf_full,                                                                     &
                         ! Temperature-dependent latent heat of fusion
-  cpm,                                                                         &
-                        ! Temperature-dependent moist specific heat capacity
   lcrcp_moist,                                                                 &
                         ! Temperature-dependent ratio of L_con to cp_moist
   lsrcp_moist,                                                                 &
@@ -304,16 +304,16 @@ do i = 1, points
 
         ! Update prognostics
     q(i)   = q(i) + dpr
+    qrain(i) = zero
 
-    ! Calculate variable latent heats and heat capacties for condensation
+    ! Update heat capacity for the rain -> vapour transition
+    cpm(i) = cpm(i) + (cpv_cpm - cl_cpm) * dpr
+
+    ! Calculate variable latent heats and heat capacities for condensation
     Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i) - tm)
-    cpm = cpd + cpv_cpm * q(i)                                                 &
-              + cl_cpm * (qcl(i) + qrain(i))                                   &
-              + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-    lcrcp_moist = Lc_full / cpm
+    lcrcp_moist = Lc_full / cpm(i)
 
     t(i)   = t(i) - dpr * lcrcp_moist
-    qrain(i) = zero
 
         ! Update water tracers consistently
     if (l_wtrac) then
@@ -368,17 +368,16 @@ do i = 1, points
           ! Update prognostics
 
       q(i)   = q(i) + dpr
-
-      ! Calculate variable latent heats and heat capacties for sublimation
-      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lsrcp_moist = Ls_full / cpm
-
-      t(i)   = t(i) - lsrcp_moist * dpr
       qcf(i) = zero
 
+      ! Update heat capacity for the ice -> vapour transition
+      cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * dpr
+
+      ! Calculate variable latent heats and heat capacities for sublimation
+      Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
+      lsrcp_moist = Ls_full / cpm(i)
+
+      t(i)   = t(i) - lsrcp_moist * dpr
 
           ! Update deposition rate
       psdep(i) = psdep(i) - dpr * one_over_tsi
@@ -405,16 +404,16 @@ do i = 1, points
 
           ! Update prognostics
       q(i)   = q(i) + dpr
+      qcf2(i)= zero
 
-      ! Calculate variable latent heats and heat capacties for sublimation
+      ! Update heat capacity for the ice -> vapour transition
+      cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * dpr
+
+      ! Calculate variable latent heats and heat capacities for sublimation
       Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lsrcp_moist = Ls_full / cpm
+      lsrcp_moist = Ls_full / cpm(i)
 
       t(i)   = t(i) - lsrcp_moist * dpr
-      qcf2(i)= zero
 
           ! Update deposition rate
       pidep(i) = pidep(i) - dpr * one_over_tsi
@@ -462,16 +461,16 @@ do i = 1, points
           ! Update prognostics
 
       q(i)   = q(i) + dpr
+      qcf(i) = zero
 
-      ! Calculate variable latent heats and heat capacties for sublimation
+      ! Update heat capacity for the ice -> vapour transition
+      cpm(i) = cpm(i) + (cpv_cpm - ci_cpm) * dpr
+
+      ! Calculate variable latent heats and heat capacities for sublimation
       Ls_full = (lc + lf) - (ci_cpm - cpv_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lsrcp_moist = Ls_full / cpm
+      lsrcp_moist = Ls_full / cpm(i)
 
       t(i)   = t(i) - lsrcp_moist * dpr
-      qcf(i) = zero
 
          ! Update water tracers consistently
       if (l_wtrac) then
@@ -557,12 +556,9 @@ if ( .not. l_proc_fluxes ) then
 
           ! Calculate transfer rate
 
-      ! Calculate variable latent heats and heat capacties for fusion
+      ! Calculate variable latent heats and heat capacities for fusion
       Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i)                                               &
-                + cl_cpm * (qcl(i) + qrain(i))                                 &
-                + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lfrcp_moist = Lf_full / cpm
+      lfrcp_moist = Lf_full / cpm(i)
 
       dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
       dpr2 = dpr*rho(i)*dhir(i)
@@ -605,6 +601,9 @@ if ( .not. l_proc_fluxes ) then
         ! Otherwise, just add the melted ice-flux onto the current level qrain
         qrain(i)    = qrain(i)    + dpr
 
+        ! Update heat capacity for the ice -> liquid transition
+        cpm(i) = cpm(i) + (cl_cpm - ci_cpm) * dpr
+
         ! Update rain-fraction at level k
         if ( l_fix_tidy_rainfracs ) then
 
@@ -641,10 +640,9 @@ if ( .not. l_proc_fluxes ) then
 
           ! Calculate transfer rate
 
-      ! Calculate variable latent heats and heat capacties for fusion
+      ! Calculate variable latent heats and heat capacities for fusion
       Lf_full = lf - (ci_cpm - cl_cpm) * (t(i) - tm)
-      cpm = cpd + cpv_cpm * q(i) + cl_cpm * (qcl(i) + qrain(i)) + ci_cpm * (qcf(i) + qcf2(i) + qgraup(i))
-      lfrcp_moist = Lf_full / cpm
+      lfrcp_moist = Lf_full / cpm(i)
 
       dpr  = temp7 / lfrcp_moist ! Rate based on Tw excess
       dpr2 = dpr*rho(i)*dhir(i)
@@ -655,8 +653,6 @@ if ( .not. l_proc_fluxes ) then
 
           ! Add to melting rate
       pimlt(i) = pimlt(i) + dpr * one_over_tsi
-
-
 
           ! Update values of snow and rain
 
@@ -670,6 +666,9 @@ if ( .not. l_proc_fluxes ) then
       else
         ! Otherwise, just add the melted ice-flux onto the current level qrain
         qrain(i)    = qrain(i)    + dpr
+
+        ! Update heat capacity for the ice -> liquid transition
+        cpm(i) = cpm(i) + (cl_cpm - ci_cpm) * dpr
 
             ! Update rain fractions
 
