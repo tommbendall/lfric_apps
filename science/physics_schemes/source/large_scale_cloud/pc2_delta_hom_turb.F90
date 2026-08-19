@@ -19,7 +19,7 @@ subroutine pc2_delta_hom_turb(                                                 &
 !      Pressure related fields
  p_theta_levels,                                                               &
 !      Prognostic Fields
- t, q, qcl, qrain, qcf, qgraupel, cf, cfl, cff,                                &
+ t, q, qcl, qrain, qcf, qgraupel, cpm, cf, cfl, cff,                          &
 !      Forcing quantities for driving the homogeneous forcing
  dtin, dqin,                                                                   &
 !      Output increments to the prognostic fields
@@ -28,7 +28,7 @@ subroutine pc2_delta_hom_turb(                                                 &
  dbsdtbs0, dbsdtbs1, l_mixing_ratio )
 
 use water_constants_mod, only: lc, tm
-use planet_constants_mod,  only: r, repsilon, cpd => cp
+use planet_constants_mod,  only: r, repsilon
 use timestep_mod, only: timestep
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
@@ -39,7 +39,7 @@ use pc2_constants_mod,     only: dbsdtbs_exp, pdf_power,                       &
                                  i_pc2_homog_g_rev
 use cloud_inputs_mod,      only: l_fixbug_pc2_qcl_incr,l_fixbug_pc2_mixph,     &
                                  i_pc2_homog_g_method
-use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 
 use qsat_mod, only: qsat_wat, qsat_wat_mix
 
@@ -134,8 +134,12 @@ real(kind=real_umphys), intent(in) ::                                          &
 !       Frozen condensate content (kg water per kg air)
    qgraupel(      tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,                                   &
-                  1:tdims%k_end)
+                  1:tdims%k_end),                                              &
 !       Graupel content (kg water per kg air)
+   cpm(           tdims%i_start:tdims%i_end,                                   &
+                  tdims%j_start:tdims%j_end,                                   &
+                  1:tdims%k_end)
+!       Moist-air specific heat at constant pressure (J/kg/K)
 
 ! arguments with intent out. ie: output variables.
 
@@ -195,8 +199,6 @@ real(kind=real_umphys) ::                                                      &
 !       aL (q + l - qsat(TL) )  (kg kg-1)
    Lc_full,                                                                    &
 !       Temperature-dependent latent heat of condensation (J/kg)
-   cpm,                                                                        &
-!       Moist-air specific heat at constant pressure (J/kg/K)
    cpm_dag,                                                                    &
 !       Modified moist heat capacity for TL/T conversion: cpd + cpv*(qv+qcl) + cl*qrain + ci*(qcf+qgraupel)
    lrv0,                                                                       &
@@ -259,7 +261,7 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 !$OMP  PARALLEL DO DEFAULT(NONE) SCHEDULE(DYNAMIC) PRIVATE(k,                  &
 !$OMP  j, i, tl, qsl_t, qsl_tl, alpha, al,                                     &
 !$OMP  sd, cfl_to_m, sky_to_m, g_mqc, dqcdt, qc, dbsdtbs,                      &
-!$OMP  c_1, deltal, Lc_full, cpm, cpm_dag, lcrcp_moist,                        &
+!$OMP  c_1, deltal, Lc_full, cpm_dag, lcrcp_moist,                             &
 !$OMP  sde, cfc, s1, s2, cfl1, cfc1, qcl1, sde1, cfl2, cfc2, qcl2, sde2,       &
 !$OMP  w1, w2, dqcfac, cfl_diff, qcl_diff, a_coef, b_coef, c_coef, qsl_new,    &
 !$OMP  alpha_lcrcp, p2al )                                                     &
@@ -267,7 +269,7 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 !$OMP     repsilon,r,q,dqin,dtin,dbsdtbs0,dbsdtbs1,                            &
 !$OMP     timestep,dcflpc2,lrv0,                                               &
 !$OMP     dcfpc2,cf,cff,dqclpc2,dqpc2,dtpc2,                                   &
-!$OMP     i_pc2_homog_g_method,cpd,cpv_cpm,cl_cpm,ci_cpm,                      &
+!$OMP     i_pc2_homog_g_method,cpv_cpm,cl_cpm,cpm,                             &
 !$OMP     qrain,qcf,qgraupel)
 
 ! Loop round levels to be processed
@@ -279,10 +281,7 @@ do k = 1, tdims%k_end
       ! Provide safe defaults for all branches before cloud-regime tests.
       g_mqc = 0.0
       Lc_full = lc - (cl_cpm - cpv_cpm) * (t(i,j,k) - tm)
-      cpm = cpd + q(i,j,k)*cpv_cpm                                             &
-          + (qcl(i,j,k) + qrain(i,j,k))*cl_cpm                                 &
-          + (qcf(i,j,k) + qgraupel(i,j,k))*ci_cpm
-      lcrcp_moist = Lc_full / cpm
+      lcrcp_moist = Lc_full / cpm(i,j,k)
 
       ! There is no need to perform the total cloud fraction calculation in
       ! this subroutine if there is no, or full, liquid cloud cover.
@@ -362,8 +361,8 @@ do k = 1, tdims%k_end
         ! Calculate Saturated Specific Humidity with respect to liquid water
         ! for TL. Use moist T->TL formula.
 
-        cpm_dag = cpm + (cpv_cpm - cl_cpm) * qcl(i,j,k)
-        tl = (cpm / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
+        cpm_dag = cpm(i,j,k) + (cpv_cpm - cl_cpm) * qcl(i,j,k)
+        tl = (cpm(i,j,k) / cpm_dag) * t(i,j,k) - (lrv0 / cpm_dag) * qcl(i,j,k)
         if ( l_mixing_ratio ) then
           call qsat_wat_mix(qsl_tl, tl, p_theta_levels(i,j,k))
         else

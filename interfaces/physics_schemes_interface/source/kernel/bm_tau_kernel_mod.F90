@@ -115,9 +115,10 @@ contains
     ! Other modules containing stuff passed to CLD
     use cloud_config_mod,     only: bm_ez_opt, bm_ez_opt_entpar
     use nlsizes_namelist_mod, only: bl_levels
-    use planet_constants_mod, only: p_zero, kappa
+    use planet_constants_mod, only: p_zero, kappa, cpd => cp
     use microphysics_config_mod, only: microphysics_casim
     use bm_calc_tau_mod,      only: bm_calc_tau
+    use lsp_cpm_mod,          only: cpv_cpm, cl_cpm, ci_cpm
     use variable_precision,   only: wp
 
     implicit none
@@ -155,9 +156,9 @@ contains
     integer(i_um) :: k, i
 
     ! profile fields from level 1 upwards
-        real(r_um), dimension(seg_len,1,nlayers) :: cff, q, ql_tot_in, qi_tot_in,  &
+    real(r_um), dimension(seg_len,1,nlayers) :: cff, q, ql_tot_in, qi_tot_in,  &
           theta, qcf, qcf2, rho_dry_theta, rho_wet_tq, exner_theta_levels,     &
-          wvar_in, mix_len_in, tau_dec_out, tau_hom_out, tau_mph_out
+          wvar_in, mix_len_in, tau_dec_out, tau_hom_out, tau_mph_out, cpm_work
 
     real(r_um), dimension(seg_len,1,bl_levels) :: elm_in
 
@@ -189,6 +190,9 @@ contains
         q(i,1,k) =  m_v(map_wth(1,i) + k)
         ql_tot_in(i,1,k) = m_cl(map_wth(1,i) + k) + m_r(map_wth(1,i) + k)
         qi_tot_in(i,1,k) = m_s(map_wth(1,i) + k) + m_g(map_wth(1,i) + k) + m_ci(map_wth(1,i) + k)
+        ! moist-air specific heat at constant pressure
+        cpm_work(i,1,k) = cpd + cpv_cpm * q(i,1,k)                             &
+                        + cl_cpm * ql_tot_in(i,1,k) + ci_cpm * qi_tot_in(i,1,k)
         ! cloud fields
         cff(i,1,k) = cf_ice(map_wth(1,i) + k)
         ! turbulence fields
@@ -220,7 +224,7 @@ contains
       end do
     end do
 
-    call bm_calc_tau(q, qcf, qcf2, ql_tot_in, qi_tot_in, theta,                &
+    call bm_calc_tau(q, qcf, qcf2, ql_tot_in, qi_tot_in, cpm_work, theta,      &
                      exner_theta_levels, bl_levels, cff, p_theta_levels,       &
                      wvar_in, elm_in, mix_len_in, rho_dry_theta, rho_wet_tq,   &
                      icenumber, snownumber, tau_dec_out, tau_hom_out,          &

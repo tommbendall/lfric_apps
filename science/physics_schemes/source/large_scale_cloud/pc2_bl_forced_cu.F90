@@ -25,7 +25,8 @@ subroutine pc2_bl_forced_cu( zhnl, dzh, zlcl, bl_type_3, bl_type_6,            &
                              cca0, ccw0, ccb0, cct0, lcbase0,                  &
                              cfl_latest, cf_latest,                            &
                              qcl_latest, qrain_latest, qcf_latest,             &
-                             qgraupel_latest, q_latest, t_latest, l_wtrac_bl)
+                             qgraupel_latest, q_latest, t_latest, cpm,         &
+                             l_wtrac_bl)
 
 use atm_fields_bounds_mod, only: tdims, pdims
 use bl_option_mod,         only: kprof_cu, on
@@ -33,8 +34,7 @@ use cloud_inputs_mod,      only: forced_cu_fac, forced_cu
 use mphys_constants_mod,   only: mprog_min
 use pc2_constants_mod,     only: cbl_and_cu, forced_cu_cca
 use water_constants_mod,   only: lc, tm
-use planet_constants_mod,  only: cpd => cp
-use lsc_cpm_mod,           only: cpv_cpm, cl_cpm, ci_cpm
+use lsc_cpm_mod,           only: cpv_cpm, cl_cpm
 use wtrac_pc2_mod,         only: wtrac_pc2
 use yomhook,               only: lhook, dr_hook
 use parkind1,              only: jprb, jpim
@@ -105,8 +105,11 @@ real, intent(in out) ::                                                        &
              tdims%k_end),                                                     &
              ! in out temperature current value to update
     q_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,              &
-             tdims%k_end)
+             tdims%k_end),                                                     &
              ! in out water vapour content current value to update
+    cpm(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,                   &
+        tdims%k_end)
+        ! in out moist-air specific heat at constant pressure (J/kg/K)
 
 logical, intent(in) :: l_wtrac_bl    ! Controls water tracer storage
 
@@ -126,7 +129,6 @@ real ::                                                                        &
  zc_depth,                                                                     &
             ! forced cloud depth
  Lc_full,                                                                      &
- cpm,                                                                          &
  lcrcp_moist
 
 real, parameter :: qcl_forced_min = 0.00005
@@ -154,11 +156,10 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP         qrain_latest, qcf_latest, qgraupel_latest, q_latest,             &
 !$OMP         forced_cu_fac, t_latest, forced_cu, cca0, ccw0,                  &
 !$OMP         cct0, ccb0, lcbase0, l_wtrac_bl, wtrac_pc2,                      &
-!$OMP         cpd, cpv_cpm, cl_cpm, ci_cpm )                                   &
+!$OMP         cpv_cpm, cl_cpm, cpm )                                           &
 !$OMP private ( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced,             &
-!$OMP           dqcl, qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
+!$OMP           dqcl, qcl_tol, dcfl, Lc_full, lcrcp_moist )
 Lc_full = 0.0
-cpm = 0.0
 lcrcp_moist = 0.0
 !$OMP DO SCHEDULE(DYNAMIC)
 do j = tdims%j_start, tdims%j_end
@@ -233,10 +234,8 @@ do j = tdims%j_start, tdims%j_end
               end if
               qcl_latest(i,j,k) = qcl_forced
               Lc_full = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
-              cpm = cpd + q_latest(i,j,k)*cpv_cpm                              &
-                    + (qcl_latest(i,j,k) + qrain_latest(i,j,k))*cl_cpm         &
-                    + (qcf_latest(i,j,k) + qgraupel_latest(i,j,k))*ci_cpm
-              lcrcp_moist = Lc_full / cpm
+              cpm(i,j,k) = cpm(i,j,k) + cl_cpm*dqcl
+              lcrcp_moist = Lc_full / cpm(i,j,k)
               t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
               q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
               if (l_wtrac_bl) then
@@ -270,11 +269,10 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 !$OMP         qcl_inv_top, forced_cu_fac, qcl_latest, qrain_latest,            &
 !$OMP         qcf_latest, qgraupel_latest, q_latest, t_latest, cf_latest,      &
 !$OMP         forced_cu, cca0, ccw0, cct0, ccb0, lcbase0, l_wtrac_bl,          &
-!$OMP         wtrac_pc2, cpd, cpv_cpm, cl_cpm, ci_cpm )                        &
+!$OMP         wtrac_pc2, cpv_cpm, cl_cpm, cpm )                                &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &
-!$OMP          qcl_tol, dcfl, Lc_full, cpm, lcrcp_moist )
+!$OMP          qcl_tol, dcfl, Lc_full, lcrcp_moist )
 Lc_full = 0.0
-cpm = 0.0
 lcrcp_moist = 0.0
 !$OMP DO SCHEDULE(STATIC)
   do j = tdims%j_start, tdims%j_end
@@ -354,10 +352,8 @@ lcrcp_moist = 0.0
                 end if
                 qcl_latest(i,j,k) = qcl_forced
                 Lc_full = lc - (cl_cpm - cpv_cpm) * (t_latest(i,j,k) - tm)
-                cpm = cpd + q_latest(i,j,k)*cpv_cpm                            &
-                      + (qcl_latest(i,j,k) + qrain_latest(i,j,k))*cl_cpm       &
-                      + (qcf_latest(i,j,k) + qgraupel_latest(i,j,k))*ci_cpm
-                lcrcp_moist = Lc_full / cpm
+                cpm(i,j,k) = cpm(i,j,k) + cl_cpm*dqcl
+                lcrcp_moist = Lc_full / cpm(i,j,k)
                 t_latest(i,j,k)  = t_latest(i,j,k) + lcrcp_moist*dqcl
                 q_latest(i,j,k)  = q_latest(i,j,k) - dqcl
                 if (l_wtrac_bl) then

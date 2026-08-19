@@ -848,7 +848,7 @@ contains
                p_theta_levels(1,1,1),                                          &
                ! INput variables
                t_earliest, q_earliest, qcl_earliest,                           &
-               qrain, qcf_total, qgraupel,                                     &
+               qrain, qcf_total, qgraupel, cpm_earliest,                       &
                cf_latest, cfl_latest, cff_latest, tl_force, qt_force,          &
                ! OUTput variables
                t_inc_pc2, q_inc_pc2, qcl_inc_pc2, bcf_inc_pc2, cfl_inc_pc2,    &
@@ -937,6 +937,10 @@ contains
               cf_latest(i,1,k)  =  cf_earliest(i,1,k)                          &
                    + bcf_inc_pc2(i,1,k)
               ! qcf_latest and cff_latest are not updated
+              ! Update moist-air heat capacity for the PC2 delta response
+              cpm_latest(i,1,k) = cpm_earliest(i,1,k)                          &
+                   + cpv_cpm*(qt_force(i,1,k) + q_inc_pc2(i,1,k))              &
+                   + cl_cpm*qcl_inc_pc2(i,1,k)
             end do
           end do  ! k
 
@@ -955,7 +959,7 @@ contains
                                    cca0, ccw0, ccb0, cct0, lcbase0,            &
                                    cfl_latest, cf_latest,                      &
                                    qcl_latest, qrain, qcf_total, qgraupel,     &
-                                   q_latest, t_latest, l_wtrac)
+                                   q_latest, t_latest, cpm_latest, l_wtrac)
             do k = 1, nlayers
               do i = 1, seg_len
                 cca(map_wth(1,i) + k) = cca0(i,1,k)
