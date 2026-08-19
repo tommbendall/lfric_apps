@@ -24,8 +24,7 @@ subroutine pc2_bl_forced_cu( zhnl, dzh, zlcl, bl_type_3, bl_type_6,            &
                              z_theta, qcl_inv_top,                             &
                              cca0, ccw0, ccb0, cct0, lcbase0,                  &
                              cfl_latest, cf_latest,                            &
-                             qcl_latest, qrain_latest, qcf_latest,             &
-                             qgraupel_latest, q_latest, t_latest, cpm,         &
+                             qcl_latest, q_latest, t_latest, cpm,              &
                              l_wtrac_bl)
 
 use atm_fields_bounds_mod, only: tdims, pdims
@@ -92,15 +91,6 @@ real, intent(in out) ::                                                        &
     qcl_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,            &
                tdims%k_end),                                                   &
                ! in out liquid cloud water content current value to update
-    qrain_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,          &
-                 tdims%k_end),                                                 &
-                 ! in rain water content for moist heat capacity
-    qcf_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,            &
-               tdims%k_end),                                                   &
-               ! in frozen cloud water content for moist heat capacity
-    qgraupel_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,       &
-                    tdims%k_end),                                              &
-                    ! in graupel content for moist heat capacity
     t_latest(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end,              &
              tdims%k_end),                                                     &
              ! in out temperature current value to update
@@ -152,8 +142,7 @@ if (lhook) call dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( tdims, zhnl, dzh, zlcl, bl_type_3, z_theta,                      &
-!$OMP         cfl_latest, qcl_inv_top, cf_latest, qcl_latest,                  &
-!$OMP         qrain_latest, qcf_latest, qgraupel_latest, q_latest,             &
+!$OMP         cfl_latest, qcl_inv_top, cf_latest, q_latest, qcl_latest,        &
 !$OMP         forced_cu_fac, t_latest, forced_cu, cca0, ccw0,                  &
 !$OMP         cct0, ccb0, lcbase0, l_wtrac_bl, wtrac_pc2,                      &
 !$OMP         cpv_cpm, cl_cpm, cpm )                                           &
@@ -266,8 +255,8 @@ if ( kprof_cu >= on .and. ( forced_cu == cbl_and_cu                            &
 
 !$OMP PARALLEL DEFAULT(none)                                                   &
 !$OMP SHARED( tdims, zhnl, zlcl, bl_type_6, z_theta, cfl_latest,               &
-!$OMP         qcl_inv_top, forced_cu_fac, qcl_latest, qrain_latest,            &
-!$OMP         qcf_latest, qgraupel_latest, q_latest, t_latest, cf_latest,      &
+!$OMP         qcl_inv_top, forced_cu_fac, qcl_latest, q_latest,                &
+!$OMP         t_latest, cf_latest,                                             &
 !$OMP         forced_cu, cca0, ccw0, cct0, ccb0, lcbase0, l_wtrac_bl,          &
 !$OMP         wtrac_pc2, cpv_cpm, cl_cpm, cpm )                                &
 !$OMP private( i, j, k, zc_depth, cf_base, cf_forced, qcl_forced, dqcl,        &

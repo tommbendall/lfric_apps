@@ -19,7 +19,7 @@
 
 casim:
     source: git@github.com:tommbendall/casim.git
-    ref: 722250bff122455dc73b2312d8ba454e58507096
+    ref: adca6226959e0417498989419552ec3b59fb04c5
 
 jules:
     source: git@github.com:tommbendall/jules.git

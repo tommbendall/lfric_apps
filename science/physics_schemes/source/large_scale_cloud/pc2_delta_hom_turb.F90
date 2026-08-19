@@ -19,7 +19,7 @@ subroutine pc2_delta_hom_turb(                                                 &
 !      Pressure related fields
  p_theta_levels,                                                               &
 !      Prognostic Fields
- t, q, qcl, qrain, qcf, qgraupel, cpm, cf, cfl, cff,                          &
+ t, q, qcl, cpm, cf, cfl, cff,                                                 &
 !      Forcing quantities for driving the homogeneous forcing
  dtin, dqin,                                                                   &
 !      Output increments to the prognostic fields
@@ -124,18 +124,6 @@ real(kind=real_umphys), intent(in) ::                                          &
 !       Increment of vapour from forcing mechanism (kg kg-1)
 
 real(kind=real_umphys), intent(in) ::                                          &
-   qrain(         tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,                                   &
-                  1:tdims%k_end),                                              &
-!       Rain water content (kg water per kg air)
-   qcf(           tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,                                   &
-                  1:tdims%k_end),                                              &
-!       Frozen condensate content (kg water per kg air)
-   qgraupel(      tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end,                                   &
-                  1:tdims%k_end),                                              &
-!       Graupel content (kg water per kg air)
    cpm(           tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end,                                   &
                   1:tdims%k_end)
@@ -269,8 +257,7 @@ lrv0 = lc + (cl_cpm - cpv_cpm) * tm
 !$OMP     repsilon,r,q,dqin,dtin,dbsdtbs0,dbsdtbs1,                            &
 !$OMP     timestep,dcflpc2,lrv0,                                               &
 !$OMP     dcfpc2,cf,cff,dqclpc2,dqpc2,dtpc2,                                   &
-!$OMP     i_pc2_homog_g_method,cpv_cpm,cl_cpm,cpm,                             &
-!$OMP     qrain,qcf,qgraupel)
+!$OMP     i_pc2_homog_g_method,cpv_cpm,cl_cpm,cpm)
 
 ! Loop round levels to be processed
 do k = 1, tdims%k_end

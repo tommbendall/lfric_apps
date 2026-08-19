@@ -277,9 +277,6 @@ subroutine pc2_conv_coupling_code( nlayers, seg_len,                           &
                         t_work,           & ! Temperature
                         qv_work,          & ! Water vapour
                         qcl_work,         & ! Liquid water content
-                        qrain_work,       & ! rain water
-                        qcf_work,         & ! qcf
-                        qgraupel_work,    & ! graupel water
                         cpm_work,         & ! Moist-air specific heat capacity
                         bcf_work,         & ! Bulk cloud fraction
                         cfl_work,         & ! Liquid cloud fraction

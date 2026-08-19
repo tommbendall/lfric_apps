@@ -22,7 +22,7 @@ subroutine pc2_hom_conv(                                                       &
 !      Timestep
  timestep,                                                                     &
 !      Prognostic Fields
- t, q, qcl, qrain, qcf, qgraupel, cpm, cf, cfl, cff,                           &
+ t, q, qcl, cpm, cf, cfl, cff,                                                 &
 !      Forcing quantities for driving the homogeneous forcing
  dtin, dqin, dqclin, dpdt, dcflin,                                             &
 !      Output increments to the prognostic fields
@@ -131,19 +131,6 @@ real(kind=real_umphys), intent(in) ::                                          &
    dcflin(        tdims%i_start:tdims%i_end,                                   &
                   tdims%j_start:tdims%j_end)
 !       Increment in liquid cloud fraction (no units)
-
-real(kind=real_umphys), intent(in) ::                                          &
-   qrain(         tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end),                                  &
-!       Rain water content (kg water per kg air)
-
-   qcf(           tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end),                                  &
-!       Frozen condensate content (kg water per kg air)
-
-   qgraupel(      tdims%i_start:tdims%i_end,                                   &
-                  tdims%j_start:tdims%j_end)
-!       Graupel content (kg water per kg air)
 
 real(kind=real_umphys), intent(in) ::                                          &
    cpm(           tdims%i_start:tdims%i_end,                                   &

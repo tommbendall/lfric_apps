@@ -420,7 +420,7 @@ use mphys_inputs_mod,    only: l_diff_icevt
 use um_types,             only: real_lsprec
 
 ! Constants for heat capacity calculations
-use lsp_cpm_mod,         only: cpv_cpm, cl_cpm, ci_cpm
+use lsp_cpm_mod,         only: cl_cpm, ci_cpm
 
 ! Dr Hook modules
 use yomhook,             only: lhook, dr_hook

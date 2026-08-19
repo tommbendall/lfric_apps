@@ -848,7 +848,7 @@ contains
                p_theta_levels(1,1,1),                                          &
                ! INput variables
                t_earliest, q_earliest, qcl_earliest,                           &
-               qrain, qcf_total, qgraupel, cpm_earliest,                       &
+               cpm_earliest,                                                   &
                cf_latest, cfl_latest, cff_latest, tl_force, qt_force,          &
                ! OUTput variables
                t_inc_pc2, q_inc_pc2, qcl_inc_pc2, bcf_inc_pc2, cfl_inc_pc2,    &
@@ -958,7 +958,7 @@ contains
                                    z_theta, qcl_inv_top,                       &
                                    cca0, ccw0, ccb0, cct0, lcbase0,            &
                                    cfl_latest, cf_latest,                      &
-                                   qcl_latest, qrain, qcf_total, qgraupel,     &
+                                   qcl_latest,                                 &
                                    q_latest, t_latest, cpm_latest, l_wtrac)
             do k = 1, nlayers
               do i = 1, seg_len
