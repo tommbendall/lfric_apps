@@ -1119,7 +1119,7 @@ contains
         call self%wind_precomputations%finalise()
 
         write(log_scratch_space, '(A,I4)')                                     &
-            'Transport: Reference field for tracer transport cannot stay' //   &
+            'Transport: Reference field for tracer transport cannot stay ' //  &
             'positive. Increasing number of substeps to ', self%num_substeps
         call log_event(log_scratch_space, LOG_LEVEL_WARNING)
       else
