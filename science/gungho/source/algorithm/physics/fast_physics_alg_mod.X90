@@ -279,6 +279,10 @@ contains
                         microphysics_fields, aerosol_fields, outer, clock)
         call invoke(inc_X_plus_Y(theta_latest, dtheta), &
                     inc_X_plus_Y(u_latest, du) )
+
+        call print_field_stats_alg(config, dtheta, LOG_LEVEL_INFO,            &
+                                  printmin=-20.0_r_def, printmax=20.0_r_def,   &
+                                  name='dtheta_bl')
       end if
     end if
 
@@ -361,6 +365,10 @@ contains
                   inc_X_plus_Y(theta_latest, dtheta), &
                   inc_X_plus_Y(u_latest, du))
 
+      call print_field_stats_alg(config, dt_conv, LOG_LEVEL_INFO,            &
+                                printmin=-20.0_r_def, printmax=20.0_r_def,   &
+                                name='dT_conv')
+
     end if
 
     !--------------------------------------------------------------------
@@ -382,6 +390,9 @@ contains
                         microphysics_fields, aerosol_fields, outer, clock)
         call invoke(inc_X_plus_Y(theta_latest, dtheta), &
                     inc_X_plus_Y(u_latest, du) )
+        call print_field_stats_alg(config, dtheta, LOG_LEVEL_INFO,            &
+                                  printmin=-20.0_r_def, printmax=20.0_r_def,   &
+                                  name='dtheta_bl')
       end if
     !--------------------------------------------------------------------
     ! Jules surface and sub-surface (snow and hydrology)
@@ -440,6 +451,10 @@ contains
                   inc_X_plus_Y(mr(imr_v), dmv_stph), &
                   inc_X_plus_Y(u_latest, du_stph) )
 
+        call print_field_stats_alg(config, dtheta_stph, LOG_LEVEL_INFO,        &
+                                  printmin=-20.0_r_def, printmax=20.0_r_def,   &
+                                  name='dtheta_stph')
+
       if (blpert_type /= blpert_type_off) then
         call dtheta_stph%copy_field_properties(dtheta_blpert)
         call dmv_stph%copy_field_properties(dmv_blpert)
@@ -450,6 +465,9 @@ contains
         call invoke(inc_X_plus_Y(theta_latest, dtheta_blpert), &
                     inc_X_plus_Y(mr(imr_v), dmv_blpert) )
 
+        call print_field_stats_alg(config, dtheta_blpert, LOG_LEVEL_INFO,       &
+                                  printmin=-20.0_r_def, printmax=20.0_r_def,   &
+                                  name='dtheta_blpert')
       end if
     end if
 #endif
