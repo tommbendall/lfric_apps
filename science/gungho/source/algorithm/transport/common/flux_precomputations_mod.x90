@@ -2219,6 +2219,10 @@ contains
 
       if (field_min < EPS_R_TRAN) then
         ref_field_safe = .false.
+        write(log_scratch_space, '(A,I8,A,E16.8)')                             &
+            'Negative values found in reference mass at step ', step,          &
+            ', minimum value: ', field_min
+        call log_event(log_scratch_space, LOG_LEVEL_WARNING)
         EXIT
       end if
 
@@ -2233,12 +2237,20 @@ contains
         call get_field_minmax(ref_mass, field_min, field_max)
         if (field_min < EPS_R_TRAN) then
           ref_field_safe = .false.
+          write(log_scratch_space, '(A,I8,A,E16.8)')                           &
+              'Negative values found in reference mass X at step ', step,      &
+              ', minimum value: ', field_min
+          call log_event(log_scratch_space, LOG_LEVEL_WARNING)
           EXIT
         end if
         ref_mass => self%get_ref_mass_y(mesh_id, step, negative_check_flag=.false.)
         call get_field_minmax(ref_mass, field_min, field_max)
         if (field_min < EPS_R_TRAN) then
           ref_field_safe = .false.
+          write(log_scratch_space, '(A,I8,A,E16.8)')                           &
+              'Negative values found in reference mass Y at step ', step,      &
+              ', minimum value: ', field_min
+          call log_event(log_scratch_space, LOG_LEVEL_WARNING)
           EXIT
         end if
       end if

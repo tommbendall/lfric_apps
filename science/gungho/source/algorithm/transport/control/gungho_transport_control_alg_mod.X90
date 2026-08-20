@@ -219,6 +219,11 @@ contains
     use transport_field_mod,             only: transport_field
     use wind_transport_alg_mod,          only: wind_transport_alg
 
+    ! Debugging stuff
+    use fv_divergence_3d_kernel_mod,     only: fv_divergence_3d_kernel_type
+    use sci_geometric_constants_mod,     only: get_detj_at_w3_fv
+    use sci_field_minmax_alg_mod,        only: log_field_minmax
+
     implicit none
 
     ! Arguments
@@ -275,6 +280,11 @@ contains
     type(transport_controller_type)          :: transport_controller
     type(transport_controller_type)          :: aerosol_transport_controller
     integer(tik)                             :: id_cont
+
+    ! Debugging stuff
+    type(field_type)                       :: increment, rho_check
+    type(field_type),              pointer :: detj_at_w3
+    type(mesh_type),               pointer :: mesh
 
     if ( LPROF ) call start_timing( id_cont, 'dynamics.transport' )
     ! ======================================================================== !
@@ -449,8 +459,33 @@ contains
         ! Copy dry density flux for the whole timestep into flux precomputations
         if (outer < outer_iterations) then
           call transport_controller%initialise_flux_precomputations(tr_and_bdf2_flux)
+          ! Check if this was the correct flux
+          mesh => rho_d_n_start%get_mesh()
+          detj_at_w3 => get_detj_at_w3_fv(mesh)
+          call increment%initialise(rho_d_n_start%get_function_space())
+          call rho_check%initialise(rho_d_n_start%get_function_space())
+          call invoke( fv_divergence_3d_kernel_type(increment,                 &
+                                                    tr_and_bdf2_flux,          &
+                                                    detj_at_w3),               &
+                       X_minus_Y(rho_check, rho_d_n_start, increment))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 1 rho_np1', fields_np1(igh_d))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 1 rho tracer np1', rho_check)
+          call invoke( inc_X_minus_Y(rho_check, fields_np1(igh_d)))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 1 rho check', rho_check)
         else
           call transport_controller%initialise_flux_precomputations(total_dry_flux)
+          ! Check if this was the correct flux
+          mesh => rho_d_n_start%get_mesh()
+          detj_at_w3 => get_detj_at_w3_fv(mesh)
+          call increment%initialise(rho_d_n_start%get_function_space())
+          call rho_check%initialise(rho_d_n_start%get_function_space())
+          call invoke( fv_divergence_3d_kernel_type(increment, total_dry_flux, &
+                                                    detj_at_w3),               &
+                       X_minus_Y(rho_check, rho_d_n_start, increment))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 2 rho_np1', fields_np1(igh_d))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 2 rho tracer np1', rho_check)
+          call invoke( inc_X_minus_Y(rho_check, fields_np1(igh_d)))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 2 rho check', rho_check)
         end if
       end if
 
