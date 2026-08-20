@@ -137,7 +137,7 @@ subroutine field_stats_code_r_single(nlayers,                            &
   ! Internal variables
   integer(kind=i_def) :: df, k, k_max, df_max
 
-  if (ABS(radians_to_degrees*latitude(map_2d(1)) + 33.12272644_r_def) < 0.1_def &
+  if (ABS(radians_to_degrees*latitude(map_2d(1)) + 33.12272644_r_def) < 0.1_r_def &
      .and. ABS(radians_to_degrees*longitude(map_2d(1)) + 70.11160278_r_def) < 0.1_r_def) then
     write(log_Scratch_space, *) 'FAILURE COLUMN: ', map_2d(1)
     call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
@@ -245,7 +245,7 @@ subroutine field_stats_code_r_double(nlayers,                            &
   ! Internal variables
   integer(kind=i_def) :: df, k, k_max, df_max
 
-  if (ABS(radians_to_degrees*latitude(map_2d(1)) + 33.12272644_r_def) < 0.1_def &
+  if (ABS(radians_to_degrees*latitude(map_2d(1)) + 33.12272644_r_def) < 0.1_r_def &
      .and. ABS(radians_to_degrees*longitude(map_2d(1)) + 70.11160278_r_def) < 0.1_r_def) then
     write(log_Scratch_space, *) 'FAILURE COLUMN: ', map_2d(1)
     call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
