@@ -11,8 +11,10 @@ module field_stats_kernel_mod
                                CELL_COLUMN, GH_SCALAR, GH_WRITE,     &
                                ANY_DISCONTINUOUS_SPACE_1,            &
                                ANY_DISCONTINUOUS_SPACE_2
-  use constants_mod,     only: r_def, i_def, r_single, r_double
+  use constants_mod,     only: r_def, i_def, r_single, r_double, radians_to_degrees
   use kernel_mod,        only: kernel_type
+
+  use log_mod, only: log_scratch_space, log_event, LOG_LEVEL_DEBUG
 
   implicit none
 
@@ -135,6 +137,12 @@ subroutine field_stats_code_r_single(nlayers,                            &
   ! Internal variables
   integer(kind=i_def) :: df, k, k_max, df_max
 
+  if (ABS(radians_to_degrees*latitude(map_2d(1)) + 33.12272644_r_def) < 0.1_def &
+     .and. ABS(radians_to_degrees*longitude(map_2d(1)) + 70.11160278_r_def) < 0.1_r_def) then
+    write(log_Scratch_space, *) 'FAILURE COLUMN: ', map_2d(1)
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+  end if
+
   if (ndf_3d == 4) then
     df_max = 4
   else
@@ -236,6 +244,12 @@ subroutine field_stats_code_r_double(nlayers,                            &
 
   ! Internal variables
   integer(kind=i_def) :: df, k, k_max, df_max
+
+  if (ABS(radians_to_degrees*latitude(map_2d(1)) + 33.12272644_r_def) < 0.1_def &
+     .and. ABS(radians_to_degrees*longitude(map_2d(1)) + 70.11160278_r_def) < 0.1_r_def) then
+    write(log_Scratch_space, *) 'FAILURE COLUMN: ', map_2d(1)
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+  end if
 
   if (ndf_3d == 4) then
     df_max = 4

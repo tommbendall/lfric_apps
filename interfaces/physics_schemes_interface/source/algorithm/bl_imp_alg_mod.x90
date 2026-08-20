@@ -29,7 +29,7 @@ module bl_imp_alg_mod
   use io_config_mod, only: write_diag, use_xios_io, diagnostic_frequency
   use bl_imp_diags_mod, only: initialise_diags_for_bl_imp,   &
                               output_diags_for_bl_imp
-  use log_mod,                       only: log_event, LOG_LEVEL_DEBUG
+  use log_mod,                       only: log_event, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO
   use mesh_mod,                      only: mesh_type
   use physics_mappings_alg_mod,      only: map_physics_winds
   use blayer_config_mod,             only: fric_heating
@@ -42,6 +42,8 @@ module bl_imp_alg_mod
   use stochastic_physics_config_mod, only: blpert_type, &
                                            blpert_type_theta_star, &
                                            blpert_type_theta_and_moist
+
+  use print_field_stats_alg_mod, only: print_field_stats_alg
 
   implicit none
 
@@ -397,6 +399,14 @@ contains
                                       bl_type_ind, rhokh, fqw, ftl, dqw, dtl,  &
                                       dqw_nt, dtl_nt, qw, tl, ct_ctq,          &
                                       dqw1, dtl1, ct_ctq1 ) )
+
+      call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,         &
+                                 printmin=-20.0_r_def, printmax=20.0_r_def,    &
+                                 name='BL_IMP: theta')
+      call print_field_stats_alg(config, theta_latest, LOG_LEVEL_INFO,         &
+                                 printmin=-20.0_r_def, printmax=20.0_r_def,    &
+                                 name='BL_IMP: theta_latest')
+
       call jules_imp_alg( config,                                              &
                           mr, surf_heat_flux, canopy_evap, water_extraction,   &
                           lake_evap, derived_fields, radiation_fields,         &
@@ -422,6 +432,10 @@ contains
                                        zh_nonloc, zh, zhsc, bl_type_ind, dqw,  &
                                        dtl, dqw_nt, dtl_nt, qw, tl, ct_ctq,    &
                                        fqw_star, ftl_star ) )
+
+      call print_field_stats_alg(config, theta_latest, LOG_LEVEL_INFO,            &
+                                 printmin=-20.0_r_def, printmax=20.0_r_def,   &
+                                 name='BL_IMP2: theta_latest')
     end do !loop
 
     call um_sizes_init(1_i_def)
