@@ -1113,8 +1113,10 @@ contains
         )
         self%num_substeps = self%num_substeps + 1
 
-        ! Also need to clear ffsl_precomputations in case it was set
+        ! Clear all precomputations in case they were set
         call self%ffsl_precomputations%finalise()
+        call self%flux_precomputations%finalise()
+        call self%wind_precomputations%finalise()
 
         write(log_scratch_space, '(A,I4)')                                     &
             'Transport: Reference field for tracer transport cannot stay' //   &
