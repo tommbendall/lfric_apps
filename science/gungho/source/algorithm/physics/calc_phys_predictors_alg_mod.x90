@@ -27,6 +27,10 @@ module calc_phys_predictors_alg_mod
   use boundaries_config_mod,    only: limited_area, transport_boundary_depth
   use base_mesh_config_mod,     only: topology, topology_non_periodic
 
+  use sci_geometric_constants_mod, only: get_panel_id
+  use log_column_kernel_mod, only: log_column_kernel_type
+  use log_mod, only: log_event, LOG_LEVEL_INFO
+
   implicit none
 
   private
@@ -71,6 +75,9 @@ subroutine calc_phys_predictors_alg( derived_fields, rhs_np1, rhs_adv, &
     type( field_type ), pointer :: lbc_u => null()
     type( field_type ), pointer :: lbc_theta => null()
 
+    type(field_type) :: dummy
+    type(field_type), pointer :: panel_id
+
     type( field_type ) :: du, dtheta, rhsu_np1
     integer( tik )     :: id
 
@@ -99,6 +106,25 @@ subroutine calc_phys_predictors_alg( derived_fields, rhs_np1, rhs_adv, &
         call mass_matrix_solver_alg(du, rhsu_np1 )
       end if
       call invoke( X_plus_Y(u_star, du, state(igh_u)) )
+
+      ! DEBUGGING
+      call dummy%initialise(u_star%get_function_space())
+      panel_id => get_panel_id(u_star%get_mesh())
+      call log_event('CALC PHYS PREDICTORS: u_star', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, u_star, panel_id, 71) )
+      call log_event('CALC PHYS PREDICTORS: du', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, du, panel_id, 71) )
+      call log_event('CALC PHYS PREDICTORS: state(igh_u)', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, state(igh_u), panel_id, 71) )
+      call log_event('CALC PHYS PREDICTORS: rhsu_np1', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, rhsu_np1, panel_id, 71) )
+      call log_event('CALC PHYS PREDICTORS: rhs_adv(igh_u)', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, rhs_adv(igh_u), panel_id, 71) )
+      call log_event('CALC PHYS PREDICTORS: rhs_n(igh_u)', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, rhs_n(igh_u), panel_id, 71) )
+      call log_event('CALC PHYS PREDICTORS: rhs_np1(igh_u)', LOG_LEVEL_INFO)
+      call invoke( log_column_kernel_type(dummy, rhs_np1(igh_u), panel_id, 71) )
+
       call rhsu_np1%field_final()
       call du%field_final()
 
