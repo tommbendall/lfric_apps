@@ -26,6 +26,7 @@ module jules_imp_kernel_mod
   use kernel_mod,                only : kernel_type
   use timestepping_config_mod,   only : outer_iterations
   use water_constants_mod,       only : tfs, lc, lf
+  use log_mod, only: log_event, LOG_LEVEL_DEBUG, log_scratch_space
 
   implicit none
 
@@ -741,6 +742,50 @@ contains
     !-----------------------------------------------------------------------
     ! Mapping of LFRic fields into UM variables
     !-----------------------------------------------------------------------
+
+    ! Debugging
+    do i = 1, seg_len
+      if (map_2d(1,i) == 71) then
+        ! Log the values of all input fields
+        write(log_scratch_space, *) 'JULES IMP, wetrho_at_w3(71) = ', wetrho_in_w3(map_w3(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, exner_at_wth(71) = ', exner_in_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, tile_temperature(71) = ', tile_temperature(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, screen_temperature(71) = ', screen_temperature(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, surf_heat_flux(71) = ', surf_heat_flux(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, tile_heat_flux(71) = ', tile_heat_flux(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, tile_moisture_flux(71) = ', tile_moisture_flux(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, sw_up_tile(71) = ', sw_up_tile(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, sw_down_surf(71) = ', sw_down_surf(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, lw_down_surf(71) = ', lw_down_surf(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, sw_down_blue_surf(71) = ', sw_down_blue_surf(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, sw_direct_blue_surf(71) = ', sw_direct_blue_surf(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, ustar(71) = ', ustar(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, qw_wth(71) = ', qw_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, tl_wth(71) = ', tl_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, dqw1_2d(71) = ', dqw1_2d(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, dtl1_2d(71) = ', dtl1_2d(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'JULES IMP, surf_ht_flux(71) = ', surf_ht_flux(map_tile(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+      end if
+    end do
+
 
     ! Sea-ice fraction
     do i = 1, seg_len

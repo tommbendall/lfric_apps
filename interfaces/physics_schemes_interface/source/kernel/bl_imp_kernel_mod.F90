@@ -17,6 +17,7 @@ module bl_imp_kernel_mod
   use constants_mod,             only : i_def, i_um, r_def, r_um, r_bl
   use fs_continuity_mod,         only : W3, Wtheta
   use kernel_mod,                only : kernel_type
+  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
 
   implicit none
 
@@ -233,6 +234,67 @@ contains
     real(r_bl) :: pnonl,p1,p2
     real(r_bl), dimension(seg_len) :: i1, e1, e2
     real(r_bl), parameter :: sqrt2 = sqrt(2.0_r_bl)
+
+    do i = 1, seg_len
+      if (map_2d(1,i) == 71) then
+        write(log_scratch_space, *) 'BL IMP2, theta_in_wth(71) = ', theta_in_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, exner_in_wth(71) = ', exner_in_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, m_v_n(71) = ', m_v_n(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, m_cl_n(71) = ', m_cl_n(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, m_cf_n(71) = ', m_cf_n(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, theta_latest(71) = ', theta_latest(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, height_w3(71) = ', height_w3(map_w3(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, height_wth(71) = ', height_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, m_v(71) = ', m_v(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, m_cl(71) = ', m_cl(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, m_cf(71) = ', m_cf(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dtrdz_tq_bl(71) = ', dtrdz_tq_bl(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, rdz_tq_bl(71) = ', rdz_tq_bl(map_w3(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, blend_height_tq(71) = ', blend_height_tq(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, bl_type_ind(71) = ', bl_type_ind(map_bl(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, rhokh_bl(71) = ', rhokh_bl(map_w3(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, moist_flux_bl(71) = ', moist_flux_bl(map_w3(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, heat_flux_bl(71) = ', heat_flux_bl(map_w3(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dqw_wth(71) = ', dqw_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dtl_wth(71) = ', dtl_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dqw_nt_wth(71) = ', dqw_nt_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dtl_nt_wth(71) = ', dtl_nt_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, qw_wth(71) = ', qw_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, tl_wth(71) = ', tl_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, ct_ctq_wth(71) = ', ct_ctq_wth(map_wth(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dqw1_2d(71) = ', dqw1_2d(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, dtl1_2d(71) = ', dtl1_2d(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP2, ct_ctq1_2d(71) = ', ct_ctq1_2d(map_2d(1,i))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+      end if
+    end do
 
     !-----------------------------------------------------------------------
     ! Mapping of LFRic fields into UM variables
