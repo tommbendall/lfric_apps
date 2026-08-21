@@ -22,6 +22,7 @@ module bl_imp_du_kernel_mod
   use timestepping_config_mod,       only: outer_iterations
   use blayer_config_mod,             only: fric_heating, bl_mix_w
   use sci_face_selector_support_mod, only: face_from_face_selector
+  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
 
   implicit none
 
@@ -202,6 +203,29 @@ contains
          tau_land_loc, tau_ssi_loc, cd10m_neut
     real(kind=r_bl), dimension(0:bl_levels-1) :: tau_star, cq_cm, du_star,     &
          du_nt, tau_loc, dtr_rhodz, rhokm_sp, du_bl_sp, rdz_sp
+
+    if (map_w3_2d(1) == 71) then
+      do j = 1, 4
+        write(log_scratch_space, *) 'BL IMP DU, wetrho(71) = ', j, wetrho(map_w2(j))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, rhokm(71) = ', j, rhokm(map_w2(j))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, dtrdz(71) = ', j, dtrdz(map_w2(j))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, u_physics(71) = ', j, u_physics(map_w2(j))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, u_physics(71)+1 = ', j, u_physics(map_w2(j)+1)
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, u_physics(71)+2 = ', j, u_physics(map_w2(j)+2)
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, u_phys_latest(71) = ', j, u_phys_latest(map_w2(j))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, u_phys_latest(71)+1 = ', j, u_phys_latest(map_w2(j)+1)
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        write(log_scratch_space, *) 'BL IMP DU, u_phys_latest(71)+2 = ', j, u_phys_latest(map_w2(j)+2)
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+      end do
+    end if
 
     !================================================================
     ! In the UM this happens in imp_solver - predictor section
