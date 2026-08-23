@@ -1,0 +1,78 @@
+!-------------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-------------------------------------------------------------------------------
+
+module log_w2_alg_mod
+
+  use constants_mod,                    only: r_def, l_def, i_def
+  use field_mod,                        only: field_type
+  use log_mod,                          only: log_event,         &
+                                              log_scratch_space, &
+                                              LOG_LEVEL_ERROR,   &
+                                              LOG_LEVEL_INFO
+  use log_column_kernel_mod, only: log_column_kernel_type
+  use sci_geometric_constants_mod, only: get_panel_id, get_dA_at_w2
+  use sci_mass_matrix_solver_alg_mod, &
+                                only: mass_matrix_solver_alg
+
+  implicit none
+
+  private
+
+  public :: log_w2_column
+  public :: log_w2_rhs_column
+
+contains
+
+  subroutine log_w2_column(message, field, column_id)
+
+    implicit none
+
+    character(len=*),    intent(in) :: message
+    type(field_type),    intent(in) :: field
+    integer(kind=i_def), intent(in) :: column_id
+
+    type(field_type) :: dummy, field_phys
+    type(field_type), pointer :: panel_id, dA
+
+    panel_id => get_panel_id(field%get_mesh())
+    dA => get_dA_at_w2(field%get_mesh())
+
+    call dummy%initialise(field%get_function_space())
+    call field_phys%initialise(field%get_function_space())
+
+    call log_event(message, LOG_LEVEL_INFO)
+    call invoke( X_divideby_Y(field_phys, field, dA),                          &
+                 log_column_kernel_type(dummy, field_phys, panel_id, column_id) )
+
+  end subroutine log_w2_column
+
+  subroutine log_w2_rhs_column(message, rhs, column_id)
+
+    implicit none
+
+    character(len=*),    intent(in) :: message
+    type(field_type),    intent(in) :: rhs
+    integer(kind=i_def), intent(in) :: column_id
+
+    type(field_type) :: dummy, field_phys, field
+    type(field_type), pointer :: panel_id, dA
+
+    panel_id => get_panel_id(rhs%get_mesh())
+    dA => get_dA_at_w2(rhs%get_mesh())
+
+    call dummy%initialise(rhs%get_function_space())
+    call field%initialise(rhs%get_function_space())
+    call field_phys%initialise(rhs%get_function_space())
+
+    call mass_matrix_solver_alg(field, rhs)
+
+    call log_event(message, LOG_LEVEL_INFO)
+    call invoke( X_divideby_Y(field_phys, field, dA),                          &
+                 log_column_kernel_type(dummy, field_phys, panel_id, column_id) )
+
+  end subroutine log_w2_rhs_column
+
+end module log_w2_alg_mod

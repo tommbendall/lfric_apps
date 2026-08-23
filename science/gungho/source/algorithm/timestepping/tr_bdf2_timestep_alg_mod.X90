@@ -130,6 +130,8 @@ module tr_bdf2_timestep_alg_mod
   use stochastic_physics_config_mod,                                           &
                                   only: stochastic_physics_is_loaded
 
+  use log_w2_alg_mod, only: log_w2_column, log_w2_rhs_column
+
   implicit none
 
   private
@@ -971,6 +973,9 @@ contains
             dlayer_rhs=.false., stepper=stepper_tr, model_clock=model_clock    &
     )
 
+    call log_w2_column('TR-BDF2: TR state_dag', self%state_dag(igh_u), 71)
+    call log_w2_rhs_column('TR-BDF2: TR rhs_n', self%rhs_n(igh_u), 71)
+
     ! ======================================================================== !
     ! Outer dynamics loop
     ! ======================================================================== !
@@ -984,6 +989,8 @@ contains
             self%state_to_adv, self%state_n(igh_u), self%rhs_n(igh_u),         &
             gamma, model_clock                                                 &
     )
+
+    call log_w2_column('TR-BDF2: TR state_to_adv', self%state_to_adv(igh_u), 71)
 
     outer_tr_loop: do outer = 1, outer_iterations
 
@@ -1006,6 +1013,8 @@ contains
                 total_dry_flux=self%total_dry_flux                             &
         )
 
+        call log_w2_rhs_column('TR-BDF2: TR rhs_adv', self%rhs_adv(igh_u), 71)
+
         if (outer == outer_iterations) then
           ! Store the transported state for the BDF2 step
           ! Need mass matrix solve on u:
@@ -1027,6 +1036,7 @@ contains
                 self%state_to_adv(igh_p)                                       &
               )                                                                &
           )
+          call log_w2_column('TR-BDF2: TR state_aft_adv', self%state_aft_adv(igh_u), 71)
         end if
 
         ! Convert theta increment to weak form
@@ -1063,6 +1073,8 @@ contains
               dlayer_rhs=dlayer_on, stepper=stepper_tr,                        &
               model_clock=model_clock                                          &
           )
+
+          call log_w2_rhs_column('TR-BDF2: TR rhs_m', self%rhs_m(igh_u), 71)
 
           !---------------------------------------------------------------------
           ! LAM LBCs and RHS
@@ -1118,6 +1130,8 @@ contains
             )
           end if
 
+          call log_w2_rhs_column('TR-BDF2: TR rhs_m_solver', self%rhs_m(igh_u), 71)
+
           !---------------------------------------------------------------------
           ! Solve system: A*inc = rhs_m, and increment state by inc
           !---------------------------------------------------------------------
@@ -1126,6 +1140,8 @@ contains
               dry_flux_solver, moist_dyn(gas_law), mr,                         &
               first_iteration=(inner==1), stepper=stepper_tr                   &
           )
+
+          call log_w2_column('TR-BDF2: TR state_m', self%state_m(igh_u), 71)
 
           ! If not already done update factors for moist dynamics
           if (self%use_moisture) then
