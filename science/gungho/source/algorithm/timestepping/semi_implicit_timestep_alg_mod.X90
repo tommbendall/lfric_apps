@@ -169,6 +169,8 @@ module semi_implicit_timestep_alg_mod
   use timing_mod,                 only: start_timing, stop_timing, tik, LPROF
   use ageofair_alg_mod,           only: ageofair_update
 
+  use log_w2_alg_mod, only: log_w2_column, log_w2_rhs_column
+
   implicit none
 
   private
@@ -901,12 +903,17 @@ contains
                   dlayer_rhs=.false., stepper=stepper_siqn,       &
                   model_clock=model_clock )
 
+    call log_w2_column('SIQN: state_dag', self%state_after_slow(igh_u), 71)
+    call log_w2_rhs_column('SIQN: rhs_n', self%rhs_n(igh_u), 71)
+
     call copy_bundle(self%state_after_slow, self%advected_state,  bundle_size)
     ! Set the moisture to be transported to point to the moisture after slow physics
     mr_to_adv => self%mr_after_slow
     ! Set predictors for transport
     call predictors_alg(self%advected_state, self%state_n(igh_u), &
                         self%rhs_n(igh_u),varbeta,model_clock)
+
+    call log_w2_column('SIQN: state_to_adv', self%advected_state(igh_u), 71)
 
     !==========================================================================
     ! Start the Outer (advection) loop
@@ -942,6 +949,8 @@ contains
                 con_tracer_all_outer, con_tracer_all_outer_after_slow,         &
                 con_tracer_last_outer, con_tracer_last_outer_after_slow        &
         )
+
+        call log_w2_rhs_column('SIQN: rhs_adv', self%rhs_adv(igh_u), 71)
 
         if ( cheap_update .AND. (outer < outer_iterations) ) then
           ! Copy transport increments to use in next outer iteration
@@ -983,6 +992,9 @@ contains
                       compute_eos=.true., compute_rhs_t_d=.true.,   &
                       dlayer_rhs=dlayer_on, stepper=stepper_siqn,   &
                       model_clock=model_clock )
+
+        call log_w2_rhs_column('SIQN: TR rhs_np1', self%rhs_np1(igh_u), 71)
+
       else
         if (self%use_moisture) call copy_bundle(self%mr_after_slow, mr, nummr)
       end if
@@ -1040,6 +1052,8 @@ contains
                     matrix_vector_kernel_type(self%rhs_phys(igh_u), self%du, mm_vel ),  &
                     enforce_bc_kernel_type(self%rhs_phys(igh_u))                        &
                     )
+
+          call log_w2_rhs_column('SIQN: rhs_phys', self%rhs_phys(igh_u), 71)
         end if
 
       end if !use_physics
@@ -1072,6 +1086,8 @@ contains
                           compute_eos=.true., compute_rhs_t_d=.false.,  &
                           dlayer_rhs=dlayer_on, stepper=stepper_siqn,   &
                           model_clock=model_clock )
+
+            call log_w2_rhs_column('SIQN: rhs_np1', self%rhs_np1(igh_u), 71)
           end if
           !--------------------------------------------------------------------
           ! Compute the LAM LBCs and RHS
@@ -1122,6 +1138,9 @@ contains
             call moisture_conservation_alg(self%config, rho_star, mr, &
                                            'Before solve')
           end if
+
+          call log_w2_rhs_column('SIQN: TR rhs_np1_solver', self%rhs_np1(igh_u), 71)
+
           !--------------------------------------------------------------------
           ! Solve semi-implicit system: A*inc = rhs, and incement state by inc
           !--------------------------------------------------------------------
@@ -1131,6 +1150,8 @@ contains
                                               mr,                       &
                                               first_iteration=(inner==1), &
                                               stepper=stepper_siqn )
+
+          call log_w2_column('SIQN: state_np1', self%state(igh_u), 71)
 
           ! If not already done update factors for moist dynamics
           if ( .not. guess_np1 .and. self%use_moisture ) &
