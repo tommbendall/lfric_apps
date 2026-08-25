@@ -703,7 +703,9 @@ contains
                   self%dt_substep, LOG_LEVEL_WARNING                           &
           )
 
-          if (.not. fail_on_neg .and. self%num_substeps < 3) then
+          if (.not. fail_on_neg                                                &
+              .and. substep_transport == substep_transport_adaptive            &
+              .and. self%num_substeps < 3) then
             ! Time to attempt substepping...
             call log_event(                                                    &
               'The Watkins algorithm failed to keep all reference fields ' //  &
@@ -1037,6 +1039,9 @@ contains
   !> @param[in] ref_flux     The reference flux field
   subroutine initialise_flux_precomputations(self, ref_flux)
 
+    use transport_config_mod,           only: substep_transport,               &
+                                              substep_transport_adaptive
+
     implicit none
 
     class(transport_controller_type), target, intent(inout) :: self
@@ -1079,7 +1084,13 @@ contains
               self%transporting_wind, self%dt_substep,                         &
               flux=ref_flux, ref_field=self%ref_field_rtran                    &
       )
-      safe_ref = self%check_reference_field(fail_on_neg=.false.)
+      if (i == end_substeps) then
+        ! Fail if we have reached max substeps
+        safe_ref = self%check_reference_field(fail_on_neg=.true.)
+      else
+        safe_ref = self%check_reference_field(fail_on_neg=.false.)
+      end if
+
       if (.not. safe_ref) then
         ! Watkins algorithm failed to keep reference field positive
         ! This is likely to be BDF tracer transport near start of run
