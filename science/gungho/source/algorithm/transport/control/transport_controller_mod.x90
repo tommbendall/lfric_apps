@@ -1044,7 +1044,7 @@ contains
 
     type(mesh_type), pointer :: mesh
     logical(kind=l_def)      :: safe_ref
-    integer(kind=i_def)      :: i, start_substeps
+    integer(kind=i_def)      :: i, start_substeps, end_substeps
 
     if (self%flux_precomputations%is_initialised()) then
       call log_event(                                                          &
@@ -1066,7 +1066,13 @@ contains
     ! the reference fields positive
     safe_ref = .false.
     start_substeps = self%num_substeps
-    do i = start_substeps, 3  ! Force max substeps of 3
+    if (substep_transport == substep_transport_adaptive) then
+      end_substeps = 3  ! Force max substeps of 3
+    else
+      end_substeps = 1  ! No substepping
+    end if
+
+    do i = start_substeps, end_substeps
       call self%flux_precomputations%initialise(                               &
               self%config,                                                     &
               mesh, self%reference_splitting, self%num_substeps,               &
