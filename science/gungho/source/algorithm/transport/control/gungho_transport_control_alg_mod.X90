@@ -29,7 +29,10 @@ module gungho_transport_control_alg_mod
   use multires_coupling_config_mod,      only: coarse_aerosol_transport,       &
                                                aerosol_mesh_name
   use r_tran_field_mod,                  only: r_tran_field_type
-  use transport_config_mod,              only: transport_ageofair
+  use transport_config_mod,              only: transport_ageofair,             &
+                                               si_outer_transport,             &
+                                               si_outer_transport_advective,   &
+                                               si_outer_transport_horizontal_sl
   use transport_controller_mod,          only: transport_controller_type
   use transport_metadata_mod,            only: transport_metadata_type
   use transport_metadata_collection_mod, only: transport_metadata_collection,  &
@@ -446,12 +449,18 @@ contains
                 rho_d_n_start, wind_n, wind_np1, outer=outer,                  &
                 cheap_update_step=.false.                                      &
         )
-        ! Copy dry density flux for the whole timestep into flux precomputations
-        if (outer < outer_iterations) then
-          call transport_controller%initialise_flux_precomputations(tr_and_bdf2_flux)
-        else
+        if (outer == outer_iterations) then
+          ! Dry flux is flux built up over whole timestep
           call transport_controller%initialise_flux_precomputations(total_dry_flux)
+        else if (.not. (                                                       &
+            si_outer_transport == si_outer_transport_advective                 &
+            .or. si_outer_transport == si_outer_transport_horizontal_sl        &
+        )) then
+          ! Dry flux is the stored TR flux plus the latest BDF flux
+          call transport_controller%initialise_flux_precomputations(tr_and_bdf2_flux)
         end if
+        ! Otherwise, not doing conservative tracer transport so don't initialise
+        ! flux precomputations
       end if
 
       if (present(adv_tracer_all_outer)                                        &
