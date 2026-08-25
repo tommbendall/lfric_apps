@@ -67,8 +67,8 @@ end-of-timestep winds,
    \overline{\boldsymbol{u}}_n^{n+1} = \tfrac{1}{2}\left(\boldsymbol{u}^n + \boldsymbol{u}^{n+1}\right).
 
 The forcing terms are handled with a weighting of :math:`\alpha` on the
-implicit (:math:`n+1`) contribution and :math:`(1-\alpha)` on the explicit
-(:math:`n`) contribution.
+implicit (:math:`n+1`)-th time level and :math:`(1-\alpha)` on the explicit
+:math:`n`-th time level.
 
 A value of :math:`\alpha=0.5` corresponds to a centred Crank-Nicolson scheme,
 which is formally second-order accurate in time but does not damp any waves.
@@ -86,8 +86,8 @@ Quasi-Newton iteration
 Equation :eq:`siqn_eqn` is non-linear in the unknown state
 :math:`\boldsymbol{X}^{n+1}`, and is solved iteratively. Let us use :math:`k`
 to index the iteration, so that :math:`k`-th iteration of
-:math:`\boldsymbol{X}^{n+1}` is :math:`\boldsymbol{X}^{n+1}_(k)`, where
-:math:`\boldsymbol{X}^{n+1}_{(0)} = \boldsymbol{X}^n` is the first ''guess''.
+:math:`\boldsymbol{X}^{n+1}` is :math:`\boldsymbol{X}^{n+1}_{(k)}`, where
+:math:`\boldsymbol{X}^{n+1}_{(0)} = \boldsymbol{X}^n` is the first guess.
 The :math:`k`-th transported state :math:`\boldsymbol{X}^T_{(k)}` is introduced as:
 
 .. math::
@@ -134,16 +134,20 @@ In practice, the change to transport increments from one iteration to the next
 is smaller than the change from the implicit forcing terms. This allows us
 to split the Quasi-Newton iteration into two nested loops:
 
-* an **outer loop**, denoted :math:`n_o`, in which the transporting velocity
+* an **outer loop**, which is iterated :math:`n_o` times,
+  in which the transporting velocity
   is updated with the latest estimate of :math:`\boldsymbol{u}^{n+1}` and the
   prognostic variables are transported. The transport scheme is therefore
   called :math:`n_o` times per timestep.
-* an **inner loop**, denoted :math:`n_i`, in which the implicit forcing terms
+* an **inner loop**, which is iterated :math:`n^j_i` times, where :math:`j`
+  is the outer-loop index.
+  In the inner loop, implicit forcing terms
   are evaluated to form the residual :eq:`siqn_residual`, and the linear
   system :eq:`linear_solver_eqn` is assembled and solved for the increment.
   The number of inner iterations can be varied between outer iterations, but
-  has historically been kept the same for each outer iteration, so that the
-  linear solve is performed :math:`n_o \times n_i` times per timestep.
+  has historically been kept the same at :math:`n_i` for each outer iteration,
+  so that the linear solve is performed :math:`n_o \times n_i` times per
+  timestep.
 
 Like ENDGame, GungHo uses a default of :math:`n_o=2` outer iterations and
 :math:`n_i=2` inner iterations, for a total of 4 linear solves per timestep.
@@ -295,7 +299,7 @@ This process is summarised by the pseudo-code below:
        Update transporting velocity:
            u_bar^(j) = 0.5 * (u_n + u_{n+1}^(j-1))
        Transport:
-           X^T_(j) = Transport_{u_bar^(j)}(X_FE)
+           X^T_(j) = T_{u_bar^(j)}(X_FE)
 
        X^{n+1}_(j,0) = X^{n+1}_(j-1)
 

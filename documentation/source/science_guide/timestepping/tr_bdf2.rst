@@ -54,7 +54,7 @@ Details
 Basic formulation
 ~~~~~~~~~~~~~~~~~~
 
-The TR-BDF2 scheme is a three-level scheme with a "midpoint" level denoted by
+The TR-BDF2 scheme is a two-stage scheme with a "midpoint" level denoted by
 :math:`m`. Using the off-centering-free implicit weight :math:`\gamma`, it
 follows:
 
@@ -99,17 +99,10 @@ Both stages take the same basic form as the Semi-Implicit scheme.
 Combining BDF2 Transport Steps
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Both stages of the TR-BDF2 scheme involve nested outer and inner iterative
-loops (as for the SIQN scheme). If these follow the SIQN scheme, there would
-be 2 iterations each of the outer and inner loops in both stages. The
-transport operator is called in the outer loop, which means that even though
-the TR-BDF2 timestep is twice the length of that used by the SIQN scheme, the
-TR-BDF2 scheme would be at a disadvantage: it would call the transport
-operator 6 times per step, compared with the 4 times it is called by SIQN.
+The BDF2 stage appears to require two separate transport calls. However,
+these can be combined to develop a more efficient scheme.
 
-This can be reduced to 4 calls per step by introducing intermediate
-variables:
-
+Introduce the intermediate variables:
 .. math::
 
    \boldsymbol{X}^\ast=\boldsymbol{X}^n - \gamma\Delta t \mathcal{F}(\boldsymbol{X}^n), \qquad
@@ -240,42 +233,22 @@ moisture needs careful handling through the TR-BDF2 timestep. Post-solver
 conservation corrections to moisture are included, which can be re-used to
 update the moisture to be transported in the BDF2 stage.
 
-It is easiest to understand the evolution of moisture through the dynamical
-core alongside the evolution of dry density,
+Moist receives a conservative correction at the beginning of the BDF step, using
+the dry flux used to update the dry density from the linear solver. Since
 
-.. math:: :label: trbdf2_moisture_evolution
+.. math::
 
-   \begin{array}{ll}
-   \rho^p = \mathcal{T}^{2\gamma\Delta t}_{\overline{u}^m_n}[\rho^n],
-   &
-   m^p = \mathcal{T}^{2\gamma \Delta t}_{\overline{u}^m_n}[m^n;\rho^n], \\[2mm]
-   \rho^m=\rho^p - \boldsymbol{\nabla\cdot}\boldsymbol{S}^d_{TR},
-   &
-   m^m = \dfrac{1}{\rho^m}\left[\rho^p m^p - \boldsymbol{\nabla\cdot}\boldsymbol{S}^m_{TR}\right], \\[2mm]
    \rho^{BDF}=(1-\gamma_3)\rho^p + \gamma_3\rho^m \equiv \rho^p -\gamma_3\boldsymbol{\nabla\cdot}\boldsymbol{F}^d_{TR},
-   &
-   m^{BDF} = \dfrac{1}{\rho^{BDF}}\left[\rho^p m^p - \gamma_3\boldsymbol{\nabla\cdot}\boldsymbol{F}^m_{TR} \right], \\[2mm]
-   \rho^{q+\dagger} = \mathcal{T}^{(1-2\gamma)\Delta t}_{u^{n+1}}[\rho^n],
-   &
-   m^{q+\dagger} = \mathcal{T}^{(1-2\gamma)\Delta t}_{u^{n+1}}[m^{BDF};\rho^{BDF}], \\[2mm]
-   \rho^{n+1}=\rho^{q+\dagger} - \boldsymbol{\nabla\cdot}\boldsymbol{F}^d_{BDF},
-   &
-   m^{n+1} = \dfrac{1}{\rho^{n+1}}\left[\rho^{q+\dagger} m^{q+\dagger} - \boldsymbol{\nabla\cdot}\boldsymbol{F}^m_{BDF}\right],
-   \end{array}
 
-where :math:`\boldsymbol{F}^d_{TR}` is the dry density flux from the TR
-solver, and :math:`\boldsymbol{F}^d_{BDF}` is the corresponding flux from the
-BDF2 stage. The superscript :math:`m` values indicate the values at the end of
-the TR stage, and the fluxes :math:`\boldsymbol{S}^d_{TR}` and
-:math:`\boldsymbol{S}^m_{TR}` are the fluxes corresponding to the increment
-from the linear solver on the final outer iteration of the TR step.
-If :math:`m^{BDF}` is calculated as described above, then the moisture mixing
-ratios will be consistent with the dry density throughout the timestep.
-The moist fluxes :math:`\boldsymbol{F}^m_{TR}` and
-:math:`\boldsymbol{F}^m_{BDF}` are evaluated from the corresponding dry
-fluxes, using the upwind values of :math:`m^p` and :math:`m^{q+\dagger}`
-respectively. Note that :math:`m^m` is never used, so does not need to be
-evaluated.
+where :math:`\boldsymbol{F}^d_{TR}` is the dry density flux from the TR solver,
+the moisture mixing ratio is updated to be consistent with the dry density:
+
+.. math::
+
+   m^{BDF} = \dfrac{1}{\rho^{BDF}}\left[\rho^p m^p - \gamma_3\boldsymbol{\nabla\cdot}\boldsymbol{F}^m_{TR} \right].
+
+where :math:`\boldsymbol{F}^m_{TR}` is the moisture flux calculated from
+:math:`\boldsymbol{F}^d_{TR}` and the upwind values of :math:`m^p`.
 
 .. _science_guide_timestepping_tr_bdf2_algorithm:
 
