@@ -461,7 +461,7 @@ contains
                 cheap_update_step=.false.                                      &
         )
         ! Copy dry density flux for the whole timestep into flux precomputations
-        if (outer < outer_iterations .and. (                                   &
+        if (outer < outer_iterations .and. .not. (                             &
               si_outer_transport == si_outer_transport_advective               &
               .or. si_outer_transport == si_outer_transport_horizontal_sl      &
             )                                                                  &
