@@ -689,6 +689,7 @@ contains
     ! Moisture field to transport
     type(field_type),       pointer :: mr_to_adv(:)
     type(field_type)                :: dry_flux_solver
+    type(r_tran_field_type)         :: dry_flux_solver_r_tran
     type(field_type)                :: rho_star
 
     type(field_type)              :: dcfl_tot, dcff_tot, dbcf_tot
@@ -1173,9 +1174,11 @@ contains
 
     do_moist_correction = (solver_moisture_conservation .and. self%use_moisture)
     if (do_moist_correction) then
+      call dry_flux_solver_r_tran%initialise(u%get_function_space())
       call invoke(                                                             &
           inc_a_times_X(gamma3, dry_flux_solver),                              &
-          inc_X_plus_Y(self%total_dry_flux, dry_flux_solver)                   &
+          real_to_real_X(dry_flux_solver_r_tran, dry_flux_solver),             &
+          inc_X_plus_Y(self%total_dry_flux, dry_flux_solver_r_tran)            &
       )
       call solver_moist_correction_alg(                                        &
           self%config, mr, self%state_bdf(igh_d), self%state_aft_adv(igh_d),   &
