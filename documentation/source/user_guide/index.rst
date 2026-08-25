@@ -13,4 +13,12 @@ User Guide
 
     applications/index
     checkpointing/index
+    coordinates_and_vectors/index
+    diffusion/index
+    finite_element_methods/index
+    debugging_and_model_failures/index
     nudging/index
+    timestepping/index
+    transport_general/index
+    transport_sl_and_ffsl/index
+    orography/index

@@ -14,3 +14,5 @@ Developer Guide
    local_builds
    lfric_apps_rose_stem/index
    psyclone/index
+   runtime_constants/index
+   transport_code_design/index

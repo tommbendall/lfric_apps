@@ -238,17 +238,41 @@ _science_guide_sections = sorted(
 # UMDP-style document numbers shown on each section's title page. Sections
 # not listed here show 'TBD' until they are formally numbered.
 _science_guide_doc_numbers = {
+    'continuous_equations': '001',
+    'coordinates_and_vectors': '002',
+    'diffusion': 'TBD',
+    'finite_element_methods': '003',
     'nudging': '083',
+    'orography': 'TBD',
+    'timestepping': '004',
+    'transport_general': 'TBD',
+    'transport_sl_and_ffsl': 'TBD',
 }
 
 # Title-page owner/contributors for each section. Sections not listed default
 # to a placeholder owner with no additional named contributors.
 _science_guide_default_owner = 'TBD'
 _science_guide_owners = {
-    'nudging': 'Thomas Bendall',
+    'continuous_equations': 'TBD',
+    'coordinates_and_vectors': 'TBD',
+    'diffusion': 'TBD',
+    'finite_element_methods': 'TBD',
+    'nudging': 'Mohit Dalvi and Thomas Bendall',
+    'orography': 'TBD',
+    'timestepping': 'TBD',
+    'transport_general': 'TBD',
+    'transport_sl_and_ffsl': 'TBD',
 }
 _science_guide_contributors = {
+    'continuous_equations': ['TBD'],
+    'coordinates_and_vectors': ['TBD'],
+    'diffusion': ['TBD'],
+    'finite_element_methods': ['TBD'],
     'nudging': ['Thomas Bendall', 'Mohit Dalvi'],
+    'orography': ['TBD'],
+    'timestepping': ['TBD'],
+    'transport_general': ['TBD'],
+    'transport_sl_and_ffsl': ['TBD'],
 }
 
 

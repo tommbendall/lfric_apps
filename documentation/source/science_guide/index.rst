@@ -14,7 +14,17 @@ the model.
 .. toctree::
     :maxdepth: 2
     :hidden:
-    :glob:
 
-    */index
+    cloud_schemes/index
+    continuous_equations/index
+    coordinates_and_vectors/index
+    diffusion/index
+    example_section/index
+    finite_element_methods/index
+    nudging/index
+    orography/index
+    timestepping/index
+    transport_general/index
+    transport_sl_and_ffsl/index
+    turbulence_schemes/index
 
