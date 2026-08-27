@@ -1,0 +1,247 @@
+%% -----------------------------------------------------------------------------
+%%   (c) Crown copyright Met Office. All rights reserved.
+%%   The file LICENCE, distributed with this code, contains details of the terms
+%%   under which the code may be used.
+%% -----------------------------------------------------------------------------
+%%
+%% lfric_science.sty
+%%
+%% A LaTeX style file providing a "smart" branding layer for the PDF builds of
+%% the LFRic Apps Science Guide, produced by Sphinx's LaTeX/PDF builder.
+%%
+%% THIS IS A PROVISIONAL, NON-OFFICIAL TEMPLATE. It is intended to be replaced
+%% by an official Met Office LaTeX template once one becomes available. See
+%% README.md in this directory for instructions on how to swap templates.
+%%
+%% This file is loaded from documentation/source/conf.py via the
+%% 'science_latex_style' switch and the latex_elements 'preamble' key, so
+%% swapping the template only requires changing that one setting.
+%%
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{lfric_science}[2026/07/31 v0.2 LFRic Apps unofficial science documentation template]
+
+\RequirePackage{xcolor}
+\RequirePackage{titlesec}
+\RequirePackage{fancyhdr}
+\RequirePackage{graphicx}
+\RequirePackage{etoolbox}
+
+%% ------------------------------------------------------------------------- %
+%% Fonts: swap Sphinx's default text/math fonts for the TeX Gyre families,
+%% a more modern-looking (and freely available, pdflatex-compatible) pairing
+%% of a humanist serif body face (Pagella, a Palatino-alike) with a clean
+%% sans for headings (Heros, a Helvetica-alike).
+%%
+%% Note: tex-gyre packages take a 'scale=<factor>' option, not 'scaled=' (the
+%% latter is the older PSNFSS/helvet convention, and isn't a key tgheros.sty
+%% declares -- using it raises "Package keyval Error: scaled undefined").
+%% Also note conf.py sets 'fontpkg' to empty, since Sphinx's own default
+%% 'fontpkg' loads plain, unscaled 'tgheros' itself, and loading it twice
+%% with different options raises "Option clash for package tgheros".
+%% ------------------------------------------------------------------------- %
+\RequirePackage{tgpagella}
+\RequirePackage[scale=0.92]{tgheros}
+
+%% ------------------------------------------------------------------------- %
+%% Brand colours (matching the colours used in the web documentation theme,
+%% see documentation/source/_static/custom.css)
+%% ------------------------------------------------------------------------- %
+\definecolor{lfricPrimary}{HTML}{0F79BE}
+\definecolor{lfricDarkGrey}{HTML}{423A3A}
+\definecolor{lfricAccent}{HTML}{423A3A}
+
+%% ------------------------------------------------------------------------- %
+%% Chapter, section and subsection styling
+%% ------------------------------------------------------------------------- %
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\huge\bfseries\color{lfricPrimary}}
+  {\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{0pt}{30pt}
+
+\titleformat{\section}
+  {\normalfont\sffamily\Large\bfseries\color{lfricAccent}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\sffamily\large\bfseries\color{lfricAccent}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\sffamily\normalsize\bfseries\itshape\color{lfricAccent}}{\thesubsubsection}{1em}{}
+
+%% ------------------------------------------------------------------------- %
+%% Header and footer
+%%
+%% Every page (including chapter-opening 'plain' pages and the title page)
+%% shows the same branding: 'LFRic-Apps Scientific Documentation' at the top
+%% left, the paper number and title at the top right, the Crown copyright
+%% statement at the bottom left, and the page number at the bottom right.
+%% Sphinx's LaTeX writer actually applies '\pagestyle{normal}' (defined by
+%% sphinx.sty as its own 'fancypagestyle') to body pages rather than plain
+%% 'fancy', so 'normal' must be redefined here too, alongside 'plain' and
+%% 'fancy', for the branding to appear consistently.
+%% ------------------------------------------------------------------------- %
+\newcommand{\lfricPageStyle}{%
+  \fancyhf{}%
+  \fancyhead[L]{\small\sffamily LFRic-Apps Scientific Documentation}%
+  \fancyhead[R]{\small\sffamily \lfricDocNumber: \lfricSectionTitle}%
+  \fancyfoot[L]{\small\sffamily\textcopyright\ Crown Copyright, Met Office}%
+  \fancyfoot[R]{\small\sffamily\thepage}%
+  \renewcommand{\headrulewidth}{0.4pt}%
+  \renewcommand{\footrulewidth}{0.4pt}%
+}
+
+\pagestyle{fancy}
+\lfricPageStyle
+
+%% Pages that reset to the 'plain' style (e.g. chapter opening pages), and
+%% the 'normal' style Sphinx actually applies to body pages, should carry
+%% the same branding.
+\fancypagestyle{plain}{\lfricPageStyle}
+\fancypagestyle{normal}{\lfricPageStyle}
+
+%% The title page has its own bespoke banner, so no running header is shown,
+%% but the Crown copyright statement and page number still appear.
+\fancypagestyle{lfrictitlepage}{%
+  \fancyhf{}%
+  \fancyfoot[L]{\small\sffamily\textcopyright\ Crown Copyright, Met Office}%
+  \fancyfoot[R]{\small\sffamily\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+
+%% ------------------------------------------------------------------------- %
+%% Title page branding
+%% ------------------------------------------------------------------------- %
+%% Per-document metadata (doc number, section title, version, last-updated,
+%% owner, contributors) is set from conf.py, which redefines these macros
+%% for each PDF depending on '\jobname'. Defaults below apply if conf.py
+%% doesn't recognise the document being built.
+\newcommand{\lfricDocNumber}{TBD}
+\newcommand{\lfricSectionTitle}{LFRic Apps Science Guide}
+\newcommand{\lfricVersion}{unknown}
+\newcommand{\lfricLastUpdated}{unknown}
+\newcommand{\lfricOwner}{}
+\newcommand{\lfricContributors}{}
+
+%% '\jobname' is a TeX primitive, not a string-valued macro, so etoolbox's
+%% '\ifdefstring' cannot compare against it directly; capture its value in a
+%% real macro once here, and use that in conf.py's generated ifdefstring
+%% chain instead.
+\newcommand{\lfricJobName}{}
+\edef\lfricJobName{\jobname}
+
+%% Height used for both logos on the title page.
+\newcommand{\lfricLogoHeight}{3.4cm}
+
+%% Momentum logo (top-left of the title page).
+\newcommand{\lfricMomentumLogo}{%
+  \includegraphics[height=\lfricLogoHeight]{momentum_logo.png}%
+}
+
+%% Vertically centre the two logos' wave marks (not just their overall
+%% image canvases) relative to each other. The Momentum logo's canvas has
+%% extra wordmark/tagline text below its wave mark, so the wave mark's
+%% centre sits at roughly 26% of the canvas height from the top, whereas
+%% the Met Office logo's wave mark (with only one line of text below it)
+%% sits at roughly 39%. Scaling both images to the same overall height and
+%% top-aligning them (as before) therefore leaves the wave marks
+%% themselves visibly misaligned. These offsets (measured directly from
+%% the source PNGs, as 0.066 * \lfricLogoHeight's 3.4cm value) nudge each
+%% logo by half the resulting gap, in opposite directions, so the wave
+%% marks' vertical centres coincide. Expressed as plain lengths (rather
+%% than computed from \lfricLogoHeight via \dimexpr) since \lfricLogoHeight
+%% is a text macro, not a length register, so multiplying it directly
+%% leaves stray text in the output; re-derive these by hand if
+%% \lfricLogoHeight changes.
+\newcommand{\lfricMomentumLogoOffset}{0.224cm}
+\newcommand{\lfricMOLogoOffset}{0.224cm}
+
+%% The normal side margin (distance from the true page edge to the text
+%% block), used both to shift full-bleed content out to the page edge and
+%% to align the black banner's text with the logos above it.
+\newcommand{\lfricMargin}{\dimexpr\oddsidemargin+1in\relax}
+
+%% Draws '#1' (a rule or a colorbox etc., of width '\paperwidth') so that it
+%% spans the full page width edge-to-edge, ignoring the normal text margins.
+%% Assumes the title page is a recto (odd) page, as is the case for the
+%% first page of a 'openright' twoside document.
+\newcommand{\lfricFullBleed}[1]{%
+  \noindent\hspace*{-\lfricMargin}#1\par%
+}
+
+%% Font sizes used in the horizontal banner: the document title and the
+%% (much larger) document number. Explicit point sizes are used, rather
+%% than the standard \Large/\Huge steps, since the scalable TeX Gyre fonts
+%% render cleanly at any size. Sized to comfortably fit both the longest
+%% section title and the widest expected document number within the page
+%% width alongside the margin insets.
+\newcommand{\lfricBandTextSize}{\fontsize{20}{24}\selectfont}
+\newcommand{\lfricDocNumberSize}{\fontsize{50}{56}\selectfont}
+
+%% Sphinx's 'sphinxmanual'/'sphinxhowto' classes define '\sphinxmaketitle' to
+%% build the default title page; we override it completely with a branded
+%% title page modelled on the UMDP paper format: logos, a black banner
+%% (document title left, document number right) framed by two blue rules,
+%% the section title, key metadata, and the contributors list.
+\renewcommand{\sphinxmaketitle}{%
+  \begin{titlepage}%
+    \thispagestyle{lfrictitlepage}%
+    \sffamily
+    \noindent
+    \begin{minipage}[t]{0.5\textwidth}
+      \raggedright\raisebox{-\lfricMomentumLogoOffset}{\lfricMomentumLogo}
+    \end{minipage}%
+    \begin{minipage}[t]{0.5\textwidth}
+      \raggedleft\raisebox{\lfricMOLogoOffset}{\includegraphics[height=\lfricLogoHeight]{MO_SQUARE_black_mono_for_light_backg_RBG.png}}
+    \end{minipage}
+
+    \vspace{0.5cm}
+
+    \lfricFullBleed{\color{lfricPrimary}\rule{\paperwidth}{1.4pt}}
+
+    \vspace{1mm}
+
+    \lfricFullBleed{%
+      \colorbox{lfricDarkGrey}{%
+        \parbox[c][4.4cm][c]{\paperwidth}{%
+          \color{white}%
+          \null\hspace{\lfricMargin}%
+          \raisebox{-0.5\height}{\textbf{\lfricBandTextSize LFRic Apps Scientific Documentation}}%
+          \hfill%
+          \raisebox{-0.5\height}{\textbf{\lfricDocNumberSize\lfricDocNumber}}%
+          \hspace{\lfricMargin}\null%
+        }%
+      }%
+    }
+
+    \vspace{1mm}
+
+    \lfricFullBleed{\color{lfricPrimary}\rule{\paperwidth}{1.4pt}}
+
+    \vspace{2.2cm}
+
+    \begin{center}
+      {\Huge\bfseries\color{lfricDarkGrey}\lfricSectionTitle}
+    \end{center}
+
+    \vspace{1.6cm}
+
+    \begin{center}
+      \color{lfricPrimary}\textbf{LFRic-Apps Version:} \color{black}\lfricVersion\\[0.5em]
+      \color{lfricPrimary}\textbf{Last Updated:} \color{black}\lfricLastUpdated\\[0.5em]
+      \color{lfricPrimary}\textbf{Owner:} \color{black}\lfricOwner
+    \end{center}
+
+    \vspace{1.2cm}
+
+    \begin{center}
+      \color{lfricPrimary}{\textbf{Contributors:}}\\[0.4em]
+      \color{black}{\lfricContributors}
+    \end{center}
+
+    \vfill
+
+    \vspace{2mm}
+    \lfricFullBleed{\color{lfricPrimary}\rule{\paperwidth}{1.4pt}}
+  \end{titlepage}%
+  \setcounter{page}{1}%
+}
+
+\endinput
