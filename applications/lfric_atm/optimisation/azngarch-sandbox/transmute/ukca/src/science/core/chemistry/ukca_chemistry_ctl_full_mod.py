@@ -48,7 +48,7 @@
 # variable UKCA_FULL_CHUNK_OMP to True. By default it will be turned on
 # provided the chunk size is not equal to domain size, i.e. loop of length 1
 #
-# OpenMP parallelism is then added to the chunking loop using an omp parallell do
+# OpenMP parallelism is then added to the chunking loop using an omp parallel do
 # directive to allow for top level parallelism on the ASAD solver. Importantly
 # a call to ukca_reallocate_asad_arrays which reallocates the THREADPRIVATE
 # arrays. This is done within the parallel region to account for the potential
@@ -111,7 +111,6 @@
 
 import logging
 import os
-
 from psyclone.psyir.nodes import (
     ArrayReference,
     Assignment,
@@ -127,6 +126,9 @@ from psyclone.psyir.nodes import (
     UnaryOperation,
 )
 from psyclone.psyir.symbols import (
+    CHARACTER_TYPE,
+    INTEGER_TYPE,
+    REAL_TYPE,
     ArrayType,
     ContainerSymbol,
     DataSymbol,
@@ -195,6 +197,12 @@ def trans(psyir):
         # Message to print (via umPrint) when chunking enabled
         message_text = ("UKCA full-domain chunking enabled with " +
                         "a chunk size of " + desired_chunk_size)
+    use_omp = get_bool_env("UKCA_FULL_CHUNK_OMP", True)
+    if desired_chunk_size is None and use_omp:
+        logging.WARNING(
+            "Turning off omp as chunk size is set to full domain size")
+        use_omp = False
+
     use_omp = get_bool_env("UKCA_FULL_CHUNK_OMP", True)
     if desired_chunk_size is None and use_omp:
         logging.WARNING(
