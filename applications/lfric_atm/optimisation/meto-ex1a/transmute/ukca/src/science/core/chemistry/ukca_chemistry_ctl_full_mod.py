@@ -200,13 +200,13 @@ def trans(psyir):
                         "a chunk size of " + desired_chunk_size)
     use_omp = get_bool_env("UKCA_FULL_CHUNK_OMP", True)
     if desired_chunk_size is None and use_omp:
-        logging.WARNING(
+        logging.warning(
             "Turning off omp as chunk size is set to full domain size")
         use_omp = False
 
     use_omp = get_bool_env("UKCA_FULL_CHUNK_OMP", True)
     if desired_chunk_size is None and use_omp:
-        logging.WARNING(
+        logging.warning(
             "Turning off omp as chunk size is set to full domain size")
         use_omp = False
 
