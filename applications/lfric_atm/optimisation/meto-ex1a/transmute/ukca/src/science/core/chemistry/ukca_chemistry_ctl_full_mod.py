@@ -127,9 +127,6 @@ from psyclone.psyir.nodes import (
     UnaryOperation,
 )
 from psyclone.psyir.symbols import (
-    CHARACTER_TYPE,
-    INTEGER_TYPE,
-    REAL_TYPE,
     ArrayType,
     ContainerSymbol,
     DataSymbol,
@@ -446,7 +443,7 @@ def trans(psyir):
                         IntrinsicCall.create(
                             IntrinsicCall.Intrinsic.SIZE,
                             [Reference(Symbol(next(iter(asad_vars.keys())))),
-                                ("dim", Literal("1", INTEGER_TYPE))]))),
+                                ("dim", Literal("1", ScalarType.integer_type()))]))),
                 [realloc_call])
 
             loop.loop_body.addchild(realloc_block, index=2)
