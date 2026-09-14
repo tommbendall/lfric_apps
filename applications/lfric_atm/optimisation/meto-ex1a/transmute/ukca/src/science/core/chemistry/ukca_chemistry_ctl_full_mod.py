@@ -305,7 +305,7 @@ def trans(psyir):
                     else:
                         if ref.symbol.is_array:
                             ref2arraytrans.apply(
-                                ref, allow_call_arguments=True)
+                                ref, options=True)
 
         # Create a new "chunking" loop
         # ----------------------------
