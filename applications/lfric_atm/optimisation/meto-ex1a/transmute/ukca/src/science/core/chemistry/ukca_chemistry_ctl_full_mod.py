@@ -167,6 +167,11 @@ routine_name = "ukca_chemistry_ctl_full"
 asad_realloc_routine_loc = ("ukca_chemistry_ctl_col_mod",
                         "ukca_reallocate_asad_arrays")
 
+# Required so that PSyclone can resolve the interface of imported routines
+# such as asad_cdrive (needed by Reference2ArrayRangeTrans to determine
+# whether a call argument is elemental).
+RESOLVE_IMPORTS = True
+
 
 # Utility
 # ==============
