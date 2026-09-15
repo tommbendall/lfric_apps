@@ -167,11 +167,6 @@ routine_name = "ukca_chemistry_ctl_full"
 asad_realloc_routine_loc = ("ukca_chemistry_ctl_col_mod",
                         "ukca_reallocate_asad_arrays")
 
-# Required so that PSyclone can resolve the interface of imported routines
-# such as asad_cdrive (needed by Reference2ArrayRangeTrans to determine
-# whether a call argument is elemental).
-RESOLVE_IMPORTS = True
-
 
 # Utility
 # ==============
@@ -231,6 +226,13 @@ def trans(psyir):
                     asad_call = call
         if asad_call is None:
             continue
+
+        # asad_cdrive is an ordinary (non-elemental) subroutine, but its
+        # source lives outside this build's search paths so PSyclone cannot
+        # resolve its interface automatically. Tell it explicitly so that
+        # Reference2ArrayRangeTrans can validate the call arguments below.
+        if asad_call.routine.symbol.is_elemental is None:
+            asad_call.routine.symbol.is_elemental = False
 
         # Find references to ASAD arrays before and after the call
         # --------------------------------------------------------
