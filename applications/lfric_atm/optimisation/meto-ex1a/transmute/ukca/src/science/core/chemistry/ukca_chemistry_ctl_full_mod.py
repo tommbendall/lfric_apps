@@ -135,16 +135,7 @@ from psyclone.psyir.symbols import (
     ScalarType,
     Symbol,
 )
-from psyclone.psyir.transformations.reference2arrayrange_trans import (
-    Reference2ArrayRangeTrans,
-)
 from psyclone.transformations import OMPParallelLoopTrans, TransformationError
-from psyclone.version import __MAJOR__, __MICRO__, __MINOR__
-
-# Conditonal imports
-# ==================
-
-psy_version = (__MAJOR__, __MINOR__, __MICRO__)
 
 # Transformation Parameters
 # =========================
@@ -227,13 +218,6 @@ def trans(psyir):
         if asad_call is None:
             continue
 
-        # asad_cdrive is an ordinary (non-elemental) subroutine, but its
-        # source lives outside this build's search paths so PSyclone cannot
-        # resolve its interface automatically. Tell it explicitly so that
-        # Reference2ArrayRangeTrans can validate the call arguments below.
-        if asad_call.routine.symbol.is_elemental is None:
-            asad_call.routine.symbol.is_elemental = False
-
         # Find references to ASAD arrays before and after the call
         # --------------------------------------------------------
 
@@ -302,17 +286,21 @@ def trans(psyir):
         # Identify array references in call
         # ---------------------------------
 
+        # We need every whole-array argument to asad_cdrive to become an
+        # explicit-range ArrayReference (e.g. 'a' -> 'a(:)') so that the
+        # chunking loop below can rewrite the range bounds to slice each
+        # chunk. Reference2ArrayRangeTrans refuses to do this for call
+        # arguments unless it can prove the call is elemental (which it
+        # cannot, since asad_cdrive's interface is not resolvable here), so
+        # we perform the same plain-Reference -> ArrayReference conversion
+        # it would otherwise do, directly.
         for arg in asad_call.arguments:
             for ref in arg.walk(Reference):
-                ref2arraytrans = Reference2ArrayRangeTrans()
-                if not isinstance(ref, ArrayReference):
-                    if psy_version <= (3, 1, 0):
-                        if ref.is_array:
-                            ref2arraytrans.apply(ref)
-                    else:
-                        if ref.symbol.is_array:
-                            ref2arraytrans.apply(
-                                ref, options=True)
+                if not isinstance(ref, ArrayReference) and ref.symbol.is_array:
+                    rank = len(ref.symbol.shape)
+                    ref.replace_with(
+                        ArrayReference.create(
+                            ref.symbol, [":" for _ in range(rank)]))
 
         # Create a new "chunking" loop
         # ----------------------------
