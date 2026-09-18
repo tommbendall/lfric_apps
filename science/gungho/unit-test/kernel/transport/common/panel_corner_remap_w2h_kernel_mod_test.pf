@@ -1,0 +1,207 @@
+!-------------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-------------------------------------------------------------------------------
+!> Test the W2H corner remap consumer kernel.
+module panel_corner_remap_w2h_kernel_mod_test
+
+  use constants_mod, only: i_def, r_def, r_tran
+  use reference_element_mod, only: W, S, N, E
+  use funit
+
+  implicit none
+
+  private
+  public :: test_all
+
+  @TestCase
+  type, extends(TestCase), public :: panel_corner_remap_w2h_test_type
+    private
+  contains
+    procedure test_all
+  end type panel_corner_remap_w2h_test_type
+
+contains
+
+  @Test
+  subroutine test_all( this )
+
+    use panel_corner_remap_w2h_kernel_mod, only: panel_corner_remap_w2h_1d
+
+    implicit none
+
+    class(panel_corner_remap_w2h_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-10_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndata = 1
+    integer(kind=i_def), parameter :: ws_max_length = 3
+    integer(kind=i_def), parameter :: ws_stencil_size_l = 2
+    integer(kind=i_def), parameter :: ws_stencil_size_r = 2
+    integer(kind=i_def), parameter :: ndf_wr = 4
+    integer(kind=i_def), parameter :: undf_wr = 4
+    integer(kind=i_def), parameter :: ndf_ws = 4
+    integer(kind=i_def), parameter :: undf_ws = 4
+    integer(kind=i_def), parameter :: ndf_ww = 4
+    integer(kind=i_def), parameter :: undf_ww = 4
+
+    integer(kind=i_def) :: map_wr(ndf_wr)
+    integer(kind=i_def) :: map_ws(ndf_ws)
+    integer(kind=i_def) :: map_ww(ndf_ww)
+    integer(kind=i_def) :: ws_stencil_l(ndf_ws, ws_stencil_size_l)
+    integer(kind=i_def) :: ws_stencil_r(ndf_ws, ws_stencil_size_r)
+    integer(kind=i_def) :: indices(undf_ww)
+
+    real(kind=r_tran) :: field(undf_ws)
+    real(kind=r_tran) :: remapped_field(undf_wr)
+    real(kind=r_tran) :: weights_parallel(undf_ww)
+    real(kind=r_tran) :: weights_perp(undf_ww)
+
+    map_wr = (/1, 2, 3, 4/)
+    map_ws = (/1, 2, 3, 4/)
+    map_ww = (/1, 1, 1, 1/)
+
+    field = (/10.0_r_tran, 20.0_r_tran, 30.0_r_tran, 40.0_r_tran/)
+    remapped_field = 0.0_r_tran
+
+    ws_stencil_l = 0_i_def
+    ws_stencil_r = 0_i_def
+    ws_stencil_l(W,1) = 1_i_def
+    ws_stencil_l(W,2) = 2_i_def
+    ws_stencil_l(S,1) = 2_i_def
+    ws_stencil_l(S,2) = 3_i_def
+
+    ws_stencil_r(W,1) = 3_i_def
+    ws_stencil_r(W,2) = 4_i_def
+    ws_stencil_r(S,1) = 4_i_def
+    ws_stencil_r(S,2) = 1_i_def
+
+    weights_parallel = 0.0_r_tran
+    weights_perp = 0.0_r_tran
+    weights_parallel(1) = 0.75_r_tran
+    weights_perp(1) = 0.25_r_tran
+    indices = 1_i_def
+
+    call panel_corner_remap_w2h_1d( nlayers, remapped_field, field, W, S,       &
+         ws_max_length, ws_stencil_size_l, ws_stencil_l,                       &
+         ws_stencil_size_r, ws_stencil_r, weights_parallel, weights_perp,       &
+         indices, ndata, ndf_wr, undf_wr, map_wr, ndf_ws, undf_ws, map_ws,      &
+         ndf_ww, undf_ww, map_ww                                                &
+    )
+
+    call assertEqual(12.5_r_tran, remapped_field(map_wr(W)), tol, &
+         location=SourceLocation('panel_corner_remap_w2h_kernel_mod_test.pf', 104))
+    if (anyExceptions()) return
+
+  end subroutine test_all
+
+  @Test
+  subroutine test_requires_true_corner( this )
+
+    use panel_corner_remap_w2h_kernel_mod, only: panel_corner_remap_w2h_code
+
+    implicit none
+
+    class(panel_corner_remap_w2h_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-10_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndata = 1
+    integer(kind=i_def), parameter :: ws_max_length = 3
+    integer(kind=i_def), parameter :: depth = 1
+    integer(kind=i_def), parameter :: ndf_wr = 1
+    integer(kind=i_def), parameter :: undf_wr = 4
+    integer(kind=i_def), parameter :: ndf_ws = 1
+    integer(kind=i_def), parameter :: undf_ws = 4
+    integer(kind=i_def), parameter :: ndf_ww = 1
+    integer(kind=i_def), parameter :: undf_ww = 4
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = 1
+
+    integer(kind=i_def) :: map_wr(ndf_wr)
+    integer(kind=i_def) :: map_ws(ndf_ws)
+    integer(kind=i_def) :: map_ww(ndf_ww)
+    integer(kind=i_def) :: map_pid(ndf_pid)
+    integer(kind=i_def) :: wsx_stencil_size(4)
+    integer(kind=i_def) :: wsy_stencil_size(4)
+    integer(kind=i_def) :: wsx_stencil_map(ndf_ws, ws_max_length, 4)
+    integer(kind=i_def) :: wsy_stencil_map(ndf_ws, ws_max_length, 4)
+    integer(kind=i_def) :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def) :: face_selector_ew(undf_pid)
+    integer(kind=i_def) :: face_selector_ns(undf_pid)
+
+    real(kind=r_tran) :: field_for_x(undf_ws)
+    real(kind=r_tran) :: field_for_y(undf_ws)
+    real(kind=r_tran) :: remapped_flux_x(undf_wr)
+    real(kind=r_tran) :: remapped_flux_y(undf_wr)
+    real(kind=r_tran) :: weights_x_parallel(undf_ww)
+    real(kind=r_tran) :: weights_x_perp(undf_ww)
+    real(kind=r_tran) :: weights_y_parallel(undf_ww)
+    real(kind=r_tran) :: weights_y_perp(undf_ww)
+    integer(kind=i_def) :: indices_x(undf_ww)
+    integer(kind=i_def) :: indices_y(undf_ww)
+
+    map_wr(1) = 1
+    map_ws(1) = 1
+    map_ww(1) = 1
+    map_pid(1) = 1
+
+    field_for_x = 0.0_r_tran
+    field_for_y = 0.0_r_tran
+    field_for_x(1) = 10.0_r_tran
+    field_for_x(2) = 20.0_r_tran
+    field_for_x(3) = 30.0_r_tran
+    field_for_x(4) = 40.0_r_tran
+    field_for_y = field_for_x
+
+    remapped_flux_x = field_for_x
+    remapped_flux_y = field_for_y
+
+    weights_x_parallel = 0.75_r_tran
+    weights_x_perp = 0.25_r_tran
+    weights_y_parallel = 0.75_r_tran
+    weights_y_perp = 0.25_r_tran
+    indices_x = 1_i_def
+    indices_y = 1_i_def
+
+    wsx_stencil_size = 0_i_def
+    wsy_stencil_size = 0_i_def
+    wsx_stencil_map = 0_i_def
+    wsy_stencil_map = 0_i_def
+    wsx_stencil_size(S) = 1_i_def
+    wsx_stencil_size(N) = 1_i_def
+    wsy_stencil_size(W) = 1_i_def
+    wsy_stencil_size(E) = 1_i_def
+    wsx_stencil_map(1,1,S) = 1_i_def
+    wsx_stencil_map(1,1,N) = 1_i_def
+    wsy_stencil_map(1,1,W) = 1_i_def
+    wsy_stencil_map(1,1,E) = 1_i_def
+
+    panel_edge_dist_W(1) = 1_i_def
+    panel_edge_dist_E(1) = 5_i_def
+    panel_edge_dist_S(1) = 5_i_def
+    panel_edge_dist_N(1) = 5_i_def
+    face_selector_ew(1) = W
+    face_selector_ns(1) = 0_i_def
+
+    call panel_corner_remap_w2h_code( nlayers, remapped_flux_x, remapped_flux_y, &
+         field_for_x, wsx_stencil_size, ws_max_length, wsx_stencil_map, &
+         field_for_y, wsy_stencil_size, ws_max_length, wsy_stencil_map, &
+         weights_x_parallel, weights_x_perp, indices_x, &
+         weights_y_parallel, weights_y_perp, indices_y, &
+         panel_edge_dist_W, panel_edge_dist_E, panel_edge_dist_S, panel_edge_dist_N, &
+         face_selector_ew, face_selector_ns, depth, ndata, &
+         ndf_wr, undf_wr, map_wr, ndf_ws, undf_ws, map_ws, ndf_ww, undf_ww, map_ww, ndf_pid, undf_pid, map_pid )
+
+    @assertEqual(field_for_x(1), remapped_flux_x(1), tol)
+    @assertEqual(field_for_y(1), remapped_flux_y(1), tol)
+
+  end subroutine test_requires_true_corner
+
+end module panel_corner_remap_w2h_kernel_mod_test

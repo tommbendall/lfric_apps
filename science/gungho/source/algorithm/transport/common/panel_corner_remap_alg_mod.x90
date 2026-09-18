@@ -1,0 +1,126 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright 2025 Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+
+!> @brief Remap a scalar field on the cubed-sphere at panel corners so that the
+!!        field values neighbouring each corner correspond to those on the two
+!!        adjacent extended panels.
+module panel_corner_remap_alg_mod
+
+  use constants_mod,                 only: i_def, l_def, r_tran
+  use r_tran_field_mod,              only: r_tran_field_type
+  use integer_field_mod,             only: integer_field_type
+  use mesh_mod,                      only: mesh_type
+  use timing_mod,                    only: start_timing, stop_timing, tik, LPROF
+  use function_space_mod,            only: function_space_type
+  use transport_config_mod,          only: ffsl_inner_order, ffsl_outer_order, &
+                                           panel_edge_high_order
+  use transport_constants_mod,       only: get_panel_corner_weights_x,           &
+                                           get_panel_corner_weights_y,           &
+                                           get_panel_corner_indices_x,           &
+                                           get_panel_corner_indices_y,           &
+                                           get_panel_edge_dist
+  use panel_corner_remap_kernel_mod, only: panel_corner_remap_kernel_type
+
+  use log_mod, only: log_event, LOG_LEVEL_DEBUG, log_scratch_space
+
+  implicit none
+
+  private
+
+  public :: panel_corner_remap_alg
+
+contains
+
+  !> @brief Remap a field near the panel corners of the cubed-sphere
+  !> @param[in,out] remapped_in_x     Field remapped in local x direction
+  !> @param[in,out] remapped_in_y     Field remapped in local y direction
+  !> @param[in]     field_for_x       Original field to be remapped in x
+  !> @param[in]     field_for_y       Original field to be remapped in y
+  !> @param[in]     ffsl_depth        Depth to which FFSL flux calculations will
+  !!                                  be performed
+  !> @param[in]     monotone          Whether to enforce monotonicity when
+  !!                                  remapping
+  !> @param[in]     enforce_minvalue  Whether to enforce a minimum field value
+  !!                                  when remapping
+  !> @param[in]     minvalue          The minimum value to use when enforcing
+  !!                                  a minimum value
+  subroutine panel_corner_remap_alg(remapped_in_x, remapped_in_y,              &
+                                  field_for_x, field_for_y, ffsl_depth,      &
+                                  monotone, enforce_minvalue, minvalue)
+
+    implicit none
+
+    type(r_tran_field_type), intent(inout) :: remapped_in_x
+    type(r_tran_field_type), intent(inout) :: remapped_in_y
+    type(r_tran_field_type), intent(inout) :: field_for_x
+    type(r_tran_field_type), intent(inout) :: field_for_y
+    integer(kind=i_def),     intent(in)    :: ffsl_depth
+    logical(kind=l_def),     intent(in)    :: monotone
+    logical(kind=l_def),     intent(in)    :: enforce_minvalue
+    real(kind=r_tran),       intent(in)    :: minvalue
+
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: fs
+    type(r_tran_field_type),   pointer :: panel_corner_weights_x
+    type(r_tran_field_type),   pointer :: panel_corner_weights_y
+    type(integer_field_type),  pointer :: panel_corner_indices_x
+    type(integer_field_type),  pointer :: panel_corner_indices_y
+    type(integer_field_type),  pointer :: panel_edge_dist(:)
+
+    integer(kind=i_def) :: mesh_id, ndata
+    integer(kind=i_def) :: max_halo_depth, cross_depth
+    integer(kind=i_def) :: field_read_depth
+    integer(kind=tik)   :: id
+
+    if ( LPROF ) call start_timing( id, 'transport.panel_corner_remap' )
+
+    mesh => field_for_x%get_mesh()
+    mesh_id = mesh%get_id()
+    panel_corner_weights_x => get_panel_corner_weights_x(mesh_id)
+    panel_corner_weights_y => get_panel_corner_weights_y(mesh_id)
+    panel_corner_indices_x => get_panel_corner_indices_x(mesh_id)
+    panel_corner_indices_y => get_panel_corner_indices_y(mesh_id)
+    panel_edge_dist => get_panel_edge_dist(mesh_id)
+
+    fs => field_for_x%get_function_space()
+    max_halo_depth = mesh%get_halo_depth()
+    if (panel_edge_high_order) then
+      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
+      ndata = 4
+    else
+      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order)
+      ndata = 2
+    end if
+
+    field_read_depth = MIN(MAX(cross_depth + ffsl_depth, ffsl_depth), max_halo_depth)
+
+    call remapped_in_x%initialise(fs, halo_depth=field_for_x%get_field_halo_depth())
+    call remapped_in_y%initialise(fs, halo_depth=field_for_y%get_field_halo_depth())
+
+    ! TODO: debugging statement
+    write(log_scratch_space, *) 'PANEL CORNER STENCIL SIZES', &
+      cross_depth, field_read_depth, max_halo_depth
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+
+    call invoke( panel_corner_remap_kernel_type( remapped_in_x, remapped_in_y, &
+                                               field_for_x, cross_depth,       &
+                                               field_for_y, cross_depth,       &
+                                               panel_corner_weights_x,         &
+                                               panel_corner_weights_y,         &
+                                               panel_corner_indices_x,         &
+                                               panel_corner_indices_y,         &
+                                               panel_edge_dist,                &
+                                               ffsl_depth,                     &
+                                               ndata,                          &
+                                               monotone,                       &
+                                               enforce_minvalue,               &
+                                               minvalue ) )
+
+    if ( LPROF ) call stop_timing( id, 'transport.panel_corner_remap' )
+
+  end subroutine panel_corner_remap_alg
+
+end module panel_corner_remap_alg_mod

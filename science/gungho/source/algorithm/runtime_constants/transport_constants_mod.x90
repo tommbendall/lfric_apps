@@ -706,8 +706,7 @@ contains
 
     use planet_config_mod,      only: scaled_radius
     use transport_config_mod,   only: ffsl_inner_order,                        &
-                                      ffsl_outer_order,                        &
-                                      panel_edge_high_order
+                                      ffsl_outer_order
     use panel_edge_remap_w2h_weights_kernel_mod,                               &
                                  only: panel_edge_remap_w2h_weights_kernel_type
 
@@ -740,7 +739,7 @@ contains
 
     if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
 
-    ! For now enforce W2H remapping to be linear
+    ! TODO: separate out linear and cubic coefficients
     high_order = .false.
 
     mesh => mesh_collection%get_mesh(mesh_id)

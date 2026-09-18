@@ -1,0 +1,302 @@
+!-------------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-------------------------------------------------------------------------------
+!> Test the remapping of scalar fields at a cubed-sphere panel corner.
+module panel_corner_remap_kernel_mod_test
+
+  use constants_mod, only: l_def, i_def, r_def, r_tran, IMDI
+  use reference_element_mod, only: W, S, N, E
+  use funit
+
+  implicit none
+
+  private
+  public :: test_all
+
+  @TestCase
+  type, extends(TestCase), public :: panel_corner_remap_test_type
+    private
+  contains
+    procedure test_all
+  end type panel_corner_remap_test_type
+
+contains
+
+  @Test
+  subroutine test_all( this )
+
+    use panel_corner_remap_kernel_mod, only: panel_corner_remap_code
+
+    implicit none
+
+    class(panel_corner_remap_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-10_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndata = 2
+    integer(kind=i_def), parameter :: ndf_ws = 1
+    integer(kind=i_def), parameter :: undf_ws = 4
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = 1
+    integer(kind=i_def), parameter :: ndf_wr = 1
+    integer(kind=i_def), parameter :: undf_wr = 4
+    integer(kind=i_def), parameter :: ndf_ww = 1
+    integer(kind=i_def), parameter :: undf_ww = 2
+    integer(kind=i_def), parameter :: depth = 1
+    logical(kind=l_def), parameter :: compute_all_halo = .false.
+
+    integer(kind=i_def) :: map_ww(ndf_ww)
+    integer(kind=i_def) :: map_ws(ndf_ws)
+    integer(kind=i_def) :: map_wr(ndf_wr)
+    integer(kind=i_def) :: map_pid(ndf_pid)
+
+    integer(kind=i_def) :: wsx_stencil_size(4)
+    integer(kind=i_def) :: wsy_stencil_size(4)
+    integer(kind=i_def), parameter :: ws_max_length = 3
+    integer(kind=i_def) :: wsx_stencil_map(ndf_ws, ws_max_length, 4)
+    integer(kind=i_def) :: wsy_stencil_map(ndf_ws, ws_max_length, 4)
+
+    real(kind=r_tran) :: remapped_field_x(undf_wr)
+    real(kind=r_tran) :: remapped_field_y(undf_wr)
+    real(kind=r_tran) :: field(undf_ws)
+    real(kind=r_tran) :: panel_corner_weights_x(undf_ww)
+    real(kind=r_tran) :: panel_corner_weights_y(undf_ww)
+    integer(kind=i_def) :: panel_corner_indices_x(undf_ww)
+    integer(kind=i_def) :: panel_corner_indices_y(undf_ww)
+    integer(kind=i_def) :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def) :: halo_mask_x(undf_pid)
+    integer(kind=i_def) :: halo_mask_y(undf_pid)
+
+    real(kind=r_tran) :: minvalue
+    logical(kind=l_def) :: monotone
+    logical(kind=l_def) :: enforce_minvalue
+
+    map_ww(1) = 1
+    map_ws(1) = 1
+    map_wr(1) = 1
+    map_pid(1) = 1
+
+    wsx_stencil_size = 0_i_def
+    wsy_stencil_size = 0_i_def
+    wsx_stencil_map = 0_i_def
+    wsy_stencil_map = 0_i_def
+
+    ! Build a simple 1D donor stencil [1, 2, 3] for the corner remap.
+    ! The combined 1D stencil length is left_size + right_size - 1, so using
+    ! donor indices 2 and 3 requires the synthetic stencil to span all three
+    ! positions rather than only the first two entries.
+    wsx_stencil_size(S) = 2_i_def
+    wsx_stencil_size(N) = 2_i_def
+    wsx_stencil_map(1,1,S) = 1_i_def
+    wsx_stencil_map(1,2,S) = 2_i_def
+    wsx_stencil_map(1,1,N) = 1_i_def
+    wsx_stencil_map(1,2,N) = 3_i_def
+
+    wsy_stencil_size(W) = 2_i_def
+    wsy_stencil_size(E) = 2_i_def
+    wsy_stencil_map(1,1,W) = 1_i_def
+    wsy_stencil_map(1,2,W) = 2_i_def
+    wsy_stencil_map(1,1,E) = 1_i_def
+    wsy_stencil_map(1,2,E) = 3_i_def
+
+    field(:) = 0.0_r_tran
+    field(1) = 4.0_r_tran
+    field(2) = 6.0_r_tran
+    field(3) = 8.0_r_tran
+    field(4) = 10.0_r_tran
+
+    ! Linear corner weights: x-direction uses donor cells 2 and 3, y-direction
+    ! uses donor cells 1 and 3.
+    panel_corner_weights_x = 0.0_r_tran
+    panel_corner_weights_y = 0.0_r_tran
+    panel_corner_indices_x = 0_i_def
+    panel_corner_indices_y = 0_i_def
+    panel_corner_weights_x(1) = 0.25_r_tran
+    panel_corner_weights_x(2) = 0.75_r_tran
+    panel_corner_indices_x(1) = 2_i_def
+    panel_corner_indices_x(2) = 3_i_def
+    panel_corner_weights_y(1) = 0.60_r_tran
+    panel_corner_weights_y(2) = 0.40_r_tran
+    panel_corner_indices_y(1) = 1_i_def
+    panel_corner_indices_y(2) = 3_i_def
+
+    panel_edge_dist_W(1) = 1_i_def
+    panel_edge_dist_E(1) = 5_i_def
+    panel_edge_dist_S(1) = 1_i_def
+    panel_edge_dist_N(1) = 5_i_def
+    halo_mask_x(1) = 0_i_def
+    halo_mask_y(1) = 0_i_def
+
+    remapped_field_x = 0.0_r_tran
+    remapped_field_y = 0.0_r_tran
+
+    monotone = .false.
+    enforce_minvalue = .false.
+    minvalue = 0.0_r_tran
+
+    call panel_corner_remap_code( nlayers,                                      &
+                                remapped_field_x, remapped_field_y,              &
+                                field,                                          &
+                                wsx_stencil_size, ws_max_length, wsx_stencil_map, &
+                                field,                                          &
+                                wsy_stencil_size, ws_max_length, wsy_stencil_map, &
+                                panel_corner_weights_x, panel_corner_weights_y,  &
+                                panel_corner_indices_x, panel_corner_indices_y,  &
+                                panel_edge_dist_W, panel_edge_dist_E,            &
+                                panel_edge_dist_S, panel_edge_dist_N,            &
+                                halo_mask_x, halo_mask_y,                        &
+                                compute_all_halo,                                &
+                                depth,                                           &
+                                ndata, monotone, enforce_minvalue, minvalue,     &
+                                ndf_wr, undf_wr, map_wr,                         &
+                                ndf_ws, undf_ws, map_ws,                         &
+                                ndf_ww, undf_ww, map_ww,                         &
+                                ndf_pid, undf_pid, map_pid                       &
+    )
+
+    @assertEqual(7.5_r_tran, remapped_field_x(1), tol)
+    @assertEqual(5.6_r_tran, remapped_field_y(1), tol)
+
+  end subroutine test_all
+
+  @Test
+  subroutine test_requires_true_corner( this )
+
+    use panel_corner_remap_kernel_mod, only: panel_corner_remap_code
+
+    implicit none
+
+    class(panel_corner_remap_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-10_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndata = 2
+    integer(kind=i_def), parameter :: ndf_ws = 1
+    integer(kind=i_def), parameter :: undf_ws = 4
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = 1
+    integer(kind=i_def), parameter :: ndf_wr = 1
+    integer(kind=i_def), parameter :: undf_wr = 4
+    integer(kind=i_def), parameter :: ndf_ww = 1
+    integer(kind=i_def), parameter :: undf_ww = 2
+    integer(kind=i_def), parameter :: depth = 1
+    logical(kind=l_def), parameter :: compute_all_halo = .false.
+
+    integer(kind=i_def) :: map_ww(ndf_ww)
+    integer(kind=i_def) :: map_ws(ndf_ws)
+    integer(kind=i_def) :: map_wr(ndf_wr)
+    integer(kind=i_def) :: map_pid(ndf_pid)
+
+    integer(kind=i_def) :: wsx_stencil_size(4)
+    integer(kind=i_def) :: wsy_stencil_size(4)
+    integer(kind=i_def), parameter :: ws_max_length = 3
+    integer(kind=i_def) :: wsx_stencil_map(ndf_ws, ws_max_length, 4)
+    integer(kind=i_def) :: wsy_stencil_map(ndf_ws, ws_max_length, 4)
+
+    real(kind=r_tran) :: remapped_field_x(undf_wr)
+    real(kind=r_tran) :: remapped_field_y(undf_wr)
+    real(kind=r_tran) :: field(undf_ws)
+    real(kind=r_tran) :: panel_corner_weights_x(undf_ww)
+    real(kind=r_tran) :: panel_corner_weights_y(undf_ww)
+    integer(kind=i_def) :: panel_corner_indices_x(undf_ww)
+    integer(kind=i_def) :: panel_corner_indices_y(undf_ww)
+    integer(kind=i_def) :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def) :: halo_mask_x(undf_pid)
+    integer(kind=i_def) :: halo_mask_y(undf_pid)
+
+    real(kind=r_tran) :: minvalue
+    logical(kind=l_def) :: monotone
+    logical(kind=l_def) :: enforce_minvalue
+
+    map_ww(1) = 1
+    map_ws(1) = 1
+    map_wr(1) = 1
+    map_pid(1) = 1
+
+    wsx_stencil_size = 0_i_def
+    wsy_stencil_size = 0_i_def
+    wsx_stencil_map = 0_i_def
+    wsy_stencil_map = 0_i_def
+    wsx_stencil_size(S) = 2_i_def
+    wsx_stencil_size(N) = 2_i_def
+    wsx_stencil_map(1,1,S) = 1_i_def
+    wsx_stencil_map(1,2,S) = 2_i_def
+    wsx_stencil_map(1,1,N) = 1_i_def
+    wsx_stencil_map(1,2,N) = 3_i_def
+
+    wsy_stencil_size(W) = 2_i_def
+    wsy_stencil_size(E) = 2_i_def
+    wsy_stencil_map(1,1,W) = 1_i_def
+    wsy_stencil_map(1,2,W) = 2_i_def
+    wsy_stencil_map(1,1,E) = 1_i_def
+    wsy_stencil_map(1,2,E) = 3_i_def
+
+    field(:) = 0.0_r_tran
+    field(1) = 4.0_r_tran
+    field(2) = 6.0_r_tran
+    field(3) = 8.0_r_tran
+    field(4) = 10.0_r_tran
+
+    panel_corner_weights_x = 0.0_r_tran
+    panel_corner_weights_y = 0.0_r_tran
+    panel_corner_indices_x = 0_i_def
+    panel_corner_indices_y = 0_i_def
+    panel_corner_weights_x(1) = 0.25_r_tran
+    panel_corner_weights_x(2) = 0.75_r_tran
+    panel_corner_indices_x(1) = 2_i_def
+    panel_corner_indices_x(2) = 3_i_def
+    panel_corner_weights_y(1) = 0.60_r_tran
+    panel_corner_weights_y(2) = 0.40_r_tran
+    panel_corner_indices_y(1) = 1_i_def
+    panel_corner_indices_y(2) = 3_i_def
+
+    panel_edge_dist_W(1) = 1_i_def
+    panel_edge_dist_E(1) = 5_i_def
+    panel_edge_dist_S(1) = 5_i_def
+    panel_edge_dist_N(1) = 5_i_def
+    halo_mask_x(1) = 0_i_def
+    halo_mask_y(1) = 0_i_def
+
+    remapped_field_x = 0.0_r_tran
+    remapped_field_y = 0.0_r_tran
+
+    monotone = .false.
+    enforce_minvalue = .false.
+    minvalue = 0.0_r_tran
+
+    call panel_corner_remap_code( nlayers,                                      &
+                                remapped_field_x, remapped_field_y,              &
+                                field,                                          &
+                                wsx_stencil_size, ws_max_length, wsx_stencil_map, &
+                                field,                                          &
+                                wsy_stencil_size, ws_max_length, wsy_stencil_map, &
+                                panel_corner_weights_x, panel_corner_weights_y,  &
+                                panel_corner_indices_x, panel_corner_indices_y,  &
+                                panel_edge_dist_W, panel_edge_dist_E,            &
+                                panel_edge_dist_S, panel_edge_dist_N,            &
+                                halo_mask_x, halo_mask_y,                        &
+                                compute_all_halo,                                &
+                                depth,                                           &
+                                ndata, monotone, enforce_minvalue, minvalue,     &
+                                ndf_wr, undf_wr, map_wr,                         &
+                                ndf_ws, undf_ws, map_ws,                         &
+                                ndf_ww, undf_ww, map_ww,                         &
+                                ndf_pid, undf_pid, map_pid                       &
+    )
+
+    @assertEqual(-1900.0_r_tran, remapped_field_x(1), tol)
+    @assertEqual(-1900.0_r_tran, remapped_field_y(1), tol)
+
+  end subroutine test_requires_true_corner
+
+end module panel_corner_remap_kernel_mod_test

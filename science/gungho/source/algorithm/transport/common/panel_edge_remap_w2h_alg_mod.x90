@@ -1,0 +1,156 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! GitHub Copilot.
+!-----------------------------------------------------------------------------
+
+!> @brief Remap a W2H flux/wind field on the cubed-sphere at panel edges, so
+!!        that the field values neighbouring panel edges correspond to those
+!!        on extended mesh panels.
+!> @details Mirrors panel_edge_remap_alg_mod's scalar (W3/Wtheta) remap, but
+!!          uses panel_edge_remap_w2h_weights_kernel_mod/
+!!          panel_edge_remap_w2h_kernel_mod, which additionally handle the
+!!          rotation of face-normal components across a panel edge. Since
+!!          field_for_x and field_for_y are always the SAME actual W2H field
+!!          for this remap (unlike the scalar template, which allows
+!!          different fields for the x/y directions), this algorithm only
+!!          exposes a single `flux_field` argument.
+module panel_edge_remap_w2h_alg_mod
+
+  use constants_mod,                 only: i_def, r_tran, l_def
+  use r_tran_field_mod,              only: r_tran_field_type
+  use integer_field_mod,             only: integer_field_type
+  use mesh_mod,                      only: mesh_type
+  use timing_mod,                    only: start_timing, stop_timing, tik, LPROF
+  use function_space_mod,            only: function_space_type
+  use transport_config_mod,          only: ffsl_inner_order, ffsl_outer_order, &
+                                           panel_edge_high_order
+  use transport_constants_mod,       only: get_panel_edge_remap_w2h_weights_x_parallel, &
+                                           get_panel_edge_remap_w2h_weights_x_perp,      &
+                                           get_panel_edge_remap_w2h_indices_x,           &
+                                           get_panel_edge_remap_w2h_weights_y_parallel,  &
+                                           get_panel_edge_remap_w2h_weights_y_perp,      &
+                                           get_panel_edge_remap_w2h_indices_y,           &
+                                           get_panel_edge_dist
+  use sci_geometric_constants_mod,   only: get_face_selector_ew,                        &
+                                           get_face_selector_ns
+  use panel_edge_remap_w2h_kernel_mod, only: panel_edge_remap_w2h_kernel_type
+
+  implicit none
+
+  private
+
+  public :: panel_edge_remap_w2h_alg
+
+contains
+
+  !> @brief Remap a W2H flux/wind field near the panel edges of the cubed sphere
+  !> @param[in,out] remapped_flux_x   Field with the x (S/N-face) correction applied
+  !> @param[in,out] remapped_flux_y   Field with the y (W/E-face) correction applied
+  !> @param[in]     flux_field        Original W2H field to be remapped
+  !> @param[in]     ffsl_depth        Depth to which FFSL flux calculations will
+  !!                                  be performed
+  subroutine panel_edge_remap_w2h_alg(remapped_flux_x, remapped_flux_y,        &
+                                      flux_field, ffsl_depth)
+
+    implicit none
+
+    type(r_tran_field_type),  intent(inout) :: remapped_flux_x
+    type(r_tran_field_type),  intent(inout) :: remapped_flux_y
+    type(r_tran_field_type),  intent(inout) :: flux_field
+    integer(kind=i_def),      intent(in)    :: ffsl_depth
+
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: fs
+    type(function_space_type), pointer :: index_fs
+    type(r_tran_field_type),   pointer :: weights_x_parallel
+    type(r_tran_field_type),   pointer :: weights_x_perp
+    type(integer_field_type),  pointer :: indices_x
+    type(r_tran_field_type),   pointer :: weights_y_parallel
+    type(r_tran_field_type),   pointer :: weights_y_perp
+    type(integer_field_type),  pointer :: indices_y
+    type(integer_field_type),  pointer :: panel_edge_dist(:)
+    type(integer_field_type),  pointer :: face_selector_ew
+    type(integer_field_type),  pointer :: face_selector_ns
+
+    type(r_tran_field_type),   target  :: temp_flux_field
+    type(r_tran_field_type),   pointer :: temp_flux_field_copy
+
+    logical(kind=l_def)              :: high_order
+    integer(kind=i_def)              :: mesh_id, ndata
+    integer(kind=i_def)              :: cross_depth
+    integer(kind=i_def)              :: remap_depth
+    integer(kind=tik)                :: id
+
+    if ( LPROF ) call start_timing( id, 'transport.panel_edge_remap_w2h' )
+
+    mesh => flux_field%get_mesh()
+    mesh_id = mesh%get_id()
+    weights_x_parallel => get_panel_edge_remap_w2h_weights_x_parallel(mesh_id)
+    weights_x_perp     => get_panel_edge_remap_w2h_weights_x_perp(mesh_id)
+    indices_x          => get_panel_edge_remap_w2h_indices_x(mesh_id)
+    weights_y_parallel => get_panel_edge_remap_w2h_weights_y_parallel(mesh_id)
+    weights_y_perp     => get_panel_edge_remap_w2h_weights_y_perp(mesh_id)
+    indices_y          => get_panel_edge_remap_w2h_indices_y(mesh_id)
+    panel_edge_dist    => get_panel_edge_dist(mesh_id)
+    face_selector_ew   => get_face_selector_ew(mesh)
+    face_selector_ns   => get_face_selector_ns(mesh)
+
+    fs => flux_field%get_function_space()
+    index_fs => indices_x%get_function_space()
+    ndata = index_fs%get_ndata()  ! Number of data points used in remapping
+
+    ! TODO: for now hardcode high-order as false
+    high_order = .false.
+
+    ! See panel_edge_remap_alg_mod::panel_edge_remap_alg for a discussion of
+    ! the various depths used below - the same conventions apply here
+    remap_depth = ffsl_depth
+    if (high_order) then
+      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
+    else
+      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order)
+    end if
+
+    call remapped_flux_x%initialise(fs, halo_depth=flux_field%get_field_halo_depth())
+    call remapped_flux_y%initialise(fs, halo_depth=flux_field%get_field_halo_depth())
+
+    ! flux_field may only have the default (depth 1) halo, whereas the remap
+    ! kernel below needs deeper halo access - so copy its values into a
+    ! temporary field initialised to the full mesh halo depth
+    call temp_flux_field%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call invoke( setval_X(temp_flux_field, flux_field) )
+    temp_flux_field_copy => temp_flux_field
+
+    ! Unlike the scalar remap, this kernel loops over CELL_COLUMN (owned cells
+    ! only) via a standard invoke(), letting PSyclone manage the stencil halo
+    ! exchanges automatically. This forgoes the redundant-computation
+    ! optimisation used elsewhere (which requires a hand-written psykal_lite
+    ! invoke to loop over halo cells), taking the simpler and safer approach
+    ! of accepting the extra halo-exchange cost for this correction
+    call invoke( panel_edge_remap_w2h_kernel_type(remapped_flux_x,             &
+                                                  remapped_flux_y,             &
+                                                  temp_flux_field,             &
+                                                  cross_depth,                 &
+                                                  temp_flux_field_copy,        &
+                                                  cross_depth,                 &
+                                                  weights_x_parallel,          &
+                                                  weights_x_perp,              &
+                                                  indices_x,                   &
+                                                  weights_y_parallel,          &
+                                                  weights_y_perp,              &
+                                                  indices_y,                   &
+                                                  panel_edge_dist,             &
+                                                  face_selector_ew,            &
+                                                  face_selector_ns,            &
+                                                  remap_depth,                 &
+                                                  ndata)                       &
+    )
+
+    if ( LPROF ) call stop_timing( id, 'transport.panel_edge_remap_w2h' )
+
+  end subroutine panel_edge_remap_w2h_alg
+
+end module panel_edge_remap_w2h_alg_mod
