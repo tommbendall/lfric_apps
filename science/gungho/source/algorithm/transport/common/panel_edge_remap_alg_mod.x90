@@ -28,6 +28,9 @@ module panel_edge_remap_alg_mod
   use psykal_lite_transport_mod,     only: invoke_panel_edge_remap_kernel_type
   use sci_psykal_light_mod,          only: invoke_rtran_halo_exchange
 
+  ! TODO: to remove
+  use log_mod, only: log_event, LOG_LEVEL_DEBUG, log_scratch_space
+
   implicit none
 
   private
@@ -114,7 +117,7 @@ contains
     !                     extent plus the number of data points used in the
     !                     remapping
     max_halo_depth = mesh%get_halo_depth()
-    remap_depth = MAX(ffsl_inner_order, ffsl_outer_order)
+    remap_depth = max_halo_depth  ! TODO: I hacked this to be the full depth
     if (panel_edge_high_order) then
       cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
     else
@@ -122,7 +125,7 @@ contains
     end if
 
     field_read_depth = MIN(MAX(cross_depth + remap_depth, ffsl_depth), max_halo_depth)
-    compute_all_halo = .false.
+    compute_all_halo = .true.  ! TODO: was having this .false. a good idea? 
 
     call remapped_in_x%initialise(fs, halo_depth=field_for_x%get_field_halo_depth())
     call remapped_in_y%initialise(fs, halo_depth=field_for_y%get_field_halo_depth())
@@ -135,6 +138,11 @@ contains
     ! edge method, and cannot be easily supported by PSyclone
     call invoke_rtran_halo_exchange(field_for_x, depth=field_read_depth)
     call invoke_rtran_halo_exchange(field_for_y, depth=field_read_depth)
+
+    ! TODO: outputting to remove
+    write(log_scratch_space, *) 'PANEL EDGE STENCIL SIZES', &
+      cross_depth, remap_depth, field_read_depth, max_halo_depth
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
     ! Psykal lite implementation necessary for a kernel that loops over halo
     ! cells and also uses a stencil

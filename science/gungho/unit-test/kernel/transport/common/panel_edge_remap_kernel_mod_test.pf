@@ -14,12 +14,14 @@ module panel_edge_remap_kernel_mod_test
 
   private
   public :: test_all
+  public :: test_python_linear_stencil
 
   @TestCase
   type, extends(TestCase), public :: panel_edge_remap_test_type
     private
   contains
     procedure test_all
+    procedure test_python_linear_stencil
   end type panel_edge_remap_test_type
 
 contains
@@ -224,5 +226,136 @@ contains
 
 
   end subroutine test_all
+
+  !-----------------------------------------------------------------------------
+  !> @brief Cross-check panel_edge_remap_code's weighted-sum application against
+  !!        the same 2-point "row-only" linear interpolation scheme used by the
+  !!        independent python reference tool cubed_sphere_eaves_w2h.py
+  !!        (_row_only_stencil / build_scalar_eaves_regridding_stencil), which
+  !!        blends two donor cell-centre values as
+  !!        value = (1 - frac) * f(donor_near) + frac * f(donor_far)
+  !!        with frac in [0, 1] and weights summing to 1. Here frac = 0.35,
+  !!        donor values are 4.0 and 10.0, giving an expected blended value of
+  !!        0.65 * 4.0 + 0.35 * 10.0 = 6.1, computed independently in python as:
+  !!            >>> frac = 0.35
+  !!            >>> (1 - frac) * 4.0 + frac * 10.0
+  !!            6.1
+  subroutine test_python_linear_stencil( this )
+
+    use panel_edge_remap_kernel_mod, only: panel_edge_remap_code
+
+    implicit none
+
+    class(panel_edge_remap_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-10_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndata = 2
+    integer(kind=i_def), parameter :: ncells = 2
+    integer(kind=i_def), parameter :: ndf_ws = 1
+    integer(kind=i_def), parameter :: undf_ws = ncells*ndf_ws*nlayers
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = 1
+    integer(kind=i_def), parameter :: ndf_wr = 1
+    integer(kind=i_def), parameter :: undf_wr = ndf_ws*nlayers
+    integer(kind=i_def), parameter :: ndf_ww = 1
+    integer(kind=i_def), parameter :: undf_ww = ndf_ww*ndata
+    integer(kind=i_def), parameter :: depth = 1
+    logical(kind=l_def), parameter :: compute_all_halo = .false.
+
+    integer(kind=i_def)            :: map_ww(ndf_ww)
+    integer(kind=i_def)            :: map_ws(ndf_ws)
+    integer(kind=i_def)            :: map_wr(ndf_wr)
+    integer(kind=i_def)            :: map_pid(ndf_pid)
+
+    integer(kind=i_def)            :: stencil_size(4)
+    integer(kind=i_def), parameter :: max_length = 2
+    integer(kind=i_def)            :: stencil(ndf_ws, max_length, 4)
+
+    real(kind=r_tran)              :: remapped_field_x(undf_wr)
+    real(kind=r_tran)              :: remapped_field_y(undf_wr)
+    real(kind=r_tran)              :: field(undf_ws)
+    real(kind=r_tran)              :: panel_edge_weights_x(undf_ww)
+    real(kind=r_tran)              :: panel_edge_weights_y(undf_ww)
+    integer(kind=i_def)            :: panel_edge_indices_x(undf_ww)
+    integer(kind=i_def)            :: panel_edge_indices_y(undf_ww)
+    integer(kind=i_def)            :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def)            :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def)            :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def)            :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def)            :: halo_mask_x(undf_pid)
+    integer(kind=i_def)            :: halo_mask_y(undf_pid)
+
+    real(kind=r_tran), parameter :: frac = 0.35_r_tran
+
+    real(kind=r_tran)   :: minvalue
+    logical(kind=l_def) :: monotone
+    logical(kind=l_def) :: enforce_minvalue
+
+    ! Only 2 donor cells are needed for a linear ("row-only") remap.
+    ! Branch 2 is "S" (see reference_element_mod), used for the x-direction
+    ! remap (parallel to the panel edge).
+    stencil_size(:) = 1
+    stencil_size(2) = 2
+
+    map_ws(1) = 1
+    stencil(1,1,:) = map_ws(1)
+    stencil(1,2,2) = 2
+
+    map_wr(1) = 1
+    map_pid(1) = 1
+    map_ww(1) = 1
+
+    panel_edge_dist_W(1) = 1
+    panel_edge_dist_E(1) = -ABS(IMDI)
+    panel_edge_dist_N(1) = -ABS(IMDI)
+    panel_edge_dist_S(1) = -ABS(IMDI)
+    halo_mask_x(:) = 0
+    halo_mask_y(:) = 0
+
+    panel_edge_weights_y(:) = 0.0_r_tran
+    panel_edge_indices_y(:) = 0
+
+    ! Donor values, matching the python cross-check above
+    field(1) = 4.0_r_tran
+    field(2) = 10.0_r_tran
+
+    ! Linear ("row-only") weights: (1 - frac), frac
+    panel_edge_weights_x(1) = 1.0_r_tran - frac
+    panel_edge_weights_x(2) = frac
+    panel_edge_indices_x(1) = 1
+    panel_edge_indices_x(2) = 2
+
+    remapped_field_x(:) = 0.0_r_tran
+    remapped_field_y(:) = 0.0_r_tran
+
+    monotone = .false.
+    enforce_minvalue = .false.
+    minvalue = 0.0_r_tran
+
+    call panel_edge_remap_code( nlayers,                                       &
+                                remapped_field_x, remapped_field_y,            &
+                                field,                                         &
+                                stencil_size, max_length, stencil,             &
+                                field,                                         &
+                                stencil_size, max_length, stencil,             &
+                                panel_edge_weights_x, panel_edge_weights_y,    &
+                                panel_edge_indices_x, panel_edge_indices_y,    &
+                                panel_edge_dist_W, panel_edge_dist_E,          &
+                                panel_edge_dist_S, panel_edge_dist_N,          &
+                                halo_mask_x, halo_mask_y,                      &
+                                compute_all_halo,                              &
+                                depth,                                         &
+                                ndata, monotone, enforce_minvalue, minvalue,   &
+                                ndf_wr, undf_wr, map_wr,                       &
+                                ndf_ws, undf_ws, map_ws,                       &
+                                ndf_ww, undf_ww, map_ww,                       &
+                                ndf_pid, undf_pid, map_pid                     &
+    )
+
+    @assertEqual(6.1_r_tran, remapped_field_x(1), tol)
+
+  end subroutine test_python_linear_stencil
 
 end module panel_edge_remap_kernel_mod_test

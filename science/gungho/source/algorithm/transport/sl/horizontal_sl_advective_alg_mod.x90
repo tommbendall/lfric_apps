@@ -13,10 +13,11 @@
 module horizontal_sl_advective_alg_mod
 
   ! Constants and types
-  use config_mod,                       only: config_type
   use constants_mod,                    only: r_tran, i_def, l_def
   use field_mod,                        only: field_type
+  use function_space_mod,               only: function_space_type
   use integer_field_mod,                only: integer_field_type
+  use log_mod,                          only: log_event, LOG_LEVEL_ERROR
   use mesh_mod,                         only: mesh_type
   use r_tran_field_mod,                 only: r_tran_field_type
   use timing_mod,                       only: start_timing, stop_timing, &
@@ -28,7 +29,9 @@ module horizontal_sl_advective_alg_mod
                                               get_dry_config
   use transport_controller_mod,         only: transport_controller_type
   use transport_counter_mod,            only: transport_counter_type
-  use transport_enumerated_types_mod,   only: monotone_none, direction_h
+  use transport_enumerated_types_mod,   only: monotone_none, direction_h,      &
+                                              ffsl_splitting_cosmic,           &
+                                              ffsl_splitting_swift
   use transport_metadata_mod,           only: transport_metadata_type
   use wind_precomputations_alg_mod,     only: wind_precomputations_type
 
@@ -37,9 +40,16 @@ module horizontal_sl_advective_alg_mod
   use horizontal_cubic_sl_kernel_mod,   only: horizontal_cubic_sl_kernel_type
   use horizontal_cubic_sl_sphere_kernel_mod,                                   &
                                         only: horizontal_cubic_sl_sphere_kernel_type
+  use horizontal_cubic_sl_panel_remap_kernel_mod,                              &
+                                        only: horizontal_cubic_sl_panel_remap_kernel_type
   use horizontal_linear_sl_kernel_mod,  only: horizontal_linear_sl_kernel_type
+  use horizontal_linear_sl_panel_remap_kernel_mod,                             &
+                                        only: horizontal_linear_sl_panel_remap_kernel_type
   use limited_area_lbc_alg_mod,         only: overwrite_blending_zone_rtran
-  use remap_on_extended_mesh_alg_mod,   only: remap_on_extended_mesh
+  use panel_corner_remap_alg_mod,       only: panel_corner_remap_alg
+  use panel_edge_remap_alg_mod,         only: panel_edge_remap_alg
+  use peregrin_eave_sl_kernel_mod,      only: peregrin_eave_sl_kernel_type
+  use peregrin_cubic_sl_kernel_mod,     only: peregrin_cubic_sl_kernel_type
 
   ! Pointers to other objects
   use sci_geometric_constants_mod,      only: get_panel_id
@@ -57,8 +67,13 @@ module horizontal_sl_advective_alg_mod
   use departure_points_config_mod,      only: share_stencil_extent
   use transport_config_mod,             only:                                  &
                                           panel_edge_treatment,                &
-                                          panel_edge_treatment_extended_mesh,  &
+                                          panel_edge_treatment_remapping,      &
                                           ffsl_unity_3d
+
+  ! TODO to remove
+  use log_mod, only: LOG_LEVEL_DEBUG, log_scratch_space
+  use sci_field_minmax_alg_mod, only: log_field_minmax
+  use log_column_kernel_mod, only: log_column_kernel_type
 
   implicit none
 
@@ -90,33 +105,48 @@ module horizontal_sl_advective_alg_mod
     type(transport_controller_type), intent(inout) :: transport_controller
 
     ! Internal Variables
-    type(r_tran_field_type), target :: field_x
-    type(r_tran_field_type), target :: field_y
-    type(r_tran_field_type), target :: field_big_halo
-    type(r_tran_field_type), target :: field_x_big_halo
-    type(r_tran_field_type), target :: field_y_big_halo
-    type(r_tran_field_type)         :: field_xp
-    type(r_tran_field_type)         :: field_yp
-    type(r_tran_field_type)         :: half_increment_x
-    type(r_tran_field_type)         :: half_increment_y
-    type(r_tran_field_type)         :: increment_x
-    type(r_tran_field_type)         :: increment_y
-    type(r_tran_field_type)         :: increment
+    type(r_tran_field_type), target  :: field_x
+    type(r_tran_field_type), target  :: field_y
+    type(r_tran_field_type), target  :: field_n_big
+    type(r_tran_field_type), pointer :: field_n_copy
+    type(r_tran_field_type), target  :: field_x_big
+    type(r_tran_field_type), target  :: field_y_big
+    type(r_tran_field_type), target  :: field_x_ry
+    type(r_tran_field_type), target  :: field_y_rx
+    type(r_tran_field_type)          :: field_n_rx_corner
+    type(r_tran_field_type)          :: field_n_ry_corner
+    type(r_tran_field_type)          :: field_n_rx
+    type(r_tran_field_type)          :: field_n_ry
+    type(r_tran_field_type)          :: field_xp
+    type(r_tran_field_type)          :: field_yp
+    type(r_tran_field_type)          :: field_px
+    type(r_tran_field_type)          :: field_py
+    type(r_tran_field_type)          :: half_increment_x
+    type(r_tran_field_type)          :: half_increment_y
+    type(r_tran_field_type)          :: increment_x
+    type(r_tran_field_type)          :: increment_y
+    type(r_tran_field_type)          :: increment
 
     ! Fields for remapping
-    type(mesh_type),          pointer :: mesh
-    type(field_type),         pointer :: panel_id
-    type(integer_field_type), pointer :: panel_edge_dist(:)
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: field_fs
+    type(field_type),          pointer :: panel_id
+    type(integer_field_type),  pointer :: panel_edge_dist(:)
 
     ! Scalars
     integer(kind=i_def) :: mesh_id
     integer(kind=i_def) :: splitting
+    integer(kind=i_def) :: ffsl_splitting
     integer(kind=i_def) :: reference_splitting
     integer(kind=i_def) :: step
     integer(kind=i_def) :: stencil_extent
+    integer(kind=i_def) :: remap_extent
     integer(kind=i_def) :: hori_monotone
+    real(kind=r_tran)   :: min_val
+    logical(kind=l_def) :: enforce_minvalue
     logical(kind=l_def) :: monotone_remap
     logical(kind=l_def) :: is_cubed_sphere
+    logical(kind=l_def) :: do_peregrin
     logical(kind=l_def) :: do_overwrite
     real(kind=r_tran)   :: dt_frac, dt
     real(kind=r_tran)   :: one_over_dt, half_dt
@@ -128,17 +158,16 @@ module horizontal_sl_advective_alg_mod
     type(transport_counter_type),    pointer :: transport_counter
     type(transport_metadata_type),   pointer :: transport_metadata
     type(r_tran_field_type),         pointer :: dep_dist_xy
+    type(r_tran_field_type),         pointer :: dep_dist_peregrin_x
+    type(r_tran_field_type),         pointer :: dep_dist_peregrin_y
     integer(kind=i_def)                      :: dep_stencil_extent_xy
-
-    type(config_type), pointer :: config
 
     if ( LPROF ) call start_timing( id, 'transport.sl_horizontal' )
 
     ! Get mesh ID and panel ID
-    config  => transport_controller%get_config()
     mesh    => field_n%get_mesh()
     mesh_id =  mesh%get_id()
-
+    field_fs => field_n%get_function_space()
 
     is_cubed_sphere = (                                                        &
       geometry == geometry_spherical .and. topology == topology_fully_periodic &
@@ -153,19 +182,41 @@ module horizontal_sl_advective_alg_mod
     transport_counter => transport_controller%get_transport_counter()
     transport_metadata => transport_controller%get_transport_metadata()
 
+    ! Only use the PEREGRIN panel-edge treatment for this field on a cubed
+    ! sphere mesh, and only if requested via the swift_peregrin config option
+    do_peregrin = is_cubed_sphere .and. transport_metadata%get_swift_peregrin()
+
+    if ( panel_edge_treatment == panel_edge_treatment_remapping .and.          &
+         is_cubed_sphere .and. .not. do_peregrin ) then
+      call log_event(                                                          &
+              'SL: cannot use panel edge remapping without Peregrin',          &
+              LOG_LEVEL_ERROR                                                  &
+      )
+    else if (.not. panel_edge_treatment == panel_edge_treatment_remapping      &
+             .and. do_peregrin) then
+      call log_event(                                                          &
+              'SL: cannot use Peregrin without panel edge remapping',          &
+              LOG_LEVEL_ERROR                                                  &
+      )
+    end if
+
     ! Get time step
     dt_frac = get_splitting_fraction(                                          &
         transport_metadata%get_splitting(),                                    &
         transport_counter%get_split_step_of_substep_counter()                  &
     )
     dt = dt_frac*transport_counter%get_dt_substep()
+    one_over_dt = 1.0_r_tran / dt
+    half_dt = 0.5_r_tran * dt
 
     ! Get departure points
     splitting = transport_metadata%get_splitting()
+    ffsl_splitting = transport_metadata%get_ffsl_splitting()
     step = transport_counter%get_split_step_of_substep_counter()
 
     reference_splitting = transport_controller%get_reference_splitting()
-    if (splitting == reference_splitting .and. share_stencil_extent .and. ffsl_unity_3d) then
+
+    if (splitting == reference_splitting .and. share_stencil_extent) then
       ffsl_precomputations => transport_controller%get_ffsl_precomputations()
       dep_dist_xy => ffsl_precomputations%get_dep_dist(                        &
           mesh_id, step, outer_step=.false.                                    &
@@ -173,6 +224,12 @@ module horizontal_sl_advective_alg_mod
       dep_stencil_extent_xy = transport_controller%get_dep_stencil_extent(     &
           mesh_id, step, outer_step=.false., flux_calc=.false.                 &
       )
+
+      if (do_peregrin) then
+        dep_dist_peregrin_x => ffsl_precomputations%get_dep_dist_peregrin_x(mesh_id, step)
+        dep_dist_peregrin_y => ffsl_precomputations%get_dep_dist_peregrin_y(mesh_id, step)
+      end if
+
     else
       wind_precomputations => transport_controller%get_wind_precomputations()
       dep_dist_xy => wind_precomputations%get_dep_dist_xy(                     &
@@ -181,57 +238,214 @@ module horizontal_sl_advective_alg_mod
       dep_stencil_extent_xy = wind_precomputations%get_dep_stencil_extent_xy(  &
           mesh_id, splitting, step, .false.                                    &
       )
+
+      if (do_peregrin) then
+        dep_dist_peregrin_x => wind_precomputations%get_dep_dist_peregrin_x(   &
+            mesh_id, splitting, step                                          &
+        )
+        dep_dist_peregrin_y => wind_precomputations%get_dep_dist_peregrin_y(   &
+            mesh_id, splitting, step                                          &
+        )
+      end if
+
     end if
 
     ! Get monotone option
     hori_monotone = transport_metadata%get_horizontal_monotone()
-
-    ! Get stencil size: this corresponds to the value from the departure distances
-    stencil_extent = dep_stencil_extent_xy
-
-
-    ! Initialise fields
-    call field_x%initialise( vector_space = field_n%get_function_space() )
-    call field_y%initialise( vector_space = field_n%get_function_space() )
-    call field_xp%initialise( vector_space = field_n%get_function_space() )
-    call field_yp%initialise( vector_space = field_n%get_function_space() )
-    call increment%initialise( vector_space = field_n%get_function_space() )
-    call increment_x%initialise( vector_space = field_n%get_function_space() )
-    call increment_y%initialise( vector_space = field_n%get_function_space() )
-    call half_increment_x%initialise( vector_space = field_n%get_function_space() )
-    call half_increment_y%initialise( vector_space = field_n%get_function_space() )
-
-    ! If needed remap the field on an extended cubed sphere
-    if ( panel_edge_treatment == panel_edge_treatment_extended_mesh ) then
-      monotone_remap = ( hori_monotone /= monotone_none )
-      call remap_on_extended_mesh(config,                                      &
-                                  field_big_halo, field_n, monotone_remap,     &
-                                  transport_metadata%get_enforce_min_value(),  &
-                                  transport_metadata%get_min_value(),          &
-                                  stencil_extent )
+    enforce_minvalue = transport_metadata%get_enforce_min_value()
+    if (transport_metadata%get_enforce_min_value()) then
+      min_val = transport_metadata%get_min_value()
     else
-      call field_big_halo%initialise( field_n%get_function_space(),            &
-                                      halo_depth = stencil_extent )
-      call invoke( setval_x( field_big_halo, field_n ) )
+      min_val = 0.0_r_tran
     end if
 
-    ! First advective step with linear interpolation
-    call invoke( horizontal_linear_sl_kernel_type( field_xp,                   &
-                                                   field_yp,                   &
-                                                   field_big_halo,             &
-                                                   stencil_extent,             &
-                                                   dep_dist_xy ) )
+    ! Get stencil size: this corresponds to the value from the departure distances
+    if (ffsl_splitting == ffsl_splitting_cosmic) then
+      stencil_extent = dep_stencil_extent_xy + 1
+    else
+      stencil_extent = dep_stencil_extent_xy + 2
+    end if
 
-    ! Constants to get increments
-    one_over_dt = 1.0_r_tran / dt
-    half_dt = 0.5_r_tran * dt
+    ! Initialise fields
+    call field_x%initialise(field_fs)
+    call field_y%initialise(field_fs)
+    call field_xp%initialise(field_fs)
+    call field_yp%initialise(field_fs)
+    call field_px%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call field_py%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call increment%initialise(field_fs)
+    call increment_x%initialise(field_fs)
+    call increment_y%initialise(field_fs)
+    call half_increment_x%initialise(field_fs)
+    call half_increment_y%initialise(field_fs)
 
-    call invoke( X_minus_Y(half_increment_x, field_n, field_xp),               &
-                 inc_a_times_X(one_over_dt, half_increment_x),                 &
-                 X_minus_bY(field_x, field_n, half_dt, half_increment_x),      &
-                 X_minus_Y(half_increment_y, field_n, field_yp),               &
-                 inc_a_times_X(one_over_dt, half_increment_y),                 &
-                 X_minus_bY(field_y, field_n, half_dt, half_increment_y) )
+
+    call field_n_big%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call invoke( setval_x(field_n_big, field_n) )
+    field_n_copy => field_n_big
+
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_n', field_n_big)
+
+    call invoke( log_column_kernel_type(field_n, field_n_big, panel_id, 50),   &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 66),   &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 82),   &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 98),   &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 81),   &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 864),  &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 863),  &
+                 log_column_kernel_type(field_n, field_n_big, panel_id, 862) )
+
+    ! ======================================================================== !
+    ! INNER TRANSPORT STEP
+    ! ======================================================================== !
+
+    ! Remapping of field_n, if Peregrin
+    if (do_peregrin) then
+      monotone_remap = ( hori_monotone /= monotone_none )
+      ! Using panel edge remapping method on cubed-sphere
+      remap_extent = stencil_extent
+      call panel_edge_remap_alg(                                               &
+          field_n_rx, field_n_ry, field_n_big, field_n_big,                    &
+          remap_extent, monotone_remap, enforce_minvalue, min_val              &
+      )
+
+      ! TODO: to remove
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_n_rx', field_n_rx)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_n_ry', field_n_ry)
+    end if
+
+    ! Inner step, depending on scheme
+    if (ffsl_splitting == ffsl_splitting_cosmic .and. .not. do_peregrin) then
+      ! Linear SL with no treatment of cubed-sphere
+      call invoke( horizontal_linear_sl_kernel_type( field_xp,                 &
+                                                     field_yp,                 &
+                                                     field_n_big,              &
+                                                     stencil_extent,           &
+                                                     dep_dist_xy ) )
+
+    else if (ffsl_splitting == ffsl_splitting_cosmic .and. do_peregrin) then
+      ! Linear SL, using remapped field at cubed-sphere edges
+      call invoke( horizontal_linear_sl_panel_remap_kernel_type(               &
+                                                     field_xp,                 &
+                                                     field_yp,                 &
+                                                     field_n_big,              &
+                                                     stencil_extent,           &
+                                                     field_n_rx,               &
+                                                     stencil_extent,           &
+                                                     field_n_ry,               &
+                                                     stencil_extent,           &
+                                                     dep_dist_xy,              &
+                                                     panel_id,                 &
+                                                     panel_edge_dist ) )
+
+      ! TODO: to remove
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_xp', field_xp)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_yp', field_yp)
+
+    else if (ffsl_splitting == ffsl_splitting_swift .and. .not. do_peregrin) then
+      ! Cubic SL with no treatment of cubed-sphere
+      call invoke( horizontal_cubic_sl_kernel_type(                            &
+                                                increment_x,                   &
+                                                increment_y,                   &
+                                                field_n_big,                   &
+                                                stencil_extent,                &
+                                                field_n_copy,                  &
+                                                stencil_extent,                &
+                                                dep_dist_xy,                   &
+                                                hori_monotone ) )
+
+    else if (ffsl_splitting == ffsl_splitting_swift .and. do_peregrin) then
+      ! Cubic SL with no treatment of cubed-sphere
+      call invoke( name="horz_inner_cubic_sl_premap",                          &
+                   horizontal_cubic_sl_panel_remap_kernel_type(                &
+                                                increment_x,                   &
+                                                increment_y,                   &
+                                                field_n_big,                   &
+                                                stencil_extent,                &
+                                                field_n_copy,                  &
+                                                stencil_extent,                &
+                                                field_n_ry,                    &
+                                                stencil_extent,                &
+                                                field_n_rx,                    &
+                                                stencil_extent,                &
+                                                dep_dist_xy,                   &
+                                                panel_id,                      &
+                                                panel_edge_dist,               &
+                                                hori_monotone ) )
+    end if
+
+    ! ======================================================================== !
+    ! PEREGRIN TRANSPORT IN EAVES
+    ! ======================================================================== !
+
+    if (do_peregrin) then
+      remap_extent = stencil_extent
+      ! Corner-remap field_n in x and y, for use when the eave transport of
+      ! field_n_rx/field_n_ry itself crosses a panel edge (i.e. this column
+      ! is at a panel corner)
+      call field_n_rx_corner%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+      call field_n_ry_corner%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+      ! TODO: are these corner values the wrong way around? We get bad values when they are swapped
+      call panel_corner_remap_alg(                                             &
+          field_n_ry_corner, field_n_rx_corner, field_n_rx, field_n_ry,        &
+          stencil_extent, monotone_remap, enforce_minvalue, min_val            &
+      )
+
+      ! TODO: debugging
+      write(log_scratch_space, *) 'SL: Peregrin eave transport: STENCIL SIZES', &
+        stencil_extent
+      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+
+      call invoke( peregrin_eave_sl_kernel_type( field_px,                     &
+                                                 field_py,                     &
+                                                 field_n_rx,                   &
+                                                 stencil_extent,               &
+                                                 field_n_ry,                   &
+                                                 stencil_extent,               &
+                                                 field_n_rx_corner,            &
+                                                 stencil_extent,               &
+                                                 field_n_ry_corner,            &
+                                                 stencil_extent,               &
+                                      ! TODO: which way around should these fields be?
+                                                 dep_dist_peregrin_x,          &
+                                                 dep_dist_peregrin_y,          &
+                                                 panel_id,                     &
+                                                 panel_edge_dist ) )
+
+      if (ffsl_splitting == ffsl_splitting_cosmic) then
+        call invoke( X_minus_Y(half_increment_x, field_n_ry, field_px),        &
+                     inc_a_times_X(one_over_dt, half_increment_x),             &
+                     X_minus_bY(field_px, field_n_ry,                          &
+                                half_dt, half_increment_x),                    &
+                     X_minus_Y(half_increment_y, field_n_rx, field_py),        &
+                     inc_a_times_X(one_over_dt, half_increment_y),             &
+                     X_minus_bY(field_py, field_n_rx,                          &
+                                half_dt, half_increment_y) )
+      end if
+
+      ! TODO: to remove
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_px', field_px)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_py', field_py)
+    end if
+
+    ! ======================================================================== !
+    ! INTERMEDIATE ADVECTIVE UPDATES
+    ! ======================================================================== !
+
+    if (ffsl_splitting == ffsl_splitting_cosmic) then
+      ! COSMIC
+      call invoke( X_minus_Y(half_increment_x, field_n, field_xp),             &
+                   inc_a_times_X(one_over_dt, half_increment_x),               &
+                   X_minus_bY(field_x, field_n, half_dt, half_increment_x),    &
+                   X_minus_Y(half_increment_y, field_n, field_yp),             &
+                   inc_a_times_X(one_over_dt, half_increment_y),               &
+                   X_minus_bY(field_y, field_n, half_dt, half_increment_y) )
+    else
+      ! SWIFT
+      call invoke( X_plus_Y(field_x, field_n_big, increment_x),                &
+                   X_plus_Y(field_y, field_n_big, increment_y) )
+    end if
 
     do_overwrite = (                                                           &
       limited_area .and. topology == topology_non_periodic .and.               &
@@ -246,38 +460,75 @@ module horizontal_sl_advective_alg_mod
       )
     end if
 
-    ! Final advective step with cubic interpolation
-    stencil_extent = MIN(stencil_extent + 1, mesh%get_halo_depth())
+    ! ======================================================================== !
+    ! OUTER TRANSPORT STEP
+    ! ======================================================================== !
 
-    ! If needed remap the field on an extended cubed sphere
-    if ( panel_edge_treatment == panel_edge_treatment_extended_mesh ) then
-      call remap_on_extended_mesh(config,                                      &
-                                  field_x_big_halo, field_x, monotone_remap,   &
-                                  transport_metadata%get_enforce_min_value(),  &
-                                  transport_metadata%get_min_value(),          &
-                                  stencil_extent )
-      call remap_on_extended_mesh(config,                                      &
-                                  field_y_big_halo, field_y, monotone_remap,   &
-                                  transport_metadata%get_enforce_min_value(),  &
-                                  transport_metadata%get_min_value(),          &
-                                  stencil_extent )
-    else
-      call field_x_big_halo%initialise( field_x%get_function_space(), &
-                                        halo_depth = stencil_extent )
-      call field_y_big_halo%initialise( field_y%get_function_space(), &
-                                        halo_depth = stencil_extent )
-      call invoke( setval_x( field_x_big_halo, field_x ), &
-                   setval_x( field_y_big_halo, field_y ) )
+    ! Final advective step with cubic interpolation
+    if (ffsl_splitting == ffsl_splitting_cosmic) then
+      stencil_extent = MIN(stencil_extent + 1, mesh%get_halo_depth())
     end if
 
-    if (is_cubed_sphere) then
+    call field_x_big%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call field_y_big%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call invoke( setval_x( field_x_big, field_x ), &
+                 setval_x( field_y_big, field_y ) )
+
+    ! Final advective step with cubic interpolation. For PEREGRIN, pass in
+    ! the inner-step eave fields field_px/field_py for panel-edge crossing
+    ! points, via peregrin_cubic_sl_kernel_mod.
+    if (do_peregrin) then
+      ! TODO: to remove
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_x_big', field_x_big)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_y_big', field_y_big)
+
+      call invoke( peregrin_cubic_sl_kernel_type(                              &
+                                                increment_x,                   &
+                                                increment_y,                   &
+                                                field_x_big,                   &
+                                                stencil_extent,                &
+                                                field_y_big,                   &
+                                                stencil_extent,                &
+                                                field_px,                      &
+                                                stencil_extent,                &
+                                                field_py,                      &
+                                                stencil_extent,                &
+                                                dep_dist_xy,                   &
+                                                panel_id,                      &
+                                                panel_edge_dist,               &
+                                                hori_monotone ) )
+
+    else if (is_cubed_sphere                                                   &
+             .and. panel_edge_treatment == panel_edge_treatment_remapping) then
+      remap_extent = stencil_extent
+      call panel_edge_remap_alg(                                               &
+          field_y_rx, field_x_ry, field_y_big, field_x_big,                    &
+          remap_extent, monotone_remap, enforce_minvalue, min_val              &
+      )
+      call invoke( name='horz_cubic_sl_panel_remap',                           &
+                   horizontal_cubic_sl_panel_remap_kernel_type(                &
+                                                increment_x,                   &
+                                                increment_y,                   &
+                                                field_x_big,                   &
+                                                stencil_extent,                &
+                                                field_y_big,                   &
+                                                stencil_extent,                &
+                                                field_x_ry,                    &
+                                                stencil_extent,                &
+                                                field_y_rx,                    &
+                                                stencil_extent,                &
+                                                dep_dist_xy,                   &
+                                                panel_id,                      &
+                                                panel_edge_dist,               &
+                                                hori_monotone ) )
+    else if (is_cubed_sphere) then
       call invoke( name='horizontal_cubic_sl_sphere',                          &
                    horizontal_cubic_sl_sphere_kernel_type(                     &
                                                 increment_x,                   &
                                                 increment_y,                   &
-                                                field_x_big_halo,              &
+                                                field_x_big,                   &
                                                 stencil_extent,                &
-                                                field_y_big_halo,              &
+                                                field_y_big,                   &
                                                 stencil_extent,                &
                                                 dep_dist_xy,                   &
                                                 panel_id,                      &
@@ -287,17 +538,31 @@ module horizontal_sl_advective_alg_mod
       call invoke( horizontal_cubic_sl_kernel_type(                            &
                                                 increment_x,                   &
                                                 increment_y,                   &
-                                                field_x_big_halo,              &
+                                                field_x_big,                   &
                                                 stencil_extent,                &
-                                                field_y_big_halo,              &
+                                                field_y_big,                   &
                                                 stencil_extent,                &
                                                 dep_dist_xy,                   &
                                                 hori_monotone ) )
     end if
 
-    ! Collect the increments
-    call invoke( X_plus_Y(increment, increment_x, increment_y),                &
-                 X_plus_Y(field_np1, field_n, increment) )
+    ! ======================================================================== !
+    ! FINAL ADVECTIVE UPDATES
+    ! ======================================================================== !
+
+    if (ffsl_splitting == ffsl_splitting_cosmic) then
+      ! Collect the increments
+      call invoke( X_plus_Y(increment, increment_x, increment_y),              &
+                   X_plus_Y(field_np1, field_n, increment) )
+    else
+      call invoke( X_plus_Y(field_np1, field_x_big, increment_y),              &
+                   inc_X_plus_Y(field_np1, field_y_big),                       &
+                   inc_X_plus_Y(field_np1, increment_x),                       &
+                   inc_a_times_X(0.5_r_tran, field_np1) )
+    end if
+
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_np1', field_np1)
 
     ! End of step: if necessary enforce min val and overwrite in blending zone
     call end_of_advective_step_alg(                                            &

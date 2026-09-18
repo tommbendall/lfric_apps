@@ -77,7 +77,7 @@ module ffsl_flux_xy_sphere_kernel_mod
   ! Contained functions/subroutines
   !-----------------------------------------------------------------------------
   public  :: ffsl_flux_xy_sphere_code
-  private :: ffsl_flux_xy_sphere_1d
+  public  :: ffsl_flux_xy_sphere_1d
 contains
 
   !> @brief Compute the horizontal fluxes for FFSL.

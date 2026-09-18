@@ -23,6 +23,8 @@ use base_mesh_config_mod,      only: geometry, topology
 use finite_element_config_mod, only: coord_system
 use planet_config_mod,         only: scaled_radius
 
+use log_mod,               only: log_event, log_level_info, log_scratch_space
+
 implicit none
 
 private
@@ -50,6 +52,7 @@ end type
 ! Contained functions/subroutines
 !-------------------------------------------------------------------------------
 public :: panel_edge_coords_code
+public :: panel_edge_coords_1d
 
 contains
 
@@ -120,7 +123,9 @@ subroutine panel_edge_coords_code( nlayers,                                    &
   integer(kind=i_def), intent(in)    :: panel_edge_dist_N(undf_pid)
 
   integer(kind=i_def) :: owned_panel, swapped_panel_x, swapped_panel_y
-  integer(kind=i_def) :: panel_W, panel_E, panel_S, panel_N
+  integer(kind=i_def) :: panel_W, panel_E, panel_S, panel_N, df
+  real(kind=r_def)    :: alpha_x_c, beta_x_c, alpha_y_c, beta_y_c
+  real(kind=r_def)    :: chi_1_c, chi_2_c
 
   ! Panel id for this column
   owned_panel = int(panel_id(map_pid(1)), i_def)
@@ -158,26 +163,60 @@ subroutine panel_edge_coords_code( nlayers,                                    &
   ! Now extend the coordinates -------------------------------------------------
   if ( swapped_panel_x /= 0_i_def ) then
     call panel_edge_coords_1d( alpha_x, beta_x, chi_1, chi_2, chi_3,           &
-                               owned_panel, swapped_panel_x,                   &
+                               owned_panel, owned_panel, swapped_panel_x,      &
                                ndf_wx_2d, undf_wx_2d, map_wx_2d,               &
                                ndf_wx, undf_wx, map_wx                         &
     )
+  else
+    do df = 1, ndf_wx_2d
+      alpha_x(map_wx_2d(df)) = chi_1(map_wx(df))
+      beta_x(map_wx_2d(df)) = chi_2(map_wx(df))
+    end do
   end if
 
   if ( swapped_panel_y /= 0_i_def ) then
     call panel_edge_coords_1d( alpha_y, beta_y, chi_1, chi_2, chi_3,           &
-                               owned_panel, swapped_panel_y,                   &
+                               owned_panel, owned_panel, swapped_panel_y,      &
                                ndf_wx_2d, undf_wx_2d, map_wx_2d,               &
                                ndf_wx, undf_wx, map_wx                         &
     )
+  else
+    do df = 1, ndf_wx_2d
+      alpha_y(map_wx_2d(df)) = chi_1(map_wx(df))
+      beta_y(map_wx_2d(df)) = chi_2(map_wx(df))
+    end do
   end if
 
+  if (swapped_panel_x /= 0_i_def .or. swapped_panel_y /= 0_i_def) then
+    alpha_x_c = 0.0_r_def
+    beta_x_c = 0.0_r_def
+    alpha_y_c = 0.0_r_def
+    beta_y_c = 0.0_r_def
+    chi_1_c = 0.0_r_def
+    chi_2_c = 0.0_r_def
+    do df = 1, ndf_wx_2d
+      alpha_x_c = alpha_x_c + alpha_x(map_wx_2d(df)) / real(ndf_wx_2d, r_def)
+      beta_x_c = beta_x_c + beta_x(map_wx_2d(df)) / real(ndf_wx_2d, r_def)
+      alpha_y_c = alpha_y_c + alpha_y(map_wx_2d(df)) / real(ndf_wx_2d, r_def)
+      beta_y_c = beta_y_c + beta_y(map_wx_2d(df)) / real(ndf_wx_2d, r_def)
+    end do
+    do df = 1, ndf_wx
+      chi_1_c = chi_1_c + chi_1(map_wx(df)) / real(ndf_wx, r_def)
+      chi_2_c = chi_2_c + chi_2(map_wx(df)) / real(ndf_wx, r_def)
+    end do
+    write(log_scratch_space, *) &
+        'Panel edge coords:', map_pid(1), owned_panel, swapped_panel_x, swapped_panel_y, &
+        panel_edge_dist_W(map_pid(1)), panel_edge_dist_E(map_pid(1)),          &
+        panel_edge_dist_S(map_pid(1)), panel_edge_dist_N(map_pid(1)),          &
+        alpha_x_c, beta_x_c, alpha_y_c, beta_y_c, chi_1_c, chi_2_c
+    call log_event(log_scratch_space, log_level_info)
+  end if
 end subroutine panel_edge_coords_code
 
 !> @brief Private routine to perform the extension of the cubed-sphere coords
 !!        for a single direction. This reduces code duplication.
 subroutine panel_edge_coords_1d( alpha, beta, chi_1, chi_2, chi_3,             &
-                                 owned_panel, swapped_panel,                   &
+                                 column_panel, owned_panel, swapped_panel,     &
                                  ndf_wx_2d, undf_wx_2d, map_wx_2d,             &
                                  ndf_wx, undf_wx, map_wx                       &
                                )
@@ -199,7 +238,13 @@ subroutine panel_edge_coords_1d( alpha, beta, chi_1, chi_2, chi_3,             &
   real(kind=r_def),    intent(in)    :: chi_3(undf_wx)
   real(kind=r_def),    intent(inout) :: alpha(undf_wx_2d)
   real(kind=r_def),    intent(inout) :: beta(undf_wx_2d)
-  integer(kind=i_def), intent(in)    :: owned_panel, swapped_panel
+  ! column_panel is the column's true panel — used only for chi2xyz so that the
+  ! stored (chi_1, chi_2) values are correctly interpreted as that panel's local
+  ! equiangular coordinates when recovering the physical xyz location.
+  ! owned_panel and swapped_panel may differ (e.g. at cubed-sphere corners where
+  ! we reproject into a non-owning panel's frame) and are used for the subsequent
+  ! xyz2alphabetar calls and the edge-group select case.
+  integer(kind=i_def), intent(in)    :: column_panel, owned_panel, swapped_panel
 
   ! Local variables
   integer(kind=i_def) :: df
@@ -227,7 +272,7 @@ subroutine panel_edge_coords_1d( alpha, beta, chi_1, chi_2, chi_3,             &
   do df = 1, ndf_wx
     ! Ignore height coordinate as this is not needed
     call chi2xyz( chi_1(map_wx(df)), chi_2(map_wx(df)), chi_3(map_wx(df)),      &
-                  owned_panel, geometry, topology, coord_system, scaled_radius, &
+                  column_panel, geometry, topology, coord_system, scaled_radius, &
                   xyz(1), xyz(2), xyz(3) )
     ! Transform to the Cartesian coordinates in the *native* coordinate system
     ! by applying the inverse of any mesh rotation and stretching:

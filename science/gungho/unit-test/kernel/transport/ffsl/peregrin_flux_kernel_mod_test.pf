@@ -1,0 +1,465 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Test the PEREGRIN horizontal FFSL flux kernel
+
+module peregrin_flux_kernel_mod_test
+
+  use constants_mod, only : i_def, r_tran, r_def
+  use funit
+
+  implicit none
+
+  private
+
+  public :: test_all
+
+contains
+
+  !------------------------------------------------------------------
+  !> @brief Test the dispatch logic of peregrin_flux_code.
+  !> @details Field, dry mass and remapped-field values are all set to be
+  !!          spatially uniform, so whichever underlying 1D flux routine is
+  !!          dispatched to (standard, sphere or panel-remap), the reconstructed
+  !!          flux across a single fully-swept cell must be field*dry_mass,
+  !!          regardless of reconstruction order or panel-edge treatment. This
+  !!          lets the four dispatch branches be checked without needing to
+  !!          hand-derive each underlying routine's reconstruction maths.
+  @Test
+  subroutine test_all( )
+
+    use, intrinsic :: iso_fortran_env,   only: real64
+    use peregrin_flux_kernel_mod,        only: peregrin_flux_code
+    use transport_enumerated_types_mod,  only: monotone_none
+    use panel_edge_support_mod,          only: FAR_AWAY
+
+    implicit none
+
+    real(kind=r_tran), parameter :: tol = 1.0e-12_r_tran   ! r_tran 64-bit
+    real(kind=r_tran)            :: answer, use_tol
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndf_w3 = 1
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: ndf_w3_2d = 1
+    integer(kind=i_def), parameter :: ndf_w2h = 4
+    integer(kind=i_def), parameter :: ndf_depk = 4
+    integer(kind=i_def), parameter :: stencil_max = 6
+    integer(kind=i_def), parameter :: ndep = 2*stencil_max - 1
+    integer(kind=i_def), parameter :: ndep_half = (ndep - 1) / 2
+    integer(kind=i_def), parameter :: undf_w3 = ndf_w3*nlayers*ndep
+    integer(kind=i_def), parameter :: undf_pid = ndf_pid*nlayers*ndep
+    integer(kind=i_def), parameter :: undf_w3_2d = ndf_w3_2d*nlayers
+    integer(kind=i_def), parameter :: undf_w2h = ndf_w2h*nlayers
+    integer(kind=i_def), parameter :: undf_depk = ndf_depk*ndep
+    integer(kind=i_def), parameter :: order = 1
+    real(kind=r_tran),   parameter :: min_val = 0.0_r_tran
+
+    integer(kind=i_def), dimension(ndf_w3)               :: map_w3
+    integer(kind=i_def), dimension(ndf_pid)              :: map_pid
+    integer(kind=i_def), dimension(ndf_w3_2d)             :: map_w3_2d
+    integer(kind=i_def), dimension(ndf_w2h)               :: map_w2h
+    integer(kind=i_def), dimension(ndf_depk)              :: map_depk
+    integer(kind=i_def), dimension(4)                     :: stencil_sizes
+    integer(kind=i_def), dimension(ndf_w3,stencil_max,4)  :: stencil_map
+
+    real(kind=r_tran),   dimension(undf_w3)    :: field_for_x
+    real(kind=r_tran),   dimension(undf_w3)    :: field_for_y
+    real(kind=r_tran),   dimension(undf_w3)    :: remapped_field_x
+    real(kind=r_tran),   dimension(undf_w3)    :: remapped_field_y
+    real(kind=r_tran),   dimension(undf_w3)    :: dry_mass_for_x
+    real(kind=r_tran),   dimension(undf_w3)    :: dry_mass_for_y
+    real(kind=r_tran),   dimension(undf_w2h)   :: dep_dist
+    real(kind=r_tran),   dimension(undf_w2h)   :: frac_dry_flux
+    real(kind=r_tran),   dimension(undf_w2h)   :: flux
+    real(kind=r_tran),   dimension(undf_w2h)   :: flux_edge_downwind
+    real(kind=r_def),    dimension(undf_pid)   :: panel_id
+    integer(kind=i_def), dimension(undf_pid)   :: panel_edge_dist_W
+    integer(kind=i_def), dimension(undf_pid)   :: panel_edge_dist_E
+    integer(kind=i_def), dimension(undf_pid)   :: panel_edge_dist_S
+    integer(kind=i_def), dimension(undf_pid)   :: panel_edge_dist_N
+    integer(kind=i_def), dimension(undf_w3_2d) :: face_selector_ew
+    integer(kind=i_def), dimension(undf_w3_2d) :: face_selector_ns
+    integer(kind=i_def), dimension(undf_depk)  :: dep_lowest_k
+    integer(kind=i_def), dimension(undf_depk)  :: dep_highest_k
+
+    real(kind=r_tran)   :: dt
+    integer(kind=i_def) :: monotone
+
+    ! Set up maps: stencil branches are 1=W, 2=S, 3=E, 4=N; column 6 is "own"
+    stencil_sizes(:) = stencil_max
+    stencil_map(:,:,:) = reshape(                                              &
+        (/ 6, 5, 4, 3, 2, 1,    6, 5, 4, 3, 2, 1,                              &
+           6, 7, 8, 9, 10, 11,  6, 7, 8, 9, 10, 11 /), [1, stencil_max, 4] )
+    map_w3(1) = 6
+    map_pid(1) = 6
+    map_w3_2d(1) = 1
+    map_w2h(:) = (/ 1, 2, 3, 4 /)  ! W, S, E, N
+    map_depk(:) = (/ 1, 12, 23, 34 /)  ! W, S, E, N
+
+    monotone = monotone_none
+
+    ! Field, dry mass and remapped field are all spatially uniform, so the
+    ! flux from fully sweeping one cell is always field*dry_mass = 15.0,
+    ! regardless of which underlying 1D routine is dispatched to
+    field_for_x(:) = 5.0_r_tran
+    field_for_y(:) = 5.0_r_tran
+    remapped_field_x(:) = 5.0_r_tran
+    remapped_field_y(:) = 5.0_r_tran
+    dry_mass_for_x(:) = 3.0_r_tran
+    dry_mass_for_y(:) = 3.0_r_tran
+    frac_dry_flux(:) = 0.0_r_tran
+    panel_id(:) = 1.0_r_def
+    dt = 1.0_r_tran
+
+    face_selector_ew(:) = 2
+    face_selector_ns(:) = 2
+
+    ! Activate a 1-whole-cell integer sweep either side of the "own" column,
+    ! for each of the W/S/E/N faces, covering both signs of departure
+    ! distance (magnitude 1 in all tests below)
+    dep_lowest_k(:) = 0
+    dep_highest_k(:) = -1
+    dep_highest_k(map_depk(1) + ndep_half - 2 : map_depk(1) + ndep_half + 2) = 0  ! W
+    dep_highest_k(map_depk(2) + ndep_half - 2 : map_depk(2) + ndep_half + 2) = 0  ! S
+    dep_highest_k(map_depk(3) + ndep_half - 2 : map_depk(3) + ndep_half + 2) = 0  ! E
+    dep_highest_k(map_depk(4) + ndep_half - 2 : map_depk(4) + ndep_half + 2) = 0  ! N
+
+    ! Get correct tolerance
+    if ( r_tran == real64 ) then
+      use_tol = tol
+    else
+      use_tol = 1.0e-6_r_tran
+    end if
+
+    !-------------------------------------------------------------------------
+    ! TEST 1: Not near any panel edge -> standard FFSL flux used in both x, y
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(:) = FAR_AWAY
+    panel_edge_dist_E(:) = FAR_AWAY
+    panel_edge_dist_S(:) = FAR_AWAY
+    panel_edge_dist_N(:) = FAR_AWAY
+    dep_dist(:) = (/ 1.0_r_tran, 1.0_r_tran, 1.0_r_tran, 1.0_r_tran /)
+
+    flux(:) = 0.0_r_tran
+    flux_edge_downwind(:) = 0.0_r_tran
+
+    call peregrin_flux_code( nlayers,             &
+                             flux,                &
+                             flux_edge_downwind,  &
+                             field_for_x,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_x,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_x,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             field_for_y,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_y,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_y,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dep_dist,            &
+                             frac_dry_flux,       &
+                             dep_lowest_k,        &
+                             dep_highest_k,       &
+                             panel_id,            &
+                             panel_edge_dist_W,   &
+                             panel_edge_dist_E,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             panel_edge_dist_S,   &
+                             panel_edge_dist_N,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             face_selector_ew,    &
+                             face_selector_ns,    &
+                             order,               &
+                             monotone,            &
+                             min_val,             &
+                             ndep,                &
+                             dt,                  &
+                             ndf_w2h,             &
+                             undf_w2h,            &
+                             map_w2h,             &
+                             ndf_w3,              &
+                             undf_w3,             &
+                             map_w3,              &
+                             ndf_depk,            &
+                             undf_depk,           &
+                             map_depk,            &
+                             ndf_pid,             &
+                             undf_pid,            &
+                             map_pid,             &
+                             ndf_w3_2d,           &
+                             undf_w3_2d,          &
+                             map_w3_2d )
+
+    answer = 15.0_r_tran
+    @assertEqual(answer, flux(1), use_tol)
+    @assertEqual(answer, flux(2), use_tol)
+    @assertEqual(answer, flux(3), use_tol)
+    @assertEqual(answer, flux(4), use_tol)
+    answer = 0.0_r_tran
+    @assertEqual(answer, flux_edge_downwind(1), use_tol)
+
+    !-------------------------------------------------------------------------
+    ! TEST 2: Near a panel edge in x (W, distance 3), downwind, not immediate
+    ! -> uses ffsl_flux_xy_sphere_1d for flux; flux_edge_downwind untouched
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(:) = 3
+    panel_edge_dist_E(:) = FAR_AWAY
+    panel_edge_dist_S(:) = FAR_AWAY
+    panel_edge_dist_N(:) = FAR_AWAY
+    dep_dist(1) = 1.0_r_tran  ! W: is_upwind = (dep_dist(W) < 0) = .false.
+
+    flux(:) = 0.0_r_tran
+    flux_edge_downwind(:) = 0.0_r_tran
+
+    call peregrin_flux_code( nlayers,             &
+                             flux,                &
+                             flux_edge_downwind,  &
+                             field_for_x,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_x,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_x,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             field_for_y,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_y,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_y,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dep_dist,            &
+                             frac_dry_flux,       &
+                             dep_lowest_k,        &
+                             dep_highest_k,       &
+                             panel_id,            &
+                             panel_edge_dist_W,   &
+                             panel_edge_dist_E,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             panel_edge_dist_S,   &
+                             panel_edge_dist_N,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             face_selector_ew,    &
+                             face_selector_ns,    &
+                             order,               &
+                             monotone,            &
+                             min_val,             &
+                             ndep,                &
+                             dt,                  &
+                             ndf_w2h,             &
+                             undf_w2h,            &
+                             map_w2h,             &
+                             ndf_w3,              &
+                             undf_w3,             &
+                             map_w3,              &
+                             ndf_depk,            &
+                             undf_depk,           &
+                             map_depk,            &
+                             ndf_pid,             &
+                             undf_pid,            &
+                             map_pid,             &
+                             ndf_w3_2d,           &
+                             undf_w3_2d,          &
+                             map_w3_2d )
+
+    answer = 15.0_r_tran
+    @assertEqual(answer, flux(1), use_tol)
+    answer = 0.0_r_tran
+    @assertEqual(answer, flux_edge_downwind(1), use_tol)
+
+    !-------------------------------------------------------------------------
+    ! TEST 3: Near a panel edge in x (W, distance 3), upwind -> uses
+    ! ffsl_flux_xy_panel_remap_1d for flux
+    !-------------------------------------------------------------------------
+    dep_dist(1) = -1.0_r_tran  ! W: is_upwind = (dep_dist(W) < 0) = .true.
+
+    flux(:) = 0.0_r_tran
+    flux_edge_downwind(:) = 0.0_r_tran
+
+    call peregrin_flux_code( nlayers,             &
+                             flux,                &
+                             flux_edge_downwind,  &
+                             field_for_x,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_x,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_x,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             field_for_y,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_y,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_y,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dep_dist,            &
+                             frac_dry_flux,       &
+                             dep_lowest_k,        &
+                             dep_highest_k,       &
+                             panel_id,            &
+                             panel_edge_dist_W,   &
+                             panel_edge_dist_E,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             panel_edge_dist_S,   &
+                             panel_edge_dist_N,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             face_selector_ew,    &
+                             face_selector_ns,    &
+                             order,               &
+                             monotone,            &
+                             min_val,             &
+                             ndep,                &
+                             dt,                  &
+                             ndf_w2h,             &
+                             undf_w2h,            &
+                             map_w2h,             &
+                             ndf_w3,              &
+                             undf_w3,             &
+                             map_w3,              &
+                             ndf_depk,            &
+                             undf_depk,           &
+                             map_depk,            &
+                             ndf_pid,             &
+                             undf_pid,            &
+                             map_pid,             &
+                             ndf_w3_2d,           &
+                             undf_w3_2d,          &
+                             map_w3_2d )
+
+    answer = 15.0_r_tran
+    @assertEqual(answer, flux(1), use_tol)
+    answer = 0.0_r_tran
+    @assertEqual(answer, flux_edge_downwind(1), use_tol)
+
+    !-------------------------------------------------------------------------
+    ! TEST 4: Immediately adjacent to a panel edge in x (W, distance 1),
+    ! downwind -> flux via sphere_1d, and flux_edge_downwind is also populated
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(:) = 1
+    dep_dist(1) = 1.0_r_tran  ! W: is_upwind = (dep_dist(W) < 0) = .false.
+
+    flux(:) = 0.0_r_tran
+    flux_edge_downwind(:) = 0.0_r_tran
+
+    call peregrin_flux_code( nlayers,             &
+                             flux,                &
+                             flux_edge_downwind,  &
+                             field_for_x,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_x,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_x,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             field_for_y,         &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             remapped_field_y,    &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dry_mass_for_y,      &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             dep_dist,            &
+                             frac_dry_flux,       &
+                             dep_lowest_k,        &
+                             dep_highest_k,       &
+                             panel_id,            &
+                             panel_edge_dist_W,   &
+                             panel_edge_dist_E,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             panel_edge_dist_S,   &
+                             panel_edge_dist_N,   &
+                             stencil_sizes,       &
+                             stencil_max,         &
+                             stencil_map,         &
+                             face_selector_ew,    &
+                             face_selector_ns,    &
+                             order,               &
+                             monotone,            &
+                             min_val,             &
+                             ndep,                &
+                             dt,                  &
+                             ndf_w2h,             &
+                             undf_w2h,            &
+                             map_w2h,             &
+                             ndf_w3,              &
+                             undf_w3,             &
+                             map_w3,              &
+                             ndf_depk,            &
+                             undf_depk,           &
+                             map_depk,            &
+                             ndf_pid,             &
+                             undf_pid,            &
+                             map_pid,             &
+                             ndf_w3_2d,           &
+                             undf_w3_2d,          &
+                             map_w3_2d )
+
+    answer = 15.0_r_tran
+    @assertEqual(answer, flux(1), use_tol)
+    @assertEqual(answer, flux_edge_downwind(1), use_tol)
+
+  end subroutine test_all
+
+end module peregrin_flux_kernel_mod_test

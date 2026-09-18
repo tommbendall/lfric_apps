@@ -26,6 +26,9 @@ module horizontal_cubic_sl_kernel_mod
   use kernel_mod,            only: kernel_type
   use reference_element_mod, only: W, E, S, N
 
+  ! TODO: to remove
+  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
+
   implicit none
 
   private
@@ -339,6 +342,11 @@ contains
       ! Loop over layers
       do k = 1, nl
         field_local(k,j) = field(stencil_map(rel_idx(k))+k-1)
+        ! TODO: to remove
+        if (field_local(k,j) < -100.0_r_tran) then
+          write(log_scratch_space, *) 'CUBIC BAD VALUE: ', field_local(k,j), map_wf(1)
+          call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        end if
       end do
     end do
 
@@ -352,6 +360,13 @@ contains
         + (xx(:)-x0) * (xx(:)-x1) * (xx(:)-x3) * den2 * field_local(:,3)       &
         + (xx(:)-x0) * (xx(:)-x1) * (xx(:)-x2) * den3 * field_local(:,4)       &
     )
+
+    select case (map_wf(1))
+    case (81, 82)
+      write(log_scratch_space, *) 'SL CUBIC PLAIN:', map_wf(1), direction, &
+        field(map_wf(1)), field_out(1), displacement(1)
+      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    end select
 
     ! ======================================================================== !
     ! Apply monotonicity constraints

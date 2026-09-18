@@ -196,12 +196,19 @@ function analytic_density(chi, choice, time) result(density)
     call reference_profile(pressure, density, temperature, chi, choice)
 
   ! For planar or horizontal transport miniapp tests we set background constant density
-  case( test_eternal_fountain, test_rotational, test_cos_phi,                  &
+  case( test_eternal_fountain, test_rotational,                                &
         test_curl_free_reversible, test_translational,                         &
         test_div_free_reversible, test_vertical_cylinder, test_yz_cosine_hill, &
         test_constant_field, test_slotted_cylinder )
 
     density = density_background
+
+  ! For the PEREGRIN horizontal transport tests, density uses a cos(phi)
+  ! profile (matching the tracer's test_cos_phi profile), shifted by
+  ! density_background so it stays well away from zero for tracer transport
+  case( test_cos_phi )
+
+    density = density_background + density_max*cos(lat)**4
 
   case( test_cosine_hill )
     if ( l1 < r1 ) then

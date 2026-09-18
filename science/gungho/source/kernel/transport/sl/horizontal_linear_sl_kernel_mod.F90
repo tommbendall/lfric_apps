@@ -23,6 +23,9 @@ module horizontal_linear_sl_kernel_mod
   use kernel_mod,            only: kernel_type
   use reference_element_mod, only: W, E, S, N
 
+  ! TODO: to remove
+  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
+
   implicit none
 
   private
@@ -49,6 +52,7 @@ module horizontal_linear_sl_kernel_mod
   ! Contained functions/subroutines
   !-----------------------------------------------------------------------------
   public :: horizontal_linear_sl_code
+  public :: horizontal_linear_sl_1d
 
 contains
 
@@ -295,6 +299,11 @@ contains
       ! Loop over layers
       do k = 1, nl
         field_local(k,j) = field(stencil_map(rel_idx(k))+k-1)
+        ! TODO: to remove
+        if (field_local(k,j) < -100.0_r_tran) then
+          write(log_scratch_space, *) 'LINEAR BAD VALUE: ', field_local(k,j), map_wf(1)
+          call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+        end if
       end do
     end do
 
@@ -309,6 +318,13 @@ contains
     field_out(map_wf(1) : map_wf(1)+nl-1) = (                                  &
       -(xx(:)-1.0_r_tran) * field_local(:,1) + xx(:) * field_local(:,2)        &
     )
+
+    select case (map_wf(1))
+    case (862, 863, 864)
+      write(log_scratch_space, *) 'SL LINEAR PLAIN:', map_wf(1), direction, &
+        field(map_wf(1)), field_out(map_wf(1)), displacement(1)
+      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    end select
 
   end subroutine horizontal_linear_sl_1d
 

@@ -138,11 +138,12 @@ module wind_precomputations_alg_mod
     procedure, public  :: get_dep_lowest_k
     procedure, public  :: get_dep_highest_k
     procedure, public  :: get_dep_stencil_extent_xy
-    procedure, public  :: get_dep_dist_xy_peregrin
-    procedure, public  :: get_frac_wind_xy_peregrin
-    procedure, public  :: get_dep_lowest_k_peregrin
-    procedure, public  :: get_dep_highest_k_peregrin
-    procedure, public  :: get_dep_stencil_extent_xy_peregrin
+    procedure, public  :: get_dep_dist_peregrin_x
+    procedure, public  :: get_dep_dist_peregrin_y
+    procedure, public  :: get_frac_flux_peregrin_x
+    procedure, public  :: get_frac_flux_peregrin_y
+    procedure, public  :: get_dep_stencil_extent_peregrin_x
+    procedure, public  :: get_dep_stencil_extent_peregrin_y
     procedure, public  :: get_adv_unity_x
     procedure, public  :: get_adv_unity_y
     procedure, public  :: get_adv_unity_z
@@ -1260,13 +1261,13 @@ contains
 
   end function get_dep_stencil_extent_xy
 
-  !> @brief Returns a pointer to the PEREGRIN corrected-flux (u - u_hat)
-  !!        horizontal departure distances at W2h DoFs
+  !> @brief Returns a pointer to the PEREGRIN departure distance calculated
+  !!        from remapped_flux_x
   !> @param[in] mesh_id     The ID of the mesh to get the field for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @return The PEREGRIN departure distances at W2h DoFs
-  function get_dep_dist_xy_peregrin(self, mesh_id, splitting, step) result(dep_dist_xy)
+  !> @return The PEREGRIN x departure distance at W2h DoFs
+  function get_dep_dist_peregrin_x(self, mesh_id, splitting, step) result(dep_dist_peregrin_x)
 
     implicit none
 
@@ -1274,25 +1275,23 @@ contains
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: splitting
     integer(kind=i_def),                      intent(in)    :: step
-    type(r_tran_field_type),                  pointer       :: dep_dist_xy
+    type(r_tran_field_type),                  pointer       :: dep_dist_peregrin_x
     type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
     integer(kind=i_def)                                     :: flux_step
 
     split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
     flux_step = 1  ! Horizontal step is designated as step 1
-    dep_dist_xy => split_ffsl_precomp%get_dep_dist_peregrin(                   &
-            mesh_id, flux_step                                                 &
-    )
+    dep_dist_peregrin_x => split_ffsl_precomp%get_dep_dist_peregrin_x(mesh_id, flux_step)
 
-  end function get_dep_dist_xy_peregrin
+  end function get_dep_dist_peregrin_x
 
-  !> @brief Returns a pointer to the PEREGRIN corrected-flux fractional
-  !!        horizontal wind flux at W2h DoFs
+  !> @brief Returns a pointer to the PEREGRIN departure distance calculated
+  !!        from remapped_flux_y
   !> @param[in] mesh_id     The ID of the mesh to get the field for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @return The PEREGRIN fractional wind flux at W2h DoFs
-  function get_frac_wind_xy_peregrin(self, mesh_id, splitting, step) result(frac_wind_xy)
+  !> @return The PEREGRIN y departure distance at W2h DoFs
+  function get_dep_dist_peregrin_y(self, mesh_id, splitting, step) result(dep_dist_peregrin_y)
 
     implicit none
 
@@ -1300,25 +1299,23 @@ contains
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: splitting
     integer(kind=i_def),                      intent(in)    :: step
-    type(r_tran_field_type),                  pointer       :: frac_wind_xy
+    type(r_tran_field_type),                  pointer       :: dep_dist_peregrin_y
     type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
     integer(kind=i_def)                                     :: flux_step
 
     split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
     flux_step = 1  ! Horizontal step is designated as step 1
-    frac_wind_xy => split_ffsl_precomp%get_frac_flux_peregrin(                 &
-            mesh_id, flux_step                                                 &
-    )
+    dep_dist_peregrin_y => split_ffsl_precomp%get_dep_dist_peregrin_y(mesh_id, flux_step)
 
-  end function get_frac_wind_xy_peregrin
+  end function get_dep_dist_peregrin_y
 
-  !> @brief Returns a pointer to the PEREGRIN corrected-flux lowest-k for dep
-  !!        points
+  !> @brief Returns a pointer to the PEREGRIN fractional flux calculated
+  !!        from remapped_flux_x
   !> @param[in] mesh_id     The ID of the mesh to get the field for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @return The field of indices for integer flux sums
-  function get_dep_lowest_k_peregrin(self, mesh_id, splitting, step) result(dep_lowest_k)
+  !> @return The PEREGRIN x fractional flux at W2h DoFs
+  function get_frac_flux_peregrin_x(self, mesh_id, splitting, step) result(frac_flux_peregrin_x)
 
     implicit none
 
@@ -1326,25 +1323,23 @@ contains
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: splitting
     integer(kind=i_def),                      intent(in)    :: step
-    type(integer_field_type),                 pointer       :: dep_lowest_k
+    type(r_tran_field_type),                  pointer       :: frac_flux_peregrin_x
     type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
     integer(kind=i_def)                                     :: flux_step
 
     split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
     flux_step = 1  ! Horizontal step is designated as step 1
-    dep_lowest_k => split_ffsl_precomp%get_dep_lowest_k_peregrin(              &
-            mesh_id, flux_step                                                 &
-    )
+    frac_flux_peregrin_x => split_ffsl_precomp%get_frac_flux_peregrin_x(mesh_id, flux_step)
 
-  end function get_dep_lowest_k_peregrin
+  end function get_frac_flux_peregrin_x
 
-  !> @brief Returns a pointer to the PEREGRIN corrected-flux highest-k for dep
-  !!        points
+  !> @brief Returns a pointer to the PEREGRIN fractional flux calculated
+  !!        from remapped_flux_y
   !> @param[in] mesh_id     The ID of the mesh to get the field for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @return The field of indices for integer flux sums
-  function get_dep_highest_k_peregrin(self, mesh_id, splitting, step) result(dep_highest_k)
+  !> @return The PEREGRIN y fractional flux at W2h DoFs
+  function get_frac_flux_peregrin_y(self, mesh_id, splitting, step) result(frac_flux_peregrin_y)
 
     implicit none
 
@@ -1352,26 +1347,24 @@ contains
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: splitting
     integer(kind=i_def),                      intent(in)    :: step
-    type(integer_field_type),                 pointer       :: dep_highest_k
+    type(r_tran_field_type),                  pointer       :: frac_flux_peregrin_y
     type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
     integer(kind=i_def)                                     :: flux_step
 
     split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
     flux_step = 1  ! Horizontal step is designated as step 1
-    dep_highest_k => split_ffsl_precomp%get_dep_highest_k_peregrin(            &
-            mesh_id, flux_step                                                 &
-    )
+    frac_flux_peregrin_y => split_ffsl_precomp%get_frac_flux_peregrin_y(mesh_id, flux_step)
 
-  end function get_dep_highest_k_peregrin
+  end function get_frac_flux_peregrin_y
 
-  !> @brief Returns the required stencil size for the PEREGRIN corrected-flux
-  !!        horizontal departure distances
-  !> @param[in] mesh_id     The ID of the mesh to get the value for
+  !> @brief Returns the required stencil size for the PEREGRIN x (from
+  !!        remapped_flux_x) departure distances
+  !> @param[in] mesh_id     The ID of the mesh to get the object for
   !> @param[in] splitting   Enumerator for the splitting type
-  !> @param[in] step        Transport step to get the value for
+  !> @param[in] step        Transport step to get the field for
   !> @return The required stencil depth
-  function get_dep_stencil_extent_xy_peregrin(self, mesh_id, splitting,        &
-                                              step) result(dep_stencil_extent)
+  function get_dep_stencil_extent_peregrin_x(self, mesh_id, splitting, step)   &
+                                             result(dep_stencil_extent_peregrin_x)
 
     implicit none
 
@@ -1379,17 +1372,42 @@ contains
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: splitting
     integer(kind=i_def),                      intent(in)    :: step
-    integer(kind=i_def)                                     :: dep_stencil_extent
+    integer(kind=i_def)                                     :: dep_stencil_extent_peregrin_x
     type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
     integer(kind=i_def)                                     :: flux_step
 
     split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
     flux_step = 1  ! Horizontal step is designated as step 1
-    dep_stencil_extent = split_ffsl_precomp%get_dep_stencil_extent_peregrin(   &
-            mesh_id, flux_step                                                 &
-    )
+    dep_stencil_extent_peregrin_x =                                            &
+        split_ffsl_precomp%get_dep_stencil_extent_peregrin_x(mesh_id, flux_step)
 
-  end function get_dep_stencil_extent_xy_peregrin
+  end function get_dep_stencil_extent_peregrin_x
+
+  !> @brief Returns the required stencil size for the PEREGRIN y (from
+  !!        remapped_flux_y) departure distances
+  !> @param[in] mesh_id     The ID of the mesh to get the object for
+  !> @param[in] splitting   Enumerator for the splitting type
+  !> @param[in] step        Transport step to get the field for
+  !> @return The required stencil depth
+  function get_dep_stencil_extent_peregrin_y(self, mesh_id, splitting, step)   &
+                                             result(dep_stencil_extent_peregrin_y)
+
+    implicit none
+
+    class(wind_precomputations_type), target, intent(inout) :: self
+    integer(kind=i_def),                      intent(in)    :: mesh_id
+    integer(kind=i_def),                      intent(in)    :: splitting
+    integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def)                                     :: dep_stencil_extent_peregrin_y
+    type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
+    integer(kind=i_def)                                     :: flux_step
+
+    split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
+    flux_step = 1  ! Horizontal step is designated as step 1
+    dep_stencil_extent_peregrin_y =                                            &
+        split_ffsl_precomp%get_dep_stencil_extent_peregrin_y(mesh_id, flux_step)
+
+  end function get_dep_stencil_extent_peregrin_y
 
   !> @brief Returns a pointer to vertical departure distances used to calculate
   !!        the Courant number

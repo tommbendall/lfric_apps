@@ -1,0 +1,517 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Module for the PEREGRIN horizontal FFSL transport path.
+!> @details Contains the algorithm for the PEREGRIN (Panel-Edge REconstruction
+!!          GRid Imprinting Neutraliser) treatment of cubed-sphere panel edges
+!!          within the SWIFT/FFSL splitting. This is a separate path from the
+!!          usual FFSL panel-edge treatments (extended mesh / special edges /
+!!          remapping), selected per-field via the `swift_peregrin` config
+!!          option, and is intended to be called from the top of
+!!          `ffsl_hori_splitting_alg` in `ffsl_hori_alg_mod.x90` as an
+!!          alternative to the existing splitting algorithms.
+!!
+!!          NOTE: the kernels this algorithm depends on
+!!          (`peregrin_eave_sl_kernel_mod`, `peregrin_flux_kernel_mod`,
+!!          `peregrin_divergence_kernel_mod`,
+!!          `peregrin_unification_kernel_mod`) do not exist yet (tracker step
+!!          3.4). Their calls are left as comments below, to be implemented
+!!          alongside the kernels themselves.
+module ffsl_hori_peregrin_alg_mod
+
+  ! Constants and types
+  use constants_mod,                    only: r_tran, i_def, l_def
+  use field_mod,                        only: field_type
+  use fs_continuity_mod,                only: W2H
+  use function_space_mod,               only: function_space_type
+  use function_space_collection_mod,    only: function_space_collection
+  use sci_geometric_constants_mod,      only: get_panel_id,                    &
+                                              get_face_selector_ew,            &
+                                              get_face_selector_ns
+  use integer_field_mod,                only: integer_field_type
+  use log_mod,                          only: log_event, LOG_LEVEL_ERROR
+  use mesh_mod,                         only: mesh_type
+  use r_tran_field_mod,                 only: r_tran_field_type
+  use timing_mod,                       only: start_timing, stop_timing, &
+                                              tik, LPROF
+
+  ! Transport control
+  use config_mod,                       only: config_type
+  use flux_precomputations_alg_mod,     only: flux_precomputations_type
+  use transport_constants_mod,          only: get_detj_at_w3_r_tran,           &
+                                              get_panel_edge_dist
+  use transport_controller_mod,         only: transport_controller_type
+  use transport_counter_mod,            only: transport_counter_type
+  use transport_enumerated_types_mod,   only: equation_form_advective,         &
+                                              equation_form_conservative,      &
+                                              equation_form_consistent,        &
+                                              monotone_none
+  use transport_metadata_mod,           only: transport_metadata_type
+  use wind_precomputations_alg_mod,     only: wind_precomputations_type
+
+  ! Other algorithms
+  use ffsl_advective_updates_alg_mod,   only: swift_inner_update_tracer,       &
+                                              ffsl_advective_increment
+  use panel_edge_remap_alg_mod,         only: panel_edge_remap_alg
+
+  ! Kernels (existing)
+  use fv_difference_x_kernel_mod,       only: fv_difference_x_kernel_type
+  use fv_difference_y_kernel_mod,       only: fv_difference_y_kernel_type
+  use fv_divergence_x_kernel_mod,       only: fv_divergence_x_kernel_type
+  use fv_divergence_y_kernel_mod,       only: fv_divergence_y_kernel_type
+
+  ! Kernels (PEREGRIN-specific, not yet implemented - see tracker step 3.4)
+  use peregrin_eave_sl_kernel_mod,       only: peregrin_eave_sl_kernel_type
+  use peregrin_flux_kernel_mod,          only: peregrin_flux_kernel_type
+  use peregrin_divergence_kernel_mod,    only: peregrin_divergence_kernel_type
+  use peregrin_unification_kernel_mod,   only: peregrin_unification_kernel_type
+
+  ! Configuration options
+  use base_mesh_config_mod,             only: topology, topology_fully_periodic, &
+                                              geometry, geometry_spherical
+  use io_config_mod,                    only: subroutine_timers
+  use transport_config_mod,             only: ffsl_outer_order
+
+  implicit none
+
+  private
+
+  public :: ffsl_hori_peregrin_alg
+
+contains
+
+  !> @brief Algorithm to control 2D horizontal FFSL transport with the
+  !!        PEREGRIN panel-edge treatment.
+  !> @details Solves the 2D transport equation for a field near cubed-sphere
+  !!          panel edges, using panel-edge-remapped ("eave") values and 1D
+  !!          semi-Lagrangian transport of the PEREGRIN wind component to
+  !!          neutralise grid imprinting at panel edges. Follows the same
+  !!          overall inner/outer FFSL splitting structure as
+  !!          `ffsl_hori_splitting_alg`, but is a single routine (no separate
+  !!          inner/outer routines are needed, since the panel-edge logic is
+  !!          encapsulated within the PEREGRIN kernels themselves).
+  !> @param[in,out] flux               Mass flux used to transport the field.
+  !!                                   This is only used when the equation is in
+  !!                                   conservative or consistent form.
+  !> @param[in,out] field_np1          The updated advected field from the time
+  !!                                   step. Only used when specified through
+  !!                                   the optional logical argument.
+  !> @param[in]     field_n            Field at the start of the transport step
+  !> @param[in]     step_dt            The dt for this time step
+  !> @param[in,out] transport_controller
+  !!                                   Object with metadata and precomputations
+  !!                                   to control the transport of the field
+  !> @param[in]     compute_field_np1  Optional argument as to whether advected
+  !!                                   field should be computed
+  subroutine ffsl_hori_peregrin_alg( mass_flux, field_np1, field_n, step_dt,   &
+                                     transport_controller, compute_field_np1 )
+
+    implicit none
+
+    ! Arguments ----------------------------------------------------------------
+    type(r_tran_field_type),         intent(inout) :: mass_flux
+    type(r_tran_field_type),         intent(inout) :: field_np1
+    type(r_tran_field_type), target, intent(in)    :: field_n
+    real(kind=r_tran),               intent(in)    :: step_dt
+    type(transport_controller_type), intent(inout) :: transport_controller
+    logical(kind=l_def), optional,   intent(in)    :: compute_field_np1
+
+    ! Internal variables -------------------------------------------------------
+    ! Pointers to existing objects
+    type(mesh_type),                 pointer :: mesh
+    type(transport_metadata_type),   pointer :: transport_metadata
+    type(transport_counter_type),    pointer :: transport_counter
+    type(wind_precomputations_type), pointer :: wind_precomputations
+    type(flux_precomputations_type), pointer :: flux_precomputations
+    type(config_type),               pointer :: config
+    type(r_tran_field_type),         pointer :: detj_at_w3
+    type(field_type),                pointer :: panel_id
+    type(integer_field_type),        pointer :: panel_edge_dist(:)
+    type(integer_field_type),        pointer :: face_selector_ew
+    type(integer_field_type),        pointer :: face_selector_ns
+
+    ! Departure quantities for the inner/outer FFSL flux calculations,
+    ! obtained the same way as in ffsl_hori_swift_inner_alg / ffsl_hori_outer_alg
+    ! (ffsl_hori_alg_mod.x90)
+    type(r_tran_field_type),  pointer :: dep_dist_inner
+    type(r_tran_field_type),  pointer :: frac_flux_inner
+    type(integer_field_type), pointer :: dep_lowest_k_inner
+    type(integer_field_type), pointer :: dep_highest_k_inner
+    type(r_tran_field_type),  pointer :: dep_dist_outer
+    type(r_tran_field_type),  pointer :: frac_flux_outer
+    type(integer_field_type), pointer :: dep_lowest_k_outer
+    type(integer_field_type), pointer :: dep_highest_k_outer
+
+    ! Dry mass (reference mass) fields, used in place of volume for the
+    ! consistent/unity_3d equation forms, and reset to unity (detj) otherwise
+    type(r_tran_field_type), pointer :: dry_mass_n
+    type(r_tran_field_type), pointer :: dry_mass_n_copy
+    type(r_tran_field_type), pointer :: dry_mass_x
+    type(r_tran_field_type), pointer :: dry_mass_y
+
+    ! Departure quantities for the PEREGRIN corrected-flux (u - u_hat) 1D SL
+    ! panel-edge step: the "_peregrin_x"/"_peregrin_y" analogues of the
+    ! departure quantities used by the normal horizontal SL kernels
+    ! (horizontal_linear_sl_kernel_type)
+    type(r_tran_field_type),  pointer :: dep_dist_peregrin_x
+    type(r_tran_field_type),  pointer :: dep_dist_peregrin_y
+
+    ! Function spaces
+    type(function_space_type), pointer :: field_fs
+    type(function_space_type), pointer :: w2h_fs
+    type(function_space_type), pointer :: ndepk_fs
+
+    ! Transport options
+    integer(kind=i_def) :: equation_form
+    integer(kind=i_def) :: splitting
+    integer(kind=i_def) :: monotone
+    real(kind=r_tran)   :: min_val
+    logical(kind=l_def) :: enforce_minvalue
+    logical(kind=l_def) :: monotone_remap
+
+    ! Subroutine name for timer
+    character(*), parameter :: routine_name = 'transport.ffsl_peregrin'
+
+    ! Fields updated by the inner (1D SL) PEREGRIN wind step near panel edges
+    type(r_tran_field_type) :: field_xp
+    type(r_tran_field_type) :: field_yp
+
+    type(r_tran_field_type),  target :: field_n_big
+    type(r_tran_field_type), pointer :: field_n_big_copy
+    type(r_tran_field_type),  target :: field_x_big
+    type(r_tran_field_type),  target :: field_y_big
+
+
+    ! Density substeps in given direction (inner FFSL step, as in the
+    ! non-PEREGRIN splitting), with big halos and eave-remapped versions
+    ! for the outer step
+    type(r_tran_field_type) :: field_x
+    type(r_tran_field_type) :: field_y
+    type(r_tran_field_type) :: field_y_rx
+    type(r_tran_field_type) :: field_x_ry
+    type(r_tran_field_type) :: field_n_rx
+    type(r_tran_field_type) :: field_n_ry
+
+    ! Fluxes and increments
+    type(r_tran_field_type) :: flux_inner
+    type(r_tran_field_type) :: flux_inner_edge_downwind
+    type(r_tran_field_type) :: flux_outer
+    type(r_tran_field_type) :: flux_outer_edge_downwind
+    type(r_tran_field_type) :: flux
+    type(r_tran_field_type) :: flux_edge_downwind
+    type(r_tran_field_type) :: flux_big
+    type(r_tran_field_type) :: flux_edge_downwind_big
+    type(r_tran_field_type) :: increment_x
+    type(r_tran_field_type) :: increment_y
+
+    ! Useful constants
+    logical(kind=l_def) :: to_compute_field_np1
+    integer(kind=i_def) :: step
+    integer(kind=i_def) :: mesh_id
+    integer(kind=i_def) :: dep_stencil_extent_inner
+    integer(kind=i_def) :: dep_stencil_extent_outer
+    integer(kind=i_def) :: remap_extent
+    integer(kind=i_def) :: ndep
+    integer(tik)        :: id
+
+    if ( LPROF ) call start_timing( id, routine_name )
+
+    ! Get pre-computed objects and set pointers --------------------------------
+    mesh => field_n%get_mesh()
+    mesh_id = field_n%get_mesh_id()
+    transport_metadata => transport_controller%get_transport_metadata()
+    transport_counter => transport_controller%get_transport_counter()
+    wind_precomputations => transport_controller%get_wind_precomputations()
+    config => transport_controller%get_config()
+    equation_form = transport_metadata%get_equation_form()
+    splitting = transport_metadata%get_splitting()
+    monotone = transport_metadata%get_horizontal_monotone()
+    enforce_minvalue = transport_metadata%get_enforce_min_value()
+    if (transport_metadata%get_enforce_min_value()) then
+      min_val = transport_metadata%get_min_value()
+    else
+      min_val = 0.0_r_tran
+    end if
+
+    ! Function spaces
+    field_fs => field_n%get_function_space()
+    w2h_fs => function_space_collection%get_fs(mesh, 0, 0, W2H)
+    ndepk_fs => dep_lowest_k%get_function_space()
+
+    if (present(compute_field_np1)) then
+      to_compute_field_np1 = compute_field_np1
+    else
+      to_compute_field_np1 = .true.
+    end if
+
+    ! PEREGRIN only has meaning on the cubed sphere, where panel edges exist
+    if ( .not. (geometry == geometry_spherical                                 &
+                .and. topology == topology_fully_periodic) ) then
+      call log_event(                                                          &
+        'PEREGRIN transport requires the fully-periodic cubed sphere',         &
+        LOG_LEVEL_ERROR                                                        &
+      )
+    end if
+
+    panel_id => get_panel_id(mesh)
+    panel_edge_dist => get_panel_edge_dist(mesh_id)
+    face_selector_ew => get_face_selector_ew(mesh)
+    face_selector_ns => get_face_selector_ns(mesh)
+    detj_at_w3 => get_detj_at_w3_r_tran(transport_controller%get_config(), mesh)
+
+    ! Departure quantities and stencil extents for the inner/outer FFSL flux
+    ! calculations, and for the PEREGRIN corrected-flux 1D SL step, obtained
+    ! the same way as in ffsl_hori_swift_inner_alg / ffsl_hori_outer_alg
+    if (equation_form == equation_form_consistent) then
+      flux_precomputations => transport_controller%get_flux_precomputations()
+      step = transport_counter%get_split_step_of_whole_step_counter()
+      dep_stencil_extent_inner = transport_controller%get_dep_stencil_extent(  &
+          mesh_id, step, outer_step=.false., flux_calc=.true.                  &
+      )
+      dep_stencil_extent_outer = transport_controller%get_dep_stencil_extent(  &
+          mesh_id, step, outer_step=.true., flux_calc=.true.                   &
+      )
+      dep_dist_inner => flux_precomputations%get_dep_dist(                     &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      frac_flux_inner => flux_precomputations%get_frac_flux(                   &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      dep_lowest_k_inner => flux_precomputations%get_dep_lowest_k(             &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      dep_highest_k_inner => flux_precomputations%get_dep_highest_k(           &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      dep_dist_outer => flux_precomputations%get_dep_dist(                     &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+      frac_flux_outer => flux_precomputations%get_frac_flux(                   &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+      dep_lowest_k_outer => flux_precomputations%get_dep_lowest_k(             &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+      dep_highest_k_outer => flux_precomputations%get_dep_highest_k(           &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+
+      ! Consistent form of equation uses dry mass in place of volume
+      dry_mass_n => flux_precomputations%get_ref_mass(mesh_id, step)
+      dry_mass_n_copy => flux_precomputations%get_ref_mass(mesh_id, step)
+      dry_mass_x => flux_precomputations%get_ref_mass_x(mesh_id, step)
+      dry_mass_y => flux_precomputations%get_ref_mass_y(mesh_id, step)
+
+      ! PEREGRIN corrected-flux departure distances for the 1D SL panel-edge step
+      dep_dist_peregrin_x => flux_precomputations%get_dep_dist_peregrin_x(mesh_id, step)
+      dep_dist_peregrin_y => flux_precomputations%get_dep_dist_peregrin_y(mesh_id, step)
+    else
+      flux_precomputations => transport_controller%get_ffsl_precomputations()
+      step = transport_counter%get_split_step_of_substep_counter()
+      dep_stencil_extent_inner = transport_controller%get_dep_stencil_extent(  &
+          mesh_id, step, outer_step=.false., flux_calc=.false.                 &
+      )
+      dep_stencil_extent_outer = transport_controller%get_dep_stencil_extent(  &
+          mesh_id, step, outer_step=.true., flux_calc=.false.                  &
+      )
+      dep_dist_inner => flux_precomputations%get_dep_dist(                     &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      frac_flux_inner => flux_precomputations%get_frac_flux(                   &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      dep_lowest_k_inner => flux_precomputations%get_dep_lowest_k(             &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      dep_highest_k_inner => flux_precomputations%get_dep_highest_k(           &
+          mesh_id, step, outer_step=.false.                                    &
+      )
+      dep_dist_outer => flux_precomputations%get_dep_dist(                     &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+      frac_flux_outer => flux_precomputations%get_frac_flux(                   &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+      dep_lowest_k_outer => flux_precomputations%get_dep_lowest_k(             &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+      dep_highest_k_outer => flux_precomputations%get_dep_highest_k(           &
+          mesh_id, step, outer_step=.true.                                     &
+      )
+
+      ! Consistent form of equation uses dry mass in place of volume
+      dry_mass_n => flux_precomputations%get_ref_mass(mesh_id, step)
+      dry_mass_n_copy => flux_precomputations%get_ref_mass(mesh_id, step)
+      dry_mass_x => flux_precomputations%get_ref_mass_x(mesh_id, step)
+      dry_mass_y => flux_precomputations%get_ref_mass_y(mesh_id, step)
+
+      ! PEREGRIN corrected-flux departure distances for the 1D SL panel-edge step
+      dep_dist_peregrin_x => flux_precomputations%get_dep_dist_peregrin_x(mesh_id, step)
+      dep_dist_peregrin_y => flux_precomputations%get_dep_dist_peregrin_y(mesh_id, step)
+    end if
+
+    ! The eave-remap depth needs to cover both the inner and outer flux
+    ! calculations
+    remap_extent = MAX(dep_stencil_extent_inner, dep_stencil_extent_outer)
+    ndep = ndepk_fs%get_ndata()
+
+    ! Initialise fields ---------------------------------------------------------
+    call field_xp%initialise(field_fs)
+    call field_yp%initialise(field_fs)
+    call field_x%initialise(field_fs)
+    call field_y%initialise(field_fs)
+    call mass_flux%initialise(w2h_fs)
+    call flux_inner%initialise(w2h_fs)
+    call flux_inner_edge_downwind%initialise(w2h_fs)
+    call flux_outer%initialise(w2h_fs)
+    call flux_outer_edge_downwind%initialise(w2h_fs)
+    call flux%initialise(w2h_fs)
+    call flux_edge_downwind%initialise(w2h_fs)
+    call increment_x%initialise(field_fs)
+    call increment_y%initialise(field_fs)
+
+    call field_n_big%initialise(field_fs, halo_depth=remap_extent)
+    call field_x_big%initialise(field_fs, halo_depth=remap_extent)
+    call field_y_big%initialise(field_fs, halo_depth=remap_extent)
+    call flux_big%initialise(w2h_fs, halo_depth=remap_extent)
+    call flux_edge_downwind_big%initialise(w2h_fs, halo_depth=remap_extent)
+
+    ! Pointers to the same big-halo fields, to avoid unnecessary setval
+    ! calculation when a field is needed twice in a kernel call
+    field_n_big_copy => field_n_big
+
+    call invoke( setval_x(field_n_big, field_n) )
+
+    ! Remap field_n onto the panel-edge "eave" extensions in x and y -----------
+    monotone_remap = (monotone /= monotone_none)
+    call panel_edge_remap_alg(                                                 &
+        field_n_rx, field_n_ry, field_n_big, field_n_big,                      &
+        remap_extent, monotone_remap, enforce_minvalue, min_val                &
+    )
+
+    ! Inner step ---------------------------------------------------------------
+    ! Transport field_n with the PEREGRIN wind near panel edges, using a 1D SL
+    ! scheme, to give field_xp and field_yp. The kernel interface should look
+    ! like the existing horizontal SL kernels (horizontal_linear_sl_kernel_type),
+    ! but using the PEREGRIN corrected-flux departure quantities instead of
+    ! the usual ones.
+    ! TODO (3.4.1): call peregrin_eave_sl_kernel_mod once available:
+    call invoke(                                                               &
+            peregrin_eave_sl_kernel_type(                                      &
+                    field_xp, field_yp,                                        &
+                    field_n_big, dep_stencil_extent_inner,                     &
+                    field_n_big_copy, dep_stencil_extent_inner,                &
+                    field_n_rx, dep_stencil_extent_inner,                      &
+                    field_n_ry, dep_stencil_extent_inner,                      &
+                    dep_dist_peregrin_x,                                       &
+                    dep_dist_peregrin_y,                                       &
+                    panel_id, panel_edge_dist                                  &
+            ),                                                                 &
+    ! Inner transport: calculate flux_inner and flux_inner_edge_downwind in a
+    ! single kernel, using field_n away from panel edges and the eave-remapped
+    ! fields (field_n_rx, field_n_ry) in the fractional reconstruction / flux
+    ! calculation near panel edges, as set out in tracker step 3.3.
+    ! TODO (3.4.2): call peregrin_flux_kernel_mod once available:
+            setval_c(flux_inner, 0.0_r_tran),                                  &
+            setval_c(flux_inner_edge_downwind, 0.0_r_tran),                    &
+            peregrin_flux_kernel_type(                                         &
+                    flux_inner, flux_inner_edge_downwind,                      &
+                    field_n_big, dep_stencil_extent_inner,                     &
+                    field_n_rx, dep_stencil_extent_inner,                      &
+                    dry_mass_n, dep_stencil_extent_inner,                      &
+                    field_n_big_copy, dep_stencil_extent_inner,                &
+                    field_n_ry, dep_stencil_extent_inner,                      &
+                    dry_mass_n_copy, dep_stencil_extent_inner,                 &
+                    dep_dist_inner, frac_flux_inner,                           &
+                    dep_lowest_k_inner, dep_highest_k_inner,                   &
+                    panel_id,                                                  &
+                    panel_edge_dist(1:2), stencil_extent,                      &
+                    panel_edge_dist(3:4), stencil_extent,                      &
+                    face_selector_ew, face_selector_ns,                        &
+                    ffsl_outer_order, monotone, min_val, ndep, step_dt         &
+            ),                                                                 &
+    ! Calculate advective form of inner transported fields, using the appropriate
+    ! value of flux_inner / flux_inner_edge_downwind next to the panel edge.
+    ! TODO (3.4.3): call peregrin_divergence_kernel_mod once available:
+            peregrin_divergence_kernel_type(                                   &
+                    field_x, field_y, field_n,                                 &
+                    flux_inner, flux_inner_edge_downwind,                      &
+                    dry_mass_x, dry_mass_y, dry_mass_n, dep_dist_inner,        &
+                    panel_id, panel_edge_dist, step_dt                         &
+            ),                                                                 &
+           setval_x(field_x_big, field_x),                                     &
+           setval_x(field_y_big, field_y)                                      &
+    )
+
+    ! Remap field_x and field_y onto the "eave" extensions in x and y ----------
+    call panel_edge_remap_alg(                                                 &
+        field_y_rx, field_x_ry, field_y_big, field_x_big,                      &
+        remap_extent, monotone_remap, enforce_minvalue, min_val                &
+    )
+
+    ! Outer step -------------------------------------------------------------
+    ! Generally the same as the normal outer transport (field_x is used to
+    ! calculate the y-component of flux, field_y is used to calculate the
+    ! x-component of flux), using the same peregrin_flux_kernel_mod kernel and
+    ! the "outer" departure quantities. When a flux crosses a panel edge,
+    ! field_xp and field_yp are used in the appropriate places instead of the
+    ! eave-remapped inner fields.
+    ! TODO (3.4.2): call peregrin_flux_kernel_mod once available:
+    call invoke(                                                               &
+            setval_c(flux_outer, 0.0_r_tran),                                  &
+            setval_c(flux_outer_edge_downwind, 0.0_r_tran),                    &
+            peregrin_flux_kernel_type(                                         &
+                    flux_outer, flux_outer_edge_downwind,                      &
+                    field_y_big, dep_stencil_extent_outer,                     &
+                    field_x_big, dep_stencil_extent_outer,                     &
+                    field_y_rx, dep_stencil_extent_outer,                      &
+                    field_x_ry, dep_stencil_extent_outer,                      &
+                    dry_mass_y, dep_stencil_extent_outer,                      &
+                    dry_mass_x, dep_stencil_extent_outer,                      &
+                    dep_dist_outer, frac_flux_outer,                           &
+                    dep_lowest_k_outer, dep_highest_k_outer,                   &
+                    panel_id,                                                  &
+                    panel_edge_dist(1:2), stencil_extent,                      &
+                    panel_edge_dist(3:4), stencil_extent,                      &
+                    face_selector_ew, face_selector_ns,                        &
+                    ffsl_outer_order, monotone, min_val, ndep, step_dt         &
+            ),                                                                 &
+    ! Combine fluxes from inner and outer steps (by averaging) -----------------
+            aX_plus_bY(flux, 0.5_r_tran, flux_inner, 0.5_r_tran, flux_outer),  &
+            aX_plus_bY(                                                        &
+                    flux_edge_downwind,                                        &
+                    0.5_r_tran, flux_inner_edge_downwind,                      &
+                    0.5_r_tran, flux_outer_edge_downwind                       &
+            ),                                                                 &
+    ! Unify flux and flux_edge_downwind, spreading the mass "gap" at the panel
+    ! edge out over the downwind stencil, based on the Courant number at the
+    ! edge.
+    ! TODO (3.4.4): call peregrin_unification_kernel_mod once available:
+           setval_x(flux_big, flux),                                           &
+           setval_x(flux_edge_downwind_big, flux_edge_downwind),               &
+           peregrin_unification_kernel_type(                                   &
+                  flux, flux_big, dep_stencil_extent_outer,                    &
+                  flux_edge_downwind_big, dep_stencil_extent_outer,            &
+                  dep_dist_outer, panel_edge_dist,                             &
+                  face_selector_ew, face_selector_ns                           &
+            )                                                                  &
+    )
+
+    ! Calculate final field (if needed) using normal divergence --------------
+    ! NOTE: this uses the simple advective update for now. Once the PEREGRIN
+    ! kernels above are implemented (3.4), this should follow the same
+    ! mass-consistent `swift_outer_update_tracer` pattern used in
+    ! `ffsl_hori_outer_alg` (`ffsl_hori_alg_mod.x90`).
+    if (to_compute_field_np1) then
+      call invoke( fv_divergence_x_kernel_type(increment_x, flux, detj_at_w3), &
+                   fv_divergence_y_kernel_type(increment_y, flux, detj_at_w3), &
+                   X_minus_bY(field_np1, field_n, step_dt, increment_x) )
+    end if
+
+    if ( LPROF ) call stop_timing( id, routine_name )
+
+  end subroutine ffsl_hori_peregrin_alg
+
+end module ffsl_hori_peregrin_alg_mod

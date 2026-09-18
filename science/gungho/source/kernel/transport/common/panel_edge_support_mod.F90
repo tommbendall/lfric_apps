@@ -99,7 +99,7 @@ function crosses_panel_edge(edge_dist_left, edge_dist_right,                   &
       .and. ABS(rotated_panel_neighbour(panel_id, face_dir)) > 0
   end if
 
-  ! 3) There is a panel edge somewhere in the stencil. Now departure if the
+  ! 3) There is a panel edge somewhere in the stencil. Now determine if the
   !    calculation will involve crossing the panel edge
   if (consider_left .or. consider_right) then
 
