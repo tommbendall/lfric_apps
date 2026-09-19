@@ -203,264 +203,43 @@ def trans(psyir):
 
     # Locate correct routine within which to apply the transformation
     for routine in psyir.walk(Routine):
-        if routine.name != routine_name:
+        if routine.name != "ukca_chemistry_ctl_full":
             continue
-
-        # Find variable holding the size of the full domain
-        try:
-            array_size_var = routine.symbol_table.lookup(fulldom_size_name)
-        except Exception:
-            continue
-
-        # Find the call to the ASAD solver
-        asad_call = None
-        for call in routine.walk(Call):
-            if call.routine.name == asad_call_name:
-                if call.parent is routine:
-                    asad_call = call
-        if asad_call is None:
-            continue
-
-        # Find references to ASAD arrays before and after the call
-        # --------------------------------------------------------
-
-        refs_before = set()
-        refs_after = set()
-        for stmt in routine.children[:asad_call.position]:
-            for ref in stmt.walk(Reference):
-                if ref.name in asad_vars:
-                    refs_before.add(ref.name)
-        for stmt in routine.children[asad_call.position+1:]:
-            for ref in stmt.walk(Reference):
-                if ref.name in asad_vars:
-                    refs_after.add(ref.name)
-
-        # Introduce variable to hold the desired chunk size
-        # -------------------------------------------------
-
-        desired_chunk_size_var = routine.symbol_table.find_or_create_tag(
-            "desired_chunk_size",
-            symbol_type=DataSymbol,
-            datatype=ScalarType.integer_type())
-
-        if desired_chunk_size is None:
-            assign_desired_chunk_size = Assignment.create(
-                Reference(desired_chunk_size_var),
-                Reference(array_size_var))
-        else:
-            assign_desired_chunk_size = Assignment.create(
-                Reference(desired_chunk_size_var),
-                Literal(str(desired_chunk_size), ScalarType.integer_type()))
-
-        # Introduce full-domain array for each ASAD array
-        # -----------------------------------------------
-
-        full_vars = {}
-        for (var_name, var_rank) in asad_vars.items():
-            # Create array bounds
-            bounds = [Reference(array_size_var)]
-            for i in range(2, var_rank+1):
-                bounds.append(IntrinsicCall.create(
-                    IntrinsicCall.Intrinsic.SIZE,
-                    [Reference(Symbol(var_name)),
-                     ("dim", Literal(str(i), ScalarType.integer_type()))]))
-            # Create variables
-            new_var = routine.symbol_table.find_or_create_tag(
-                "full_" + var_name,
-                symbol_type=DataSymbol,
-                datatype=ArrayType(ScalarType.real_type(), bounds))
-            full_vars[var_name] = (bounds, new_var)
-            # Add initialiser
-            if var_name in refs_before:
-                initialiser = Assignment.create(
-                    ArrayReference.create(new_var, [":" for b in bounds]),
-                    Literal("0.0", ScalarType.real_type()))
-                routine.addchild(initialiser, index=0)
-
-        # Replace each use of ASAD array with full-domain counterpart
-        # -----------------------------------------------------------
-
-        for stmt in routine.children:
-            for ref in stmt.walk(Reference):
-                if ref.name in full_vars:
-                    (_var_bounds, var_sym) = full_vars[ref.name]
-                    ref.symbol = var_sym
-
-        # Identify array references in call
-        # ---------------------------------
-
-        for arg in asad_call.arguments:
-            for ref in arg.walk(Reference):
-                ref2arraytrans = Reference2ArrayRangeTrans()
-                if not isinstance(ref, ArrayReference):
-                    if psy_version <= (3, 1, 0):
-                        if ref.is_array:
-                            ref2arraytrans.apply(ref)
-                    else:
-                        if ref.symbol.is_array:
-                            ref2arraytrans.apply(
-                                ref, allow_call_arguments=True)
-
-        # Create a new "chunking" loop
-        # ----------------------------
-
-        # Create loop variables
-        chunk_begin_var = routine.symbol_table.find_or_create_tag(
-            "chunk_begin",
-            symbol_type=DataSymbol,
-            datatype=ScalarType.integer_type())
-        chunk_end_var = routine.symbol_table.find_or_create_tag(
-            "chunk_end",
-            symbol_type=DataSymbol,
-            datatype=ScalarType.integer_type())
-        chunk_size_var = routine.symbol_table.find_or_create_tag(
-            "chunk_size",
-            symbol_type=DataSymbol,
-            datatype=ScalarType.integer_type())
-
-        # Create assignment for chunk_end
-        minop = IntrinsicCall.create(
-            IntrinsicCall.Intrinsic.MIN,
-            [Reference(array_size_var),
-             BinaryOperation.create(
-                 BinaryOperation.Operator.ADD,
-                 Reference(chunk_begin_var),
-                 BinaryOperation.create(
-                     BinaryOperation.Operator.SUB,
-                     Reference(desired_chunk_size_var),
-                     Literal("1", ScalarType.integer_type())))])
-        assign_chunk_end = Assignment.create(Reference(chunk_end_var), minop)
-
-        # Create assignment for chunk_size
-        chunk_size = BinaryOperation.create(
-            BinaryOperation.Operator.SUB,
-            BinaryOperation.create(
-                BinaryOperation.Operator.ADD,
-                Literal("1", ScalarType.integer_type()),
-                Reference(chunk_end_var)),
-            Reference(chunk_begin_var))
-        assign_chunk_size = Assignment.create(Reference(chunk_size_var),
-                                              chunk_size)
-
-        # Create chunking loop
-        loop = Loop(variable=chunk_begin_var)
-        asad_call.replace_with(loop)
-        loop.children = [Literal("1", ScalarType.integer_type()),
-                         Reference(array_size_var),
-                         Reference(desired_chunk_size_var),
-                         Schedule(parent=loop, children=[asad_call])]
-
-        # Copy full-size arrays into chunk-size arrays
-        for var_name in refs_before:
-            (bounds, full_var) = full_vars[var_name]
-            var_sym = DataSymbol(
-                var_name, datatype=ArrayType(ScalarType.real_type(), bounds))
-            assign_full_var = Assignment.create(
-                ArrayReference.create(var_sym, [":" for b in bounds]),
-                ArrayReference.create(full_var, [":" for b in bounds]))
-            loop.loop_body.addchild(assign_full_var, index=asad_call.position)
-
-        # Copy chunk-size arrays into full-size arrays
-        for var_name in refs_after:
-            (bounds, full_var) = full_vars[var_name]
-            var_sym = DataSymbol(
-                var_name, datatype=ArrayType(ScalarType.real_type(), bounds))
-            assign_full_var = Assignment.create(
-                ArrayReference.create(full_var, [":" for b in bounds]),
-                ArrayReference.create(var_sym, [":" for b in bounds]))
-            loop.loop_body.addchild(assign_full_var)
-
-        # Update references to fulldom_size_name
-        for ref in loop.loop_body.walk(Reference):
-            if ref.name == fulldom_size_name:
-                ref.replace_with(Reference(chunk_size_var))
-
-        # Update references to arrays
-        for ref in loop.loop_body.walk(ArrayReference):
-            if ref.name in asad_vars.keys():
-                ref.indices[0].start = Literal("1", ScalarType.integer_type())
-                ref.indices[0].stop = Reference(chunk_size_var)
-            else:
-                ref.indices[0].start = Reference(chunk_begin_var)
-                ref.indices[0].stop = Reference(chunk_end_var)
-
-        # Adding chunk assignments
-        loop.loop_body.addchild(assign_chunk_end, index=0)
-        loop.loop_body.addchild(assign_chunk_size, index=1)
-
-        # Add print statement
-        # -------------------
-
-        print_call = Call()
-        print_call.addchild(Reference(RoutineSymbol("umPrint")))
-        print_call.addchild(Literal(message_text, ScalarType.character_type()))
-        loop.parent.addchild(print_call, index=loop.position)
-
-        # Assign desired chunk size
-        # -------------------------
-
-        loop.parent.addchild(assign_desired_chunk_size, index=loop.position)
-
-        if use_omp:
-            # Add import for ASAD reallocation routine
-            # ----------------------------------------
-            sym_tab = routine.symbol_table
-            asad_realloc_mod_sym = sym_tab.find_or_create(
-                asad_realloc_routine_loc[0],
-                symbol_type=ContainerSymbol)
-
-            asad_realloc_routine =sym_tab.find_or_create(
-                            asad_realloc_routine_loc[1],
-                            symbol_type=RoutineSymbol,
-                            interface=ImportInterface(asad_realloc_mod_sym))
-
-
-            # Add Reallocation Call to within Loop
-            # ------------------------------------
-            realloc_call = Call.create(
-                asad_realloc_routine,
-                [Reference(chunk_size_var)])
-
-            # Create conditional reallocation call
-            realloc_block = IfBlock.create(
-                BinaryOperation.create(
-                    BinaryOperation.Operator.OR,
-                    UnaryOperation.create(
-                        UnaryOperation.Operator.NOT,
-                        IntrinsicCall.create(
-                            IntrinsicCall.Intrinsic.ALLOCATED,
-                            [Reference(
-                                Symbol(next(iter(asad_vars.keys()))))])),
-                    BinaryOperation.create(
-                        BinaryOperation.Operator.NE,
-                        Reference(chunk_size_var),
-                        IntrinsicCall.create(
-                            IntrinsicCall.Intrinsic.SIZE,
-                            [Reference(Symbol(next(iter(asad_vars.keys())))),
-                                ("dim", Literal("1", INTEGER_TYPE))]))),
-                [realloc_call])
-
-            loop.loop_body.addchild(realloc_block, index=2)
-
-            # Added OMP transformation on desired loop
-            # ----------------------------------------
-
-            omp_trans = OMPParallelLoopTrans(omp_schedule="static")
-            opts = {
-                # some non-PURE subroutines called within this loop
-                "force": True,
-                # several WRITE statements used for diagnostics
-                "node-type-check": False,
-            }
-
+        for loop in routine.walk(Loop):
             try:
-                omp_trans.apply(
-                    loop, options=opts,
-                )
+                # Parallelise the "DO l = 1, dim_ntp" loops
+                if match_loop(loop, "l", "dim_ntp"):
+                    omp_trans.apply(loop)
+
+                # Parallelise the "DO jspf = 1, jpcspf" loop
+                if match_loop(loop, "jspf", "jpcspf"):
+                    omp_trans.apply(loop, force=True)
+
+                # Parallelise the 3D chunking loop
+                if match_loop(loop, "zi", "model_levels"):
+                    # Find all "chunk_" arrays (to be marked as private)
+                    privates = set()
+                    for sym in loop.get_all_accessed_symbols():
+                        if (sym.name.startswith("chunk_") and
+                                isinstance(sym, DataSymbol) and
+                                isinstance(sym.datatype, ArrayType)):
+                            privates.add(sym)
+
+                    # Apply the transformation
+                    parent, position = loop.parent, loop.position
+                    omp_trans.apply(loop, force=True, collapse=3)
+
+                    # Mark explicitly private variables
+                    if psy_version < (3, 3, 0):
+                        loop.explicitly_private_symbols.update(privates)
+                    else:
+                        directive = parent.children[position]
+                        directive.explicitly_private_symbols.update(
+                            privates)
 
             except TransformationError as err:
                 err_msg = ("ukca_chemistry_ctl_full_mod.py: Error: "
                            "could not apply OMP transformation "
-                           f"to loop: {err.message_text}")
-
+                           f"to loop '{loop.variable.name}': "
+                           f"{err.message_text}")
                 raise TransformationError(err_msg) from err
