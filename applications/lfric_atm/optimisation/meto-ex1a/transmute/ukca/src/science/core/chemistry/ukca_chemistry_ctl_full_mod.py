@@ -22,10 +22,6 @@ from psyclone.transformations import (
     OMPLoopTrans,
     TransformationError
 )
-from psyclone.version import __MAJOR__, __MICRO__, __MINOR__
-
-# PSyclone version
-psy_version = (__MAJOR__, __MINOR__, __MICRO__)
 
 
 def match_loop(loop: Loop, var_name: str, stop_name: str) -> bool:
@@ -63,7 +59,8 @@ def trans(psyir):
                 if match_loop(loop, "zi", "model_levels"):
                     # Find all "chunk_" arrays (to be marked as private)
                     privates = set()
-                    for sym in loop.get_all_accessed_symbols():
+                    for ref in loop.walk(Reference):
+                        sym = ref.symbol
                         if (sym.name.startswith("chunk_") and
                                 isinstance(sym, DataSymbol) and
                                 isinstance(sym.datatype, ArrayType)):
@@ -73,17 +70,15 @@ def trans(psyir):
                     parent, position = loop.parent, loop.position
                     omp_trans.apply(loop, force=True, collapse=3)
 
-                    # Mark explicitly private variables
-                    if psy_version < (3, 3, 0):
-                        loop.explicitly_private_symbols.update(privates)
-                    else:
-                        directive = parent.children[position]
-                        directive.explicitly_private_symbols.update(
-                            privates)
+                    # Mark explicitly private variables. PSyclone 3.3.0
+                    # moved this attribute from the Loop node to the
+                    # enclosing Directive node.
+                    directive = parent.children[position]
+                    directive.explicitly_private_symbols.update(privates)
 
             except TransformationError as err:
                 err_msg = ("ukca_chemistry_ctl_full_mod.py: Error: "
                            "could not apply OMP transformation "
                            f"to loop '{loop.variable.name}': "
-                           f"{err.message_text}")
+                           f"{err}")
                 raise TransformationError(err_msg) from err
