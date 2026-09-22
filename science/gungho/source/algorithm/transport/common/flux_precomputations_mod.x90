@@ -1106,6 +1106,7 @@ contains
         end if
 
         ref_flux => self%get_ref_flux(mesh_id, step-1)
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_flux', ref_flux)
         call increment%initialise(w3_fs)
 
         if ( LPROF ) call start_timing( id, 'transport.flux_precomp' )
@@ -2168,6 +2169,8 @@ contains
 
     call log_event('start flux_precomp%check_negative_field ' // trim(field_name), &
                     LOG_LEVEL_INFO)
+
+    call log_field_minmax(LOG_LEVEL_INFO, field_name, field)
 
     if (log_at_level(LOG_LEVEL_INFO)) then
       ! Global min/max is more expensive but makes failure easier to spot
