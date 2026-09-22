@@ -288,6 +288,8 @@ contains
 
     if ( LPROF ) call start_timing( id, 'transport.flux_precomp_init' )
 
+    call log_event('start flux_precomp%initialise', LOG_LEVEL_INFO)
+
     self%config => config
     self%splitting = splitting
     self%num_substeps = num_substeps
@@ -529,6 +531,8 @@ contains
 
       call self%set_total_ref_flux(flux_ptr)
 
+      call log_field_minmax(LOG_LEVEL_INFO, 'flux_precomp%initialise: total_flux', flux_ptr)
+
       ! Split flux into horizontal and vertical components ---------------------
       w2_fs => function_space_collection%get_fs(prime_mesh, 0, 0, W2)
       if (splitting /= splitting_none) then
@@ -577,6 +581,8 @@ contains
     ! Set transporting wind and dt, used for logging
     self%transporting_wind => wind
     self%dt = dt
+
+    call log_event('end flux_precomp%initialise', LOG_LEVEL_INFO)
 
     if ( LPROF ) call stop_timing( id, 'transport.flux_precomp_init' )
 
@@ -1066,6 +1072,9 @@ contains
     character(len=str_def)             :: field_name
     integer(tik)                       :: id
 
+    write(log_scratch_space, *) 'start flux_precomputations%get_ref_mass ', step
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
     mesh_idx = self%idx_from_mesh_id(mesh_id)
 
     if (step > self%num_steps + 1) then
@@ -1219,6 +1228,9 @@ contains
     ! Check if it has been initialised, and return a helpful error if not
     write(field_name, '(A,I8)') 'ref_mass, step ', step
     call check_initialised_field(ref_mass, field_name, mesh_id)
+
+    write(log_scratch_space, *) 'end flux_precomputations%get_ref_mass ', step
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
   end function get_ref_mass
 
@@ -1377,6 +1389,9 @@ contains
     character(len=str_def)           :: field_name
     type(r_tran_field_type), pointer :: ref_mass
 
+    write(log_scratch_space, *) 'start flux_precomputations%get_ref_mass_x ', step
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
     ! If substepping, step can exceed num_steps, so take that into account here
     step_idx = MOD(step - 1, self%num_steps) + 1
     mesh_idx = self%idx_from_mesh_id(mesh_id)
@@ -1402,6 +1417,9 @@ contains
 
     ! Return existing field
     ref_mass => self%ref_mass_x(mesh_idx, step_idx)
+
+    write(log_scratch_space, *) 'end flux_precomputations%get_ref_mass_x ', step
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
   end function get_ref_mass_x
 
@@ -1430,6 +1448,9 @@ contains
     character(len=str_def)           :: field_name
     type(r_tran_field_type), pointer :: ref_mass
 
+    write(log_scratch_space, *) 'start flux_precomputations%get_ref_mass_y ', step
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
     ! If substepping, step can exceed num_steps, so take that into account here
     step_idx = MOD(step - 1, self%num_steps) + 1
     mesh_idx = self%idx_from_mesh_id(mesh_id)
@@ -1455,6 +1476,9 @@ contains
 
     ! Return existing field
     ref_mass => self%ref_mass_y(mesh_idx, step_idx)
+
+    write(log_scratch_space, *) 'end flux_precomputations%get_ref_mass_y ', step
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
   end function get_ref_mass_y
 
@@ -2142,6 +2166,9 @@ contains
     real(kind=r_tran) :: field_min
     real(kind=r_tran) :: field_max
 
+    call log_event('start flux_precomp%check_negative_field ' // trim(field_name), &
+                    LOG_LEVEL_INFO)
+
     if (log_at_level(LOG_LEVEL_INFO)) then
       ! Global min/max is more expensive but makes failure easier to spot
       call get_field_minmax(field, field_min, field_max)
@@ -2185,6 +2212,9 @@ contains
       call log_event(log_scratch_space, LOG_LEVEL_ERROR)
     end if
 
+    call log_event('end flux_precomp%check_negative_field ' // trim(field_name), &
+                    LOG_LEVEL_INFO)
+
   end subroutine check_negative_field
 
   !> @brief Checks all reference fields on the primary mesh for negative values
@@ -2208,6 +2238,8 @@ contains
     integer(kind=i_def)              :: step_of_substep
     type(r_tran_field_type), pointer :: ref_mass
 
+    call log_event('start flux_precomp%check_all_reference_field', LOG_LEVEL_INFO)
+
     ref_field_safe = .true.
     mesh_id = self%mesh_ids(1) ! Just look at reference masses on the first mesh
 
@@ -2220,6 +2252,9 @@ contains
       if (field_min < EPS_R_TRAN) then
         ref_field_safe = .false.
         EXIT
+      else
+        write(log_scratch_space, *) 'Ref mass for step ', step, ' is safe'
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
       end if
 
       ! Check the reference mass x and y fields for horizontal steps
@@ -2256,6 +2291,8 @@ contains
               LOG_LEVEL_WARNING                                                &
       )
     end if
+
+    call log_event('end flux_precomp%check_all_reference_field', LOG_LEVEL_INFO)
 
   end function check_all_reference_field
 

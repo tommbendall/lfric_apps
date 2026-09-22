@@ -19,7 +19,7 @@ module transport_controller_mod
                                             str_def
   use extrusion_mod,                  only: SHIFTED, TWOD
   use field_mod,                      only: field_type
-  use sci_field_minmax_alg_mod,       only: get_field_minmax
+  use sci_field_minmax_alg_mod,       only: get_field_minmax, log_field_minmax
   use fs_continuity_mod,              only: W3, W2H, W2V, W2
   use function_space_mod,             only: function_space_type
   use function_space_collection_mod,  only: function_space_collection
@@ -632,6 +632,8 @@ contains
     type(r_tran_field_type)            :: lipschitz_max_field
     type(integer_field_type)           :: watkins_fail_field
 
+    call log_event('start transport_controller%check_reference_field', LOG_LEVEL_INFO)
+
     flux_precomputations => self%get_flux_precomputations()
     ref_field_safe = flux_precomputations%check_all_reference_field()
 
@@ -685,6 +687,9 @@ contains
         dt_one = 1.0_r_tran
         factor = 1.0_r_tran / real(self%num_substeps, r_tran)
 
+        write(log_scratch_space, *) 'Flux factor for Watkins algorithm: ', factor
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
         call invoke( setval_c(hori_flux, 0.0_r_tran),                          &
                      setval_c(vert_flux, 0.0_r_tran),                          &
                      a_times_X(ref_flux_one_step, factor, total_ref_flux),     &
@@ -704,6 +709,13 @@ contains
                      ! Determine the adjusted wind for the final step
                      X_minus_Y(step_3_flux, vert_flux, step_1_flux) )
 
+        call log_field_minmax(LOG_LEVEL_INFO, &
+                              'transport_controller%check_reference_field: total_flux', &
+                              total_ref_flux)
+        call log_field_minmax(LOG_LEVEL_INFO, &
+                              'transport_controller%check_reference_field: ref_flux_one_step', &
+                              ref_flux_one_step)
+
         ! Check if the Watkins algorithm failed
         call get_field_minmax(watkins_fail_field, watkins_min, watkins_fail)
         if (watkins_fail < 1) then
@@ -712,6 +724,18 @@ contains
           call flux_precomputations%finalise()
           ! Initialise by calling getter
           flux_precomputations => self%get_flux_precomputations()
+
+          call log_event('Watkins success!', LOG_LEVEL_INFO)
+
+          call log_field_minmax(LOG_LEVEL_INFO, &
+                                'transport_controller%check_reference_field: step_1_flux', &
+                                step_1_flux)
+          call log_field_minmax(LOG_LEVEL_INFO, &
+                                'transport_controller%check_reference_field: hori_flux', &
+                                hori_flux)
+          call log_field_minmax(LOG_LEVEL_INFO, &
+                                'transport_controller%check_reference_field: step_3_flux', &
+                                step_3_flux)
 
           ! Initialise the flux for each step
           do i = 1, self%num_substeps
@@ -722,6 +746,8 @@ contains
 
           ref_field_safe = .true.
         else
+          call log_event('Watkins fail!', LOG_LEVEL_INFO)
+
           ! We're about to fail... log the Lipschitz numbers
           ref_field_safe = .false.
 
@@ -779,6 +805,8 @@ contains
         )
       end if
     end if
+
+    call log_event('end transport_controller%check_reference_field', LOG_LEVEL_INFO)
 
   end function check_reference_field
 
@@ -1079,6 +1107,8 @@ contains
     logical(kind=l_def)      :: safe_ref
     integer(kind=i_def)      :: i, start_substeps, end_substeps
 
+    call log_event('start transport_controller%initialise_flux_precomp', LOG_LEVEL_INFO)
+
     if (self%flux_precomputations%is_initialised()) then
       call log_event(                                                          &
               'Trying to initialise flux_precomputations but it is ' //        &
@@ -1142,6 +1172,8 @@ contains
         EXIT
       end if
     end do
+
+    call log_event('end transport_controller%initialise_flux_precomp', LOG_LEVEL_INFO)
 
   end subroutine initialise_flux_precomputations
 
