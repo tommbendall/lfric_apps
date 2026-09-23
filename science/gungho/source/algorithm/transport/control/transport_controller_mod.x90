@@ -1137,6 +1137,7 @@ contains
         call self%ffsl_precomputations%finalise()
         call self%flux_precomputations%finalise()
         call self%wind_precomputations%finalise()
+        self%dep_stencil_extent_computed = .false.
 
         write(log_scratch_space, '(A,I4)')                                     &
             'Transport: Reference field for tracer transport cannot stay ' //  &
