@@ -424,7 +424,8 @@ contains
                                        watkins_fail_field,                     &
                                        wind_flux,                              &
                                        dt_one,                                 &
-                                       detj_at_w3),                            &
+                                       detj_at_w3,                             &
+                                       1),                                     &
                    ! Determine the adjusted wind for the final step
                    X_minus_Y(step_3_wind_flux, vert_wind_flux, step_1_wind_flux) )
 
@@ -705,7 +706,8 @@ contains
                                          watkins_fail_field,                   &
                                          ref_flux_one_step,                    &
                                          dt_one,                               &
-                                         ref_mass),                            &
+                                         ref_mass,                             &
+                                         self%num_substeps),                   &
                      ! Determine the adjusted wind for the final step
                      X_minus_Y(step_3_flux, vert_flux, step_1_flux) )
 
