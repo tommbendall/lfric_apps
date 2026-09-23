@@ -50,5 +50,5 @@ socrates-spectral:
     ref: 2026.07.1
 
 ukca:
-    source: git@github.com:MetOffice/ukca.git
-    ref: 2026.07.1
+    source: git@github.com:tommbendall/ukca.git
+    ref: ce300936a86cd48829c1a19b550e27f4dd8b5494  # Chemistry 3D chunking and timers

@@ -8,7 +8,7 @@
 
 $(info Project specials for GNU compiler)
 
-export FFLAGS_UM_PHYSICS = -fdefault-real-8 -fdefault-double-8
+export FFLAGS_UM_PHYSICS = -fdefault-real-8 -fdefault-double-8 -ffree-line-length-132
 # Most lfric_atm dependencies contain code with implicit lossy conversions and
 # unused variables.
 # We reset the FFLAGS_WARNINGS variable here in order to prevent
@@ -24,7 +24,7 @@ science/src/socrates/%.o science/src/socrates/%.mod: private FFLAGS_EXTRA = $(FF
 # latter is due to regular permitting of exponents going to zero for small numbers
 # to imply total extinction of radiation passing through a medium
 FFLAGS_RUNTIME           = -fcheck=all,no-bounds -ffpe-trap=invalid,zero,overflow
-
+FFFLAGS_EXTRA = -ffree-line-length-132
 # The lfric_atm app defines an extra set of debug flags for
 # fast-debug which are the same as the full-debug settings
 # except for some platforms
