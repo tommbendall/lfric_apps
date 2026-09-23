@@ -752,6 +752,7 @@ contains
               'make tracer transport non-conservative. ', LOG_LEVEL_WARNING    &
             )
             self%make_tracers_advective = .true.
+            ref_field_safe = .true.  ! Set safety switch to true
 
           else
             ! Fail gracefully
