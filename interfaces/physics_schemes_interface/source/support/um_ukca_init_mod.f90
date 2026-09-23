@@ -24,7 +24,7 @@ module um_ukca_init_mod
                                        chem_scheme_flexchem,                   &
                                        l_ukca_ro2_ntp,                         &
                                        l_ukca_asad_full,                       &
-                                       i_ukca_asad_full_chunk_size,            &
+                                       ukca_asad_full_chunk_size,              &
                                        i_chem_timestep_halvings,               &
                                        l_ukca_quasinewton,                     &
                                        l_ukca_linox_scaling,                   &
@@ -981,7 +981,7 @@ contains
            nrsteps=45,                                                         &
            l_ukca_asad_columns=.true.,                                         &
            l_ukca_asad_full=l_ukca_asad_full,                                  &
-           ukca_chem_full_chunk_size=i_ukca_asad_full_chunk_size,            &
+           ukca_chem_full_chunk_size=ukca_asad_full_chunk_size,                &
            l_ukca_intdd=.true.,                                                &
            l_ukca_ddep_lev1=.false.,                                           &
            l_ukca_ddepo3_ocean=.false.,                                        &
