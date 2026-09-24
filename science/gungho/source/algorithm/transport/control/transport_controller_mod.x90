@@ -914,14 +914,16 @@ contains
     type(flux_precomputations_type), pointer :: ffsl_precomputations
     type(mesh_type),                 pointer :: mesh
     type(r_tran_field_type)                  :: wind_flux
+    real(kind=r_tran)                        :: dt_whole_step
 
     ! If object is not created, then create it here
     if (.not. self%ffsl_precomputations%is_initialised()) then
       mesh => self%transporting_wind%get_mesh()
 
       ! Wind needs multiplying by dt
+      dt_whole_step = self%dt_substep * real(self%num_substeps, r_tran)
       call self%transporting_wind%copy_field_properties(wind_flux)
-      call invoke( a_times_X(wind_flux, self%dt_substep, self%transporting_wind) )
+      call invoke( a_times_X(wind_flux, dt_whole_step, self%transporting_wind) )
 
       write(log_scratch_space,*) 'Initialise FFSL precomp, num_substeps ', self%num_substeps
       call log_event(log_scratch_space, LOG_LEVEL_INFO)
@@ -1113,12 +1115,6 @@ contains
     end if
 
     do i = start_substeps, end_substeps
-      ! Clear all precomputations in case they were set
-      call self%ffsl_precomputations%finalise()
-      call self%flux_precomputations%finalise()
-      call self%wind_precomputations%finalise()
-      self%dep_stencil_extent_computed = .false.
-
       call self%flux_precomputations%initialise(                               &
               self%config,                                                     &
               mesh, self%reference_splitting, self%num_substeps,               &
@@ -1145,6 +1141,12 @@ contains
             / real(self%num_substeps + 1, r_tran)                              &
         )
         self%num_substeps = self%num_substeps + 1
+
+        ! Clear all precomputations in case they were set
+        call self%ffsl_precomputations%finalise()
+        call self%flux_precomputations%finalise()
+        call self%wind_precomputations%finalise()
+        self%dep_stencil_extent_computed = .false.
 
         write(log_scratch_space, '(A,I4)')                                     &
             'Transport: Reference field for tracer transport cannot stay ' //  &
