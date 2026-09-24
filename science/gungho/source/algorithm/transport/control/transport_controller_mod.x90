@@ -1110,6 +1110,12 @@ contains
     end if
 
     do i = start_substeps, end_substeps
+      ! Clear all precomputations in case they were set
+      call self%ffsl_precomputations%finalise()
+      call self%flux_precomputations%finalise()
+      call self%wind_precomputations%finalise()
+      self%dep_stencil_extent_computed = .false.
+
       call self%flux_precomputations%initialise(                               &
               self%config,                                                     &
               mesh, self%reference_splitting, self%num_substeps,               &
@@ -1132,12 +1138,6 @@ contains
             / real(self%num_substeps + 1, r_tran)                              &
         )
         self%num_substeps = self%num_substeps + 1
-
-        ! Clear all precomputations in case they were set
-        call self%ffsl_precomputations%finalise()
-        call self%flux_precomputations%finalise()
-        call self%wind_precomputations%finalise()
-        self%dep_stencil_extent_computed = .false.
 
         write(log_scratch_space, '(A,I4)')                                     &
             'Transport: Reference field for tracer transport cannot stay ' //  &
