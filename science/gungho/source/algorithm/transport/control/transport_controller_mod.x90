@@ -923,6 +923,9 @@ contains
       call self%transporting_wind%copy_field_properties(wind_flux)
       call invoke( a_times_X(wind_flux, self%dt_substep, self%transporting_wind) )
 
+      write(log_scratch_space,*) 'Initialise FFSL precomp, num_substeps ', self%num_substeps
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
       ! Since the object has not already been created, we initialise it with the
       ! 3D wind, rather than a wind flux for each split step
       ! NOTE: no reference field provided, as it is the unity field
@@ -1129,6 +1132,10 @@ contains
         safe_ref = self%check_reference_field(fail_on_neg=.false.)
       end if
 
+      write(log_scratch_space, *) 'initialise_flux_precomp, is ref safe? ', &
+        safe_ref, ' num_substeps ', self%num_substeps
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
       if (.not. safe_ref) then
         ! Watkins algorithm failed to keep reference field positive
         ! This is likely to be BDF tracer transport near start of run
@@ -1194,6 +1201,10 @@ contains
     end if
 
     if (share_stencil_extent) then
+      write(log_scratch_space, *) 'New calculation of stencil extent: num_substeps ', &
+        self%num_substeps
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
       ! Determine the stencil extent from the departure distances for the first
       ! horizontal transport step of the reference splitting (i.e. density)
       flux_precomputations => self%get_ffsl_precomputations()
