@@ -46,7 +46,7 @@ module gungho_transport_control_alg_mod
   ! For debugging
   use sci_field_minmax_alg_mod, only: log_field_minmax
   use sci_geometric_constants_mod, only: get_detj_at_w3_fv
-  use fv_divergence_3d_kernel_mod, only: fv_divergence_kernel_type
+  use fv_divergence_3d_kernel_mod, only: fv_divergence_3d_kernel_type
 
   implicit none
 
@@ -469,7 +469,7 @@ contains
           call rho_d_check%initialise(rho_d_n_start%get_function_space())
           call rho_d_diff%initialise(rho_d_n_start%get_function_space())
           call increment%initialise(rho_d_n_start%get_function_space())
-          call invoke( fv_3d_divergence_kernel_type(increment, total_dry_flux, detj_at_w3), &
+          call invoke( fv_divergence_3d_kernel_type(increment, total_dry_flux, detj_at_w3), &
                        X_minus_Y(rho_d_check, rho_d_n_start, increment), &
                        X_minus_Y(rho_d_diff, rho_d_check, fields_np1(igh_d)) )
           call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 TRANSPORT: RHO NP1', fields_np1(igh_d))
