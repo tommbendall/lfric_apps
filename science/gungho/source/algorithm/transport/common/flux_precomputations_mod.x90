@@ -2150,6 +2150,10 @@ contains
       call get_local_field_minmax(field, field_min, field_max)
     end if
 
+    write(log_scratch_space, *) 'check_negative_field: ', field_name, &
+      ' field_min = ', field_min
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+
     if (field_min < EPS_R_TRAN) then
       ! We're about to fail... log the Lipschitz numbers and field stats
       ! Protect this behind a log level check to avoid potentially hanging here
@@ -2229,6 +2233,10 @@ contains
       ! Get the reference mass for the end of this step
       ref_mass => self%get_ref_mass(mesh_id, step+1, negative_check_flag=.false.)
       call get_field_minmax(ref_mass, field_min, field_max)
+
+      write(log_scratch_space, *) 'check_all_reference_field: step = ', &
+        step+1, ' field_min = ', field_min
+      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
       if (field_min < EPS_R_TRAN) then
         ref_field_safe = .false.
