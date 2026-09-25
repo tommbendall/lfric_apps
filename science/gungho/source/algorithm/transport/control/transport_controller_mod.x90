@@ -724,7 +724,7 @@ contains
 
           ! Check the Watkins algorithm has succeeded in keeping all the
           ! reference fields positive
-          ref_field_safe = flux_precomputations%check_all_reference_field()
+          ref_field_safe = flux_precomputations%check_all_reference_field(check_shifted=.true.)
 
         else
           ! Watkins failed

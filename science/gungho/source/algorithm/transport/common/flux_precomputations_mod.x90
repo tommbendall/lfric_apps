@@ -2189,7 +2189,7 @@ contains
 
   !> @brief Checks all reference fields on the primary mesh for negative values
   !> @return If all reference fields are safe, returns .true., otherwise .false.
-  function check_all_reference_field(self) result(ref_field_safe)
+  function check_all_reference_field(self, check_shifted) result(ref_field_safe)
 
     use sci_field_minmax_alg_mod, only: get_field_minmax
     use check_configuration_mod,  only: check_any_hori_scheme_ffsl
@@ -2198,6 +2198,7 @@ contains
 
     ! Arguments
     class(flux_precomputations_type), target, intent(inout) :: self
+    logical(kind=l_def),            optional, intent(in)    :: check_shifted
 
     ! Internal variables
     integer(kind=i_def)              :: mesh_id, step
@@ -2207,9 +2208,21 @@ contains
     logical(kind=l_def)              :: hori_step
     integer(kind=i_def)              :: step_of_substep
     type(r_tran_field_type), pointer :: ref_mass
+    logical(kind=l_def)              :: check_shifted_flag
+
+    check_shifted_flag = .false.
+    if (present(check_shifted)) check_shifted_flag = check_shifted
 
     ref_field_safe = .true.
-    mesh_id = self%mesh_ids(1) ! Just look at reference masses on the first mesh
+    if (check_shifted_flag) then
+      mesh_id = self%mesh_ids(2) ! Look at reference masses on the shifted mesh
+      call log_event(                                                          &
+              'Checking reference fields on shifted mesh for negative values', &
+              LOG_LEVEL_DEBUG                                                  &
+      )
+    else
+      mesh_id = self%mesh_ids(1) ! Just look at reference masses on the first mesh
+    end if
 
     ! No need to check first or final reference fields
     do step = 1, self%num_steps-1
