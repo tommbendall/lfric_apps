@@ -13,6 +13,7 @@ module field_stats_kernel_mod
                                ANY_DISCONTINUOUS_SPACE_2
   use constants_mod,     only: r_def, i_def, r_single, r_double
   use kernel_mod,        only: kernel_type
+  use log_mod,           only: log_event, LOG_LEVEL_INFO, log_scratch_space
 
   implicit none
 
@@ -190,6 +191,10 @@ subroutine field_stats_code_r_single(nlayers,                            &
         min_lon(map_2d(df))    = longitude(map_2d(df))
         min_height(map_2d(df)) = height(map_3d(df) + k)
         min_count(map_2d(df)) = 1.0_r_def
+
+        write(log_scratch_space,*) 'FAILING CELL: ', map_2d(1)
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
         exit
       end if
     end do
