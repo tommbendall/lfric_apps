@@ -722,18 +722,16 @@ contains
             call self%flux_precomputations%initialise_step(step=(3+3*(i-1)), ref_flux=step_3_flux)
           end do
 
-          ref_field_safe = .true.
+          ! Check the Watkins algorithm has succeeded in keeping all the
+          ! reference fields positive
+          ref_field_safe = flux_precomputations%check_all_reference_field()
+
         else
-
-          ! We're about to fail... log the Lipschitz numbers
+          ! Watkins failed
           ref_field_safe = .false.
+        end if
 
-          call lipschitz_diag_alg(                                             &
-                  self%config,                                                 &
-                  self%reference_splitting, self%transporting_wind,            &
-                  self%dt_substep, LOG_LEVEL_WARNING                           &
-          )
-
+        if (.not. ref_field_safe) then
           if (.not. fail_on_neg                                                &
               .and. substep_transport == substep_transport_adaptive            &
               .and. self%num_substeps < 3) then
@@ -755,6 +753,12 @@ contains
             ref_field_safe = .true.  ! Set safety switch to true
 
           else
+            ! We're about to fail... log the Lipschitz numbers
+            call lipschitz_diag_alg(                                           &
+                    self%config,                                               &
+                    self%reference_splitting, self%transporting_wind,          &
+                    self%dt_substep, LOG_LEVEL_WARNING                         &
+            )
             ! Fail gracefully
             call log_event(                                                    &
               'The Watkins algorithm failed to keep all reference fields ' //  &
