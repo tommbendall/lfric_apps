@@ -42,6 +42,12 @@ module gungho_transport_control_alg_mod
                                                check_any_eqn_consistent
   use timing_mod,                        only: start_timing, stop_timing,      &
                                                tik, LPROF
+
+  ! For debugging
+  use sci_field_minmax_alg_mod, only: log_field_minmax
+  use sci_geometric_constants_mod, only: get_detj_at_w3_fv
+  use fv_divergence_3d_kernel_mod, only: fv_divergence_kernel_type
+
   implicit none
 
   private
@@ -280,6 +286,10 @@ contains
     type(transport_controller_type)          :: aerosol_transport_controller
     integer(tik)                             :: id_cont
 
+    ! For debugging
+    type(field_type) :: increment, rho_d_check, rho_d_diff
+    type(field_type), pointer :: detj_at_w3
+
     if ( LPROF ) call start_timing( id_cont, 'dynamics.transport' )
     ! ======================================================================== !
     ! Pre-transport initialisation tasks
@@ -453,6 +463,17 @@ contains
         if (outer == outer_iterations) then
           ! Dry flux is flux built up over whole timestep
           call transport_controller%initialise_flux_precomputations(total_dry_flux)
+          ! DEBUG: check the total dry flux gives the correct density, and is
+          ! that density positive??
+          detj_at_w3 => get_detj_at_w3_fv(rho_d_n_start%get_mesh())
+          call rho_d_check%initialise(rho_d_n_start%get_function_space())
+          call rho_d_diff%initialise(rho_d_n_start%get_function_space())
+          call increment%initialise(rho_d_n_start%get_function_space())
+          call invoke( fv_3d_divergence_kernel_type(increment, total_dry_flux, detj_at_w3), &
+                       X_minus_Y(rho_d_check, rho_d_n_start, increment), &
+                       X_minus_Y(rho_d_diff, rho_d_check, fields_np1(igh_d)) )
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 TRANSPORT: RHO NP1', fields_np1(igh_d))
+          call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 TRANSPORT: RHO DIFFERENCE', rho_d_diff)
         else if (.not. (                                                       &
             si_outer_transport == si_outer_transport_advective                 &
             .or. si_outer_transport == si_outer_transport_horizontal_sl        &

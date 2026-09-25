@@ -2229,7 +2229,7 @@ contains
     end if
 
     ! No need to check first or final reference fields
-    do step = 1, self%num_steps-1
+    do step = 1, self%num_steps
       ! Get the reference mass for the end of this step
       ref_mass => self%get_ref_mass(mesh_id, step+1, negative_check_flag=.false.)
       call get_field_minmax(ref_mass, field_min, field_max)
