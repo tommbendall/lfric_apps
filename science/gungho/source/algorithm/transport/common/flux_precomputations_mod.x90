@@ -2197,6 +2197,7 @@ contains
 
     use sci_field_minmax_alg_mod, only: get_field_minmax
     use check_configuration_mod,  only: check_any_hori_scheme_ffsl
+    use print_field_stats_alg_mod, only: print_field_stats_alg_rtran
 
     implicit none
 
@@ -2237,6 +2238,12 @@ contains
       write(log_scratch_space, *) 'check_all_reference_field: step = ', &
         step+1, ' field_min = ', field_min
       call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+
+      call print_field_stats_alg_rtran(self%config, ref_mass, LOG_LEVEL_INFO, &
+                                       0.0_r_tran, 1.0E16_r_tran, 'ref_mass')
+
+      ! TODO: put debugging in here in the case of a negative value. How was it
+      ! calculated? How did it occur?
 
       if (field_min < EPS_R_TRAN) then
         ref_field_safe = .false.
