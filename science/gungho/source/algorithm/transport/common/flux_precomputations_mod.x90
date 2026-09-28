@@ -294,6 +294,7 @@ contains
     self%to_initialise_by_step = present(flux)
     self%reset_unity = .false.
     if (present(reset_unity)) self%reset_unity = reset_unity
+    allocate(self%total_ref_flux)
 
     ! Determine settings for extended mesh remapping of density
     if (panel_edge_treatment == panel_edge_treatment_extended_mesh) then
@@ -575,7 +576,6 @@ contains
     self%is_computed_stencil_extent_outer(:,:) = .false.
 
     ! Set transporting wind and dt, used for logging
-    allocate(self%total_ref_flux)
     self%transporting_wind => wind
     self%dt = dt
 
