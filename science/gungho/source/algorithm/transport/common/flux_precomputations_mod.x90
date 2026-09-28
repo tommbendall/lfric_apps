@@ -85,6 +85,7 @@ module flux_precomputations_alg_mod
   use transport_enumerated_types_mod, only: direction_h,                       &
                                             direction_v,                       &
                                             direction_3d
+  use log_column_alg_mod,             only: log_column_rtran
 
   implicit none
 
@@ -912,6 +913,11 @@ contains
                                       self%ref_flux(1, step_idx)) )
       end select
 
+      write(field_name, '(A,I8)') 'prime flux, step ', step_idx
+      call log_column_rtran(field_name, self%ref_flux(1, step_idx), 707)
+      write(field_name, '(A,I8)') 'shifted flux, step ', step_idx
+      call log_column_rtran(field_name, self%ref_flux(2, step_idx), 707)
+
       if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
     end if
 
@@ -1161,6 +1167,13 @@ contains
                                              depth=transport_boundary_depth)
         end if
 
+        write(field_name, '(A,I8)') 'ref_mass, step ', step-1
+        call log_column_rtran(field_name, ref_mass_prev, 707)
+        write(field_name, '(A,I8)') 'ref_mass, step ', step
+        call log_column_rtran(field_name, self%ref_mass(mesh_idx, step), 707)
+        write(field_name, '(A,I8)') 'ref_flux, step ', step-1
+        call log_column_rtran(field_name, ref_flux, 707)
+
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
 
       ! ---------------------------------------------------------------------- !
@@ -1197,6 +1210,12 @@ contains
           call invoke( shift_mass_w3_kernel_type(self%ref_mass(2, step),       &
                                                  ref_mass_prime) )
         end if
+
+        write(field_name, '(A,I8)') 'prime ref_mass, step ', step
+        call log_column_rtran(field_name, ref_mass_prime, 707)
+        write(field_name, '(A,I8)') 'shifted ref_mass, step ', step
+        call log_column_rtran(field_name, self%ref_mass(2, step), 707)
+
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
       end if
 

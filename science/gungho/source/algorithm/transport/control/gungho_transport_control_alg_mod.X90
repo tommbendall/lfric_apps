@@ -47,6 +47,7 @@ module gungho_transport_control_alg_mod
   use sci_field_minmax_alg_mod, only: log_field_minmax
   use sci_geometric_constants_mod, only: get_detj_at_w3_fv
   use fv_divergence_3d_kernel_mod, only: fv_divergence_3d_kernel_type
+  use log_column_alg_mod, only: log_column
 
   implicit none
 
@@ -474,6 +475,13 @@ contains
                        X_minus_Y(rho_d_diff, rho_d_check, fields_np1(igh_d)) )
           call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 TRANSPORT: RHO NP1', fields_np1(igh_d))
           call log_field_minmax(LOG_LEVEL_DEBUG, 'BDF2 TRANSPORT: RHO DIFFERENCE', rho_d_diff)
+          call log_column('rho_d_n_start', rho_d_n_start, 707)
+          call invoke( X_times_Y(rho_d_check, rho_d_n_start, detj_at_w3) )
+          call log_column('mass_n_start', rho_d_check, 707)
+          call log_column('rho_d_np1', fields_np1(igh_d), 707)
+          call invoke( X_times_Y(rho_d_check, fields_np1(igh_d), detj_at_w3) )
+          call log_column('mass_np1', rho_d_check, 707)
+          call log_column('total_dry_flux', total_dry_flux, 707)
         else if (.not. (                                                       &
             si_outer_transport == si_outer_transport_advective                 &
             .or. si_outer_transport == si_outer_transport_horizontal_sl        &
