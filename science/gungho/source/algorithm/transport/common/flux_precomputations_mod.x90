@@ -85,7 +85,6 @@ module flux_precomputations_alg_mod
   use transport_enumerated_types_mod, only: direction_h,                       &
                                             direction_v,                       &
                                             direction_3d
-  use log_column_alg_mod,             only: log_column_rtran
 
   implicit none
 
@@ -528,8 +527,6 @@ contains
         flux_ptr => flux
       end if
 
-      call log_column_rtran('FLUX PRECOMP: input ref_flux', flux_ptr, 707)
-
       call self%set_total_ref_flux(flux_ptr)
 
       ! Split flux into horizontal and vertical components ---------------------
@@ -917,11 +914,6 @@ contains
                                       self%ref_flux(1, step_idx)) )
       end select
 
-      write(field_name, '(A,I8)') 'prime flux, step ', step_idx
-      call log_column_rtran(field_name, self%ref_flux(1, step_idx), 707)
-      write(field_name, '(A,I8)') 'shifted flux, step ', step_idx
-      call log_column_rtran(field_name, self%ref_flux(2, step_idx), 707)
-
       if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
     end if
 
@@ -1171,13 +1163,6 @@ contains
                                              depth=transport_boundary_depth)
         end if
 
-        write(field_name, '(A,I8)') 'ref_mass, step ', step-1
-        call log_column_rtran(field_name, ref_mass_prev, 707)
-        write(field_name, '(A,I8)') 'ref_mass, step ', step
-        call log_column_rtran(field_name, self%ref_mass(mesh_idx, step), 707)
-        write(field_name, '(A,I8)') 'ref_flux, step ', step-1
-        call log_column_rtran(field_name, ref_flux, 707)
-
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
 
       ! ---------------------------------------------------------------------- !
@@ -1214,11 +1199,6 @@ contains
           call invoke( shift_mass_w3_kernel_type(self%ref_mass(2, step),       &
                                                  ref_mass_prime) )
         end if
-
-        write(field_name, '(A,I8)') 'prime ref_mass, step ', step
-        call log_column_rtran(field_name, ref_mass_prime, 707)
-        write(field_name, '(A,I8)') 'shifted ref_mass, step ', step
-        call log_column_rtran(field_name, self%ref_mass(2, step), 707)
 
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
       end if
@@ -1791,6 +1771,13 @@ contains
     type(r_tran_field_type), pointer                     :: total_ref_flux
     character(len=str_def)                               :: field_name
 
+    if (.not. allocated(self%total_ref_flux)) then
+      call log_event(                                                          &
+        'flux_precomp%get_total_ref_flux: self%total_ref_flux not allocated',  &
+        LOG_LEVEL_ERROR                                                        &
+      )
+    end if
+
     total_ref_flux => self%total_ref_flux
 
     ! Check field has been initialised
@@ -1813,6 +1800,13 @@ contains
     class(flux_precomputations_type), target, intent(inout) :: self
     type(r_tran_field_type),                  intent(in)    :: total_ref_flux
 
+    if (.not. allocated(self%total_ref_flux)) then
+      call log_event(                                                          &
+        'flux_precomp%set_total_ref_flux: self%total_ref_flux not allocated',  &
+        LOG_LEVEL_ERROR                                                        &
+      )
+    end if
+
     if (.not. self%total_ref_flux%is_initialised()) then
       call self%total_ref_flux%initialise(total_ref_flux%get_function_space())
       call invoke( setval_c(self%total_ref_flux, 0.0_r_tran) )
@@ -1820,8 +1814,6 @@ contains
     end if
 
     call invoke( inc_X_plus_Y(self%total_ref_flux, total_ref_flux) )
-
-    call log_column_rtran('FLUX PRECOMP: set_total_ref_flux', self%total_ref_flux, 707)
 
   end subroutine set_total_ref_flux
 

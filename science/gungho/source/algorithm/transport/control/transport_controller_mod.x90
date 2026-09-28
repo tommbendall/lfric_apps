@@ -66,8 +66,6 @@ module transport_controller_mod
   use departure_points_config_mod,    only: share_stencil_extent
   use transport_config_mod,           only: dep_pt_stencil_extent
 
-  use log_column_alg_mod, only: log_column_rtran
-
   implicit none
 
   private
@@ -688,11 +686,6 @@ contains
         dt_one = 1.0_r_tran
         factor = 1.0_r_tran / real(self%num_substeps, r_tran)
 
-        write(log_scratch_space, *) 'WATKINS FACTOR = ', factor
-        call log_event(log_scratch_space, LOG_LEVEL_INFO)
-
-        call log_column_rtran('CONTROLLER: total_ref_flux', total_ref_flux, 707)
-
         call invoke( setval_c(hori_flux, 0.0_r_tran),                          &
                      setval_c(vert_flux, 0.0_r_tran),                          &
                      a_times_X(ref_flux_one_step, factor, total_ref_flux),     &
@@ -721,12 +714,6 @@ contains
           call flux_precomputations%finalise()
           ! Initialise by calling getter
           flux_precomputations => self%get_flux_precomputations()
-
-          call log_column_rtran('ref_flux_one_step', ref_flux_one_step, 707)
-          call log_column_rtran('hori_flux', hori_flux, 707)
-          call log_column_rtran('vert_flux', vert_flux, 707)
-          call log_column_rtran('step_1_flux', step_1_flux, 707)
-          call log_column_rtran('step_3_flux', step_3_flux, 707)
 
           ! Initialise the flux for each step
           do i = 1, self%num_substeps
@@ -1128,8 +1115,6 @@ contains
       start_substeps = 1
       end_substeps = 1  ! No substepping
     end if
-
-    call log_column_rtran('CONTROLLER: ref_flux', ref_flux, 707)
 
     do i = start_substeps, end_substeps
       call self%flux_precomputations%initialise(                               &
