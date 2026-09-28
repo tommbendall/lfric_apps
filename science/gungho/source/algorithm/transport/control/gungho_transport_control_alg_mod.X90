@@ -463,7 +463,6 @@ contains
         if (outer == outer_iterations) then
           ! Dry flux is flux built up over whole timestep
           call log_event( "START DEBUGGING...", LOG_LEVEL_DEBUG)
-          call log_column_rtran('total_dry_flux_in', total_dry_flux, 707)
           call transport_controller%initialise_flux_precomputations(total_dry_flux)
           ! DEBUG: check the total dry flux gives the correct density, and is
           ! that density positive??
