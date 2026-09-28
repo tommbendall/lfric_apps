@@ -47,7 +47,7 @@ module gungho_transport_control_alg_mod
   use sci_field_minmax_alg_mod, only: log_field_minmax
   use sci_geometric_constants_mod, only: get_detj_at_w3_fv
   use fv_divergence_3d_kernel_mod, only: fv_divergence_3d_kernel_type
-  use log_column_alg_mod, only: log_column
+  use log_column_alg_mod, only: log_column, log_column_rtran
 
   implicit none
 
@@ -463,6 +463,8 @@ contains
         )
         if (outer == outer_iterations) then
           ! Dry flux is flux built up over whole timestep
+          call log_event( "START DEBUGGING...", LOG_LEVEL_DEBUG)
+          call log_column_rtran('total_dry_flux_in', total_dry_flux, 707)
           call transport_controller%initialise_flux_precomputations(total_dry_flux)
           ! DEBUG: check the total dry flux gives the correct density, and is
           ! that density positive??
@@ -481,7 +483,7 @@ contains
           call log_column('rho_d_np1', fields_np1(igh_d), 707)
           call invoke( X_times_Y(rho_d_check, fields_np1(igh_d), detj_at_w3) )
           call log_column('mass_np1', rho_d_check, 707)
-          call log_column('total_dry_flux', total_dry_flux, 707)
+          call log_column_rtran('total_dry_flux', total_dry_flux, 707)
         else if (.not. (                                                       &
             si_outer_transport == si_outer_transport_advective                 &
             .or. si_outer_transport == si_outer_transport_horizontal_sl        &

@@ -528,6 +528,8 @@ contains
         flux_ptr => flux
       end if
 
+      call log_column_rtran('FLUX PRECOMP: input ref_flux', flux_ptr, 707)
+
       call self%set_total_ref_flux(flux_ptr)
 
       ! Split flux into horizontal and vertical components ---------------------
@@ -1812,9 +1814,12 @@ contains
     if (.not. self%total_ref_flux%is_initialised()) then
       call self%total_ref_flux%initialise(total_ref_flux%get_function_space())
       call invoke( setval_c(self%total_ref_flux, 0.0_r_tran) )
+      call log_event('Initialise total_ref_flux field', LOG_LEVEL_DEBUG)
     end if
 
     call invoke( inc_X_plus_Y(self%total_ref_flux, total_ref_flux) )
+
+    call log_column_rtran('FLUX PRECOMP: set_total_ref_flux', self%total_ref_flux, 707)
 
   end subroutine set_total_ref_flux
 

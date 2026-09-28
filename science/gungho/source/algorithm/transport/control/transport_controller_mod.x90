@@ -688,6 +688,11 @@ contains
         dt_one = 1.0_r_tran
         factor = 1.0_r_tran / real(self%num_substeps, r_tran)
 
+        write(log_scratch_space, *) 'WATKINS FACTOR = ', factor
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
+        call log_column_rtran('CONTROLLER: total_ref_flux', total_ref_flux, 707)
+
         call invoke( setval_c(hori_flux, 0.0_r_tran),                          &
                      setval_c(vert_flux, 0.0_r_tran),                          &
                      a_times_X(ref_flux_one_step, factor, total_ref_flux),     &
@@ -1120,8 +1125,11 @@ contains
     if (substep_transport == substep_transport_adaptive) then
       end_substeps = 3  ! Force max substeps of 3
     else
+      start_substeps = 1
       end_substeps = 1  ! No substepping
     end if
+
+    call log_column_rtran('CONTROLLER: ref_flux', ref_flux, 707)
 
     do i = start_substeps, end_substeps
       call self%flux_precomputations%initialise(                               &
