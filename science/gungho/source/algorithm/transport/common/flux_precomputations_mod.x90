@@ -109,7 +109,7 @@ module flux_precomputations_alg_mod
     logical(kind=l_def)                   :: max_stencil_extent_computed = .false.
 
     ! Total reference flux (over whole transport step), needed for cheap update
-    type(r_tran_field_type)               :: total_ref_flux
+    type(r_tran_field_type),  allocatable :: total_ref_flux
 
     ! Wind and dt for whole transport step, needed for logging
     type(r_tran_field_type),  pointer     :: transporting_wind => null()
@@ -578,6 +578,7 @@ contains
     self%is_computed_stencil_extent_outer(:,:) = .false.
 
     ! Set transporting wind and dt, used for logging
+    allocate(self%total_ref_flux)
     self%transporting_wind => wind
     self%dt = dt
 
@@ -606,6 +607,7 @@ contains
     nullify(self%transporting_wind)
     self%is_initialised_flag = .false.
     self%max_stencil_extent_computed = .false.
+    if ( allocated( self%total_ref_flux ) )  deallocate( self%total_ref_flux )
     if ( allocated( self%mesh_ids ) )        deallocate( self%mesh_ids )
     if ( allocated( self%ref_field ) )       deallocate( self%ref_field )
     if ( allocated( self%ref_mass ) )        deallocate( self%ref_mass )
@@ -2254,7 +2256,7 @@ contains
     end if
 
     ! No need to check first or final reference fields
-    do step = 1, self%num_steps
+    do step = 1, self%num_steps-1
       ! Get the reference mass for the end of this step
       ref_mass => self%get_ref_mass(mesh_id, step+1, negative_check_flag=.false.)
       call get_field_minmax(ref_mass, field_min, field_max)
