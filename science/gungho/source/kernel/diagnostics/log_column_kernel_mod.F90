@@ -86,7 +86,7 @@ subroutine log_column_code_r_single( nlayers,  &
   integer(kind=i_def), intent(in)    :: map_3d(ndf_3d)
   integer(kind=i_def), intent(in)    :: map_2d(ndf_2d)
   real(kind=r_single), intent(inout) :: dummy(undf_3d)
-  real(kind=r_single), intent(in)    :: field(undf_2d)
+  real(kind=r_single), intent(in)    :: field(undf_3d)
   real(kind=r_def),    intent(in)    :: panel_id(undf_2d)
 
   ! Internal variables
@@ -167,7 +167,7 @@ subroutine log_column_code_r_double( nlayers,  &
   integer(kind=i_def), intent(in)    :: map_3d(ndf_3d)
   integer(kind=i_def), intent(in)    :: map_2d(ndf_2d)
   real(kind=r_double), intent(inout) :: dummy(undf_3d)
-  real(kind=r_double), intent(in)    :: field(undf_2d)
+  real(kind=r_double), intent(in)    :: field(undf_3d)
   real(kind=r_def),    intent(in)    :: panel_id(undf_2d)
 
   ! Internal variables
