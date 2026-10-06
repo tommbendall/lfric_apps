@@ -8,14 +8,22 @@ module log_w2_alg_mod
 
   use constants_mod,                    only: r_def, l_def, i_def
   use field_mod,                        only: field_type
+  use integer_field_mod,                only: integer_field_type
   use log_mod,                          only: log_event,         &
                                               log_scratch_space, &
                                               LOG_LEVEL_ERROR,   &
                                               LOG_LEVEL_INFO
   use log_column_kernel_mod, only: log_column_kernel_type
-  use sci_geometric_constants_mod, only: get_panel_id, get_dA_at_w2
+  use sci_geometric_constants_mod, only: get_panel_id, get_dA_at_w2,           &
+                                         get_face_selector_ew,                 &
+                                         get_face_selector_ns
   use sci_mass_matrix_solver_alg_mod, &
                                 only: mass_matrix_solver_alg
+
+  use function_space_collection_mod, only: function_space_collection
+  use fs_continuity_mod,             only: W3, W2, W2H, W2V
+  use mesh_mod,                      only: mesh_type
+  use function_space_mod,            only: function_space_type
 
   implicit none
 
@@ -23,8 +31,70 @@ module log_w2_alg_mod
 
   public :: log_w2_column
   public :: log_w2_rhs_column
+  public :: log_w2_minmax
 
 contains
+
+  subroutine log_w2_minmax(message, field)
+
+    use physics_mappings_alg_mod,     only: map_physics_winds
+    use split_w2_field_kernel_mod,    only: split_w2_field_kernel_type
+    use print_field_stats_alg_mod,    only: print_field_stats_alg
+
+    implicit none
+
+    character(len=*),    intent(in) :: message
+    type(field_type),    intent(in) :: field
+
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: w2_fs, w3_fs, w2h_fs, w2v_fs
+    type(integer_field_type),  pointer :: face_selector_ew
+    type(integer_field_type),  pointer :: face_selector_ns
+    type(field_type),          pointer :: dA
+    type(field_type)                   :: u_physics
+    type(field_type)                   :: u_w2h_physics, w_in_wth
+    type(field_type)                   :: u_in_w3, v_in_w3, w_in_w3
+
+    mesh => field%get_mesh()
+    dA => get_dA_at_w2(mesh)
+    face_selector_ew => get_face_selector_ew(mesh)
+    face_selector_ns => get_face_selector_ns(mesh)
+    w2_fs => function_space_collection%get_fs(mesh, 0, 0, W2)
+    w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+    w2h_fs => function_space_collection%get_fs(mesh, 0, 0, W2H)
+    w2v_fs => function_space_collection%get_fs(mesh, 0, 0, W2V)
+
+    ! Initialise fields
+    call u_physics%initialise(w2_fs)
+    call u_w2h_physics%initialise(w2h_fs)
+    call w_in_wth%initialise(w2v_fs)
+    call u_in_w3%initialise(w3_fs)
+    call v_in_w3%initialise(w3_fs)
+    call w_in_w3%initialise(w3_fs)
+
+    ! Calculate u_physics and horizontal/vertical components
+    call invoke( X_divideby_Y(u_physics, field, dA),                           &
+                 split_w2_field_kernel_type(u_w2h_physics, w_in_wth, u_physics,&
+                                            face_selector_ew, face_selector_ns) )
+
+    call map_physics_winds(u_in_w3, v_in_w3, w_in_w3, field)
+
+
+    call log_event(message, LOG_LEVEL_INFO)
+    call print_field_stats_alg(u_w2h_physics, LOG_LEVEL_INFO,                  &
+                               printmin=-150.0_r_def, printmax=150.0_r_def,    &
+                               name='u_w2h_physics')
+    call print_field_stats_alg(u_in_w3, LOG_LEVEL_INFO,                        &
+                               printmin=-150.0_r_def, printmax=150.0_r_def,    &
+                               name='u_in_w3')
+    call print_field_stats_alg(v_in_w3, LOG_LEVEL_INFO,                        &
+                               printmin=-150.0_r_def, printmax=150.0_r_def,    &
+                               name='v_in_w3')
+    call print_field_stats_alg(w_in_wth, LOG_LEVEL_INFO,                       &
+                               printmin=-150.0_r_def, printmax=150.0_r_def,    &
+                               name='w_in_wth')
+
+  end subroutine log_w2_minmax
 
   subroutine log_w2_column(message, field, column_id)
 
