@@ -148,6 +148,7 @@ module semi_implicit_timestep_alg_mod
 
   use timing_mod,                 only: start_timing, stop_timing, tik, LPROF
   use ageofair_alg_mod,           only: ageofair_update
+  use log_w2_alg_mod,             only: log_w2_minmax
 
   implicit none
 
@@ -1064,6 +1065,8 @@ contains
                     X_plus_Y(self%state(igh_u), self%state_after_slow(igh_u), self%du))
 
       end if ! use_wavedynamics
+
+      call log_w2_minmax('End of outer wind', self%state(igh_u))
 
     end do outer_dynamics_loop
     !--------------------------------------------------------------------
