@@ -253,6 +253,8 @@ contains
     call theta_star%copy_field_properties(theta_latest)
     call invoke(setval_X(theta_latest, theta_star), &
                 setval_X(u_latest, u_star) )
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta fast start', theta)
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast start', theta_latest)
 
 #ifdef UM_PHYSICS
 
@@ -286,6 +288,8 @@ contains
                         microphysics_fields, aerosol_fields, outer, clock)
         call invoke(inc_X_plus_Y(theta_latest, dtheta), &
                     inc_X_plus_Y(u_latest, du) )
+        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after bl b4conv', dtheta)
+        call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after bl b4conv', theta_latest)
       end if
     end if
 
@@ -302,6 +306,8 @@ contains
       ! are seeing balanced state. This increment is retained for use by
       ! the dynamics in dtheta.
       call invoke(inc_X_plus_Y(theta_latest, dtheta) )
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after cld b4conv', dtheta)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after cld b4conv', theta_latest)
       ! Reset departure_exner to the arrival point value so that later
       ! call to pc2_pressure_forcing is not double-counting
       call cloud_fields%get_field('departure_exner_wth', departure_exner_wth)
@@ -367,6 +373,8 @@ contains
       call invoke(X_divideby_Y(dtheta, dt_conv, exner_in_wth), &
                   inc_X_plus_Y(theta_latest, dtheta), &
                   inc_X_plus_Y(u_latest, du))
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after convection', dtheta)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after convection', theta_latest)
 
     end if
 
@@ -389,6 +397,8 @@ contains
                         microphysics_fields, aerosol_fields, outer, clock)
         call invoke(inc_X_plus_Y(theta_latest, dtheta), &
                     inc_X_plus_Y(u_latest, du) )
+        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after bl', dtheta)
+        call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after bl', theta_latest)
       end if
     !--------------------------------------------------------------------
     ! Jules surface and sub-surface (snow and hydrology)
@@ -446,6 +456,8 @@ contains
       call invoke(inc_X_plus_Y(theta_latest, dtheta_stph), &
                   inc_X_plus_Y(mr(imr_v), dmv_stph), &
                   inc_X_plus_Y(u_latest, du_stph) )
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_stph fast', dtheta_stph)
+      call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after stph', theta_latest)
 
       if (blpert_type /= blpert_type_off) then
         call dtheta_stph%copy_field_properties(dtheta_blpert)
@@ -456,6 +468,8 @@ contains
                              turbulence_fields, stph_fields, outer, clock)
         call invoke(inc_X_plus_Y(theta_latest, dtheta_blpert), &
                     inc_X_plus_Y(mr(imr_v), dmv_blpert) )
+        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_blpert fast', dtheta_blpert)
+        call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after blpert', theta_latest)
 
       end if
     end if
@@ -527,6 +541,8 @@ contains
     end if
 
     ! Calculate total physics increment
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast end', theta_latest)
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_star fast end', theta_star)
     call invoke(X_minus_Y(dtheta, theta_latest, theta_star), &
                 X_minus_Y(du, u_latest, u_star) )
 
@@ -541,20 +557,11 @@ contains
     call print_field_stats_alg(dtheta, LOG_LEVEL_INFO, printmin=-20.0_r_def, &
                                printmax=20.0_r_def, name='dtheta fast')
     call print_nan_loc_alg(dtheta, LOG_LEVEL_DEBUG, 'dtheta fast')
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast', dtheta)
     call log_field_minmax(LOG_LEVEL_DEBUG, 'du fast', du)
 
     call dummy_w2%initialise(du%get_function_space())
     panel_id => get_panel_id(du%get_mesh_id())
-
-    call log_event('LOG_COLUMN: u_n', LOG_LEVEL_INFO)
-    call invoke( log_column_kernel_type(dummy_w2, u_n, panel_id, 37) )
-
-    call log_event('LOG_COLUMN: u_star', LOG_LEVEL_INFO)
-    call derived_fields%get_field('u_star', u_star)
-    call invoke( log_column_kernel_type(dummy_w2, u_star, panel_id, 37) )
-
-    call log_event('LOG_COLUMN: du', LOG_LEVEL_INFO)
-    call invoke( log_column_kernel_type(dummy_w2, du, panel_id, 37) )
 
     if ( use_moisture ) then
       do i_mr = 1, nummr
