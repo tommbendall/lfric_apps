@@ -23,12 +23,17 @@ module fast_physics_alg_mod
   use config_mod,           only: config_type
   use constants_mod,        only: i_def,r_def, l_def
   use log_mod,              only: LOG_LEVEL_INFO, LOG_LEVEL_ERROR, log_event, &
-                                  log_scratch_space
+                                  log_scratch_space, LOG_LEVEL_DEBUG
   use model_clock_mod,      only: model_clock_type
   use print_field_stats_alg_mod, only: print_field_stats_alg
   use io_config_mod,        only: write_conservation_diag, write_diag, &
                                   use_xios_io
   use timing_mod,           only: start_timing, stop_timing, tik, LPROF
+  use print_nan_loc_alg_mod,     only: print_nan_loc_alg
+  use sci_field_minmax_alg_mod,  only: log_field_minmax
+  use sci_geometric_constants_mod, only: get_panel_id
+  use log_column_kernel_mod, only: log_column_kernel_type
+
 
   use physics_config_mod,   only: blayer_placement, blayer_placement_fast, &
                                   blayer_placement_b4conv,                 &
@@ -185,6 +190,8 @@ contains
     ! ...for evaporation condensation
     type( field_type ) :: dtheta_cld
     type( field_type ) :: dmr_cld(nummr)
+    type( field_type ) :: dummy_w2
+    type( field_type ), pointer :: panel_id
 
 #ifdef UM_PHYSICS
     ! ...for boundary layer stochastic perturbation
@@ -479,7 +486,42 @@ contains
                                              exner_in_wth,                     &
                                              Rd, Rv, cp, cpv, cl, p_zero) )
 
-      call invoke(inc_X_plus_Y(theta_latest, dtheta_cld),     &
+    !=====================================================================
+    ! Update the main fields and increments to pass out
+    !=====================================================================
+    if (boundary_layer_done) then
+      ! N.B. as currently coded, the convection increments are added in the
+      ! boundary layer as part of the implicit solution
+      call invoke(inc_X_plus_Y(du, du_bl), &
+                  inc_X_plus_Y(dtheta, dtheta_bl) )
+    end if
+
+#ifdef UM_PHYSICS
+    if (stph_done) then
+      ! Adding stochastic physics theta, mv and winds
+      ! as part of the implicit solution
+      ! Note that these are stored from the first outer loop call
+      ! and then applied on subsequent outer loops
+      call invoke(inc_X_plus_Y(dtheta, dtheta_stph), &
+                  inc_X_plus_Y(mr(imr_v), dmv_stph), &
+                  inc_X_plus_Y(du, du_stph) )
+    end if
+
+    if (blpert_done) then
+      call invoke(inc_X_plus_Y(dtheta, dtheta_blpert), &
+                  inc_X_plus_Y(mr(imr_v), dmv_blpert) )
+    end if
+#endif
+
+    if (smagorinsky .and. smagorinsky_placement == smagorinsky_placement_fast) then
+      call derived_fields%get_field('theta_star', theta_star)
+      call derived_fields%get_field('u_star', u_star)
+      call smagorinsky_alg(dtheta, du, mr, theta_star, u_star, &
+                           derived_fields, rho, dt)
+    end if
+
+    if (evap_condense_done) then
+      call invoke(inc_X_plus_Y(dtheta,      dtheta_cld),     &
                   inc_X_plus_Y(mr(imr_v),   dmr_cld(imr_v)), &
                   inc_X_plus_Y(mr(imr_cl),  dmr_cld(imr_cl)))
     end if
@@ -496,9 +538,23 @@ contains
                            derived_fields, cloud_fields, rho, exner, dt, clock)
     end if
 
-    call print_field_stats_alg(config, dtheta, LOG_LEVEL_INFO,            &
-                               printmin=-20.0_r_def, printmax=20.0_r_def, &
-                               name='dtheta fast')
+    call print_field_stats_alg(dtheta, LOG_LEVEL_INFO, printmin=-20.0_r_def, &
+                               printmax=20.0_r_def, name='dtheta fast')
+    call print_nan_loc_alg(dtheta, LOG_LEVEL_DEBUG, 'dtheta fast')
+    call log_field_minmax(LOG_LEVEL_DEBUG, 'du fast', du)
+
+    call dummy_w2%initialise(du%get_function_space())
+    panel_id => get_panel_id(du%get_mesh_id())
+
+    call log_event('LOG_COLUMN: u_n', LOG_LEVEL_INFO)
+    call invoke( log_column_kernel_type(dummy_w2, u_n, panel_id, 37) )
+
+    call log_event('LOG_COLUMN: u_star', LOG_LEVEL_INFO)
+    call derived_fields%get_field('u_star', u_star)
+    call invoke( log_column_kernel_type(dummy_w2, u_star, panel_id, 37) )
+
+    call log_event('LOG_COLUMN: du', LOG_LEVEL_INFO)
+    call invoke( log_column_kernel_type(dummy_w2, du, panel_id, 37) )
 
     if ( use_moisture ) then
       do i_mr = 1, nummr
