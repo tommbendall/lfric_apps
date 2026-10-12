@@ -72,6 +72,7 @@ subroutine print_field_stats_alg(config, field_rdef, level_of_logging, &
 
   integer(kind=i_def)       :: fs_id
   integer(kind=i_def)       :: elt_order_h, elt_order_v
+  integer(kind=i_def)       :: nan_count
   real(kind=r_def)          :: fmin_rdef, fmax_rdef
   real(kind=r_def)          :: fsum_rdef, fnorm_rdef
   real(kind=r_def)          :: minvalue_rdef, maxvalue_rdef
@@ -100,10 +101,14 @@ subroutine print_field_stats_alg(config, field_rdef, level_of_logging, &
     ! Log min/max
     call get_field_minmax(field_rdef, fmin_rdef, fmax_rdef)
     if (log_sums_and_norms) then
-      call get_field_sum_norm(field_rdef, fsum_rdef, fnorm_rdef)
+      call get_field_sum_norm(field_rdef, fsum_rdef, fnorm_rdef, nan_count)
       write(log_scratch_space, '(A,A,A,4E16.8)') &
           'Field Min/max/sum/norm ', trim(field_name), ' = ',                  &
           fmin_rdef, fmax_rdef, fsum_rdef, fnorm_rdef
+      if (nan_count > 0) then
+        write(log_scratch_space, '(A,I0)') 'Number of NaNs: ', nan_count
+        call log_event(log_scratch_space, level_of_logging)
+      end if
     else
       write(log_scratch_space,'(A,A,A,F16.8,A,F16.8)') &
           'Field Min/max ',trim(field_name),' = ',fmin_rdef,' ',fmax_rdef
