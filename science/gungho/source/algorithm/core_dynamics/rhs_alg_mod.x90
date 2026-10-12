@@ -179,7 +179,7 @@ contains
 
     geopotential => get_geopotential(config, mesh)
     mm_wtheta    => get_mass_matrix_fv(Wtheta, mesh_id)
-    panel_id     => get_panel_id(mesh_id)
+    panel_id     => get_panel_id(mesh)
 
     ! Using modified velocity mass matrix if needing damping layer
     if (dlayer_rhs) then

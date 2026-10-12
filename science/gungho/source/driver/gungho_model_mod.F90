@@ -1048,7 +1048,7 @@ contains
                               panel_id_inventory,             &
                               surface_altitude )
 
-    call log_coordinates_alg(mesh)
+    call log_coordinates_alg(modeldb%config, mesh)
 
     !=======================================================================
     ! 6.0 Initialise runtime constants

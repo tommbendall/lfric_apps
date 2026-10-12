@@ -15,10 +15,14 @@ public :: print_nan_loc_alg
 contains
 
 ! @details Print the location of a NaN in a field
-! @param[in] field        Field to print info about
-! @param[in] field_name   Name of the field to appear in print messages
-subroutine print_nan_loc_alg(field, log_level_in, field_name)
 
+! @param[in] config       Configuration object
+! @param[in] field        Field to print info about
+! @param[in] log_level_in Log level for printing messages
+! @param[in] field_name   Name of the field to appear in print messages
+subroutine print_nan_loc_alg(config, field, log_level_in, field_name)
+
+  use config_mod,              only: config_type
   use field_mod,               only: field_type
   use mesh_mod,                only: mesh_type
   use constants_mod,           only: r_def, str_def, i_def, radians_to_degrees,&
@@ -37,9 +41,10 @@ subroutine print_nan_loc_alg(field, log_level_in, field_name)
 
   implicit none
 
-  type(field_type), intent(in) :: field
-  character(*),     intent(in) :: field_name
-  integer(i_def),   intent(in) :: log_level_in
+  type(config_type), intent(in) :: config
+  type(field_type),  intent(in) :: field
+  character(*),      intent(in) :: field_name
+  integer(i_def),    intent(in) :: log_level_in
 
   integer(i_def)     :: fs_id, fs_id_to_get
   real(r_def)        :: gnan_lev, gnan_count, &
@@ -69,9 +74,9 @@ subroutine print_nan_loc_alg(field, log_level_in, field_name)
         twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
         w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3)
 
-        latitude  => get_latitude_fv( fs_id_to_get, twod_mesh%get_id() )
-        longitude => get_longitude_fv( fs_id_to_get, twod_mesh%get_id() )
-        height => get_height_fv( fs_id_to_get, mesh%get_id() )
+        latitude  => get_latitude_fv( config, twod_mesh, fs_id_to_get )
+        longitude => get_longitude_fv( config, twod_mesh, fs_id_to_get )
+        height => get_height_fv( config, twod_mesh, fs_id_to_get )
 
         gnan_count = 0.0_r_def
         gnan_lev = 0.0_r_def

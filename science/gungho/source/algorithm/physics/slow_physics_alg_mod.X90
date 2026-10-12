@@ -1267,7 +1267,7 @@ contains
                                 printmin=-20.0_r_def, printmax=20.0_r_def, &
                                 name='dtheta slow' )
 
-    call print_nan_loc_alg(dtheta, LOG_LEVEL_DEBUG, 'dtheta slow')
+    call print_nan_loc_alg(modeldb%config, dtheta, LOG_LEVEL_DEBUG, 'dtheta slow')
     call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow', dtheta)
     call log_field_minmax(LOG_LEVEL_DEBUG, 'du slow', du)
 
