@@ -52,6 +52,7 @@
   <field id="aam_in_w3" name="aam_in_w3" long_name="axial_angular_momentum_at_cell_centres" standard_name="axial_angular_momentum" unit="kg m2 s-1" grid_ref="half_level_face_grid" />
   <field id="ke_uv_in_w3" name="ke_uv_in_w3" long_name="horizontal_kinetic_energy_at_cell_centres" standard_name="horizontal_kinetic_energy" unit="J" grid_ref="half_level_face_grid" />
   <field id="ke_w_in_w3" name="ke_w_in_w3" long_name="vertical_kinetic_energy_at_cell_centres" standard_name="vertical_kinetic_energy" unit="J" grid_ref="half_level_face_grid" />
+  <field id="pred_diff" name="pred_diff" long_name="vertical_wind_predictor_difference_horizontal_minus_3d_solve" unit="m s-1" grid_ref="full_level_face_grid" />
   <!-- chemistry diagnostics -->
   <field id="chemistry__emiss_c2h6" name="emissions_C2H6" long_name="C2H6 surf emissions" unit="kg m-2 s-1" domain_ref="face" /> 
   <field id="chemistry__emiss_c3h8" name="emissions_C3H8" long_name="C3H8 surf emissions" unit="kg m-2 s-1" domain_ref="face" /> 

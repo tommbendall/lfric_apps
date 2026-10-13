@@ -393,5 +393,7 @@
   <field id="frozen_soil_moisture" name="frozen_soil_moisture" long_name="mass_fraction_of_frozen_water_in_saturated_soil_moisture" unit="1" domain_ref="face" axis_ref="soil_levels" />
   <!-- energy correction -->
   <field id="temperature_correction_rate" name="temperature_correction_rate" long_name="temperature_rate_for_energy_correction" unit="K s-1" axis_ref="scalar_axis" />
+  <!-- predictor diagnostics -->
+  <field id="pred_diff" name="pred_diff" long_name="vertical_wind_predictor_difference_horizontal_minus_3d_solve" unit="m s-1" grid_ref="full_level_face_grid" />
 </field_group>
 </field_definition>

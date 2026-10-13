@@ -1,8 +1,10 @@
 !-----------------------------------------------------------------------------
-! (c) Crown copyright 2022 Met Office. All rights reserved.
+! (C) Crown copyright 2022 Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
 !-----------------------------------------------------------------------------
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
 
 !> @brief   Algorithm to set density and wind predictors for transport in GungHo.
 !> @details The semi-implicit time stepping method requires the Eulerian transported
@@ -20,6 +22,9 @@ module predictors_alg_mod
                                         get_im3_div_fv
   use field_indices_mod,          only: igh_u, igh_d
   use field_mod,                  only: field_type
+  use field_parent_mod,           only: write_interface
+  use io_config_mod,              only: use_xios_io
+  use lfric_xios_write_mod,       only: write_field_generic
   use model_clock_mod,            only: model_clock_type
   use operator_mod,               only: operator_type
   use timing_mod,                 only: start_timing, stop_timing, &
@@ -39,6 +44,8 @@ module predictors_alg_mod
                                   only: mass_matrix_solver_alg
   use sci_hori_mass_matrix_solver_alg_mod, &
                                   only: hori_mass_matrix_solver_alg
+  use diagnostic_alg_mod,         only: extract_w2h_diagnostic_alg
+  use initialise_diagnostics_mod, only: diagnostic_to_be_sampled
 
   implicit none
 
@@ -85,14 +92,38 @@ contains
     integer(tik)     :: id
 
     ! Divergence operator
-    type(operator_type), pointer :: im3_div => null()
+    type(operator_type), pointer :: im3_div
+
+    ! Fields for the predictor difference diagnostic
+    type(field_type) :: u_3d, u_diff, h_diff, pred_diff
+    logical          :: sample_pred_diff
+    procedure(write_interface), pointer :: write_behaviour
 
     if ( LPROF ) call start_timing( id, "dynamics.transport_predictors")
 
     ! Predictor of the wind field (u-beta*dt*rhs)
     if ( .not. si_momentum_equation ) then
       if (horizontal_transport_predictor) then
+        sample_pred_diff = diagnostic_to_be_sampled('pred_diff')
+        if ( sample_pred_diff ) then
+          ! 3D solve, for comparison with the horizontal solve
+          call u_3d%initialise( advected_state(igh_u)%get_function_space() )
+          call mass_matrix_solver_alg(u_3d, rhs_n)
+        end if
+
         call hori_mass_matrix_solver_alg(advected_state(igh_u), rhs_n, advected_state(igh_u))
+
+        if ( sample_pred_diff ) then
+          call u_diff%initialise( advected_state(igh_u)%get_function_space() )
+          call invoke( X_minus_Y(u_diff, advected_state(igh_u), u_3d) )
+          call extract_w2h_diagnostic_alg(h_diff, pred_diff, u_diff)
+          if ( use_xios_io ) then
+            write_behaviour => write_field_generic
+            call pred_diff%set_write_behaviour(write_behaviour)
+            call pred_diff%write_field('pred_diff')
+            nullify( write_behaviour )
+          end if
+        end if
       else
         call mass_matrix_solver_alg(advected_state(igh_u), rhs_n)
       end if
