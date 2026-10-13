@@ -32,6 +32,7 @@ module fast_physics_alg_mod
   use print_nan_loc_alg_mod,     only: print_nan_loc_alg
   use sci_field_minmax_alg_mod,  only: log_field_minmax
   use log_column_kernel_mod, only: log_column_kernel_type
+  use sci_geometric_constants_mod, only: get_panel_id
 
 
   use physics_config_mod,   only: blayer_placement, blayer_placement_fast, &
@@ -232,6 +233,10 @@ contains
     integer(i_def) :: i_mr
     integer(tik)   :: id
 
+    ! ...for column logging
+    type( field_type ) :: log_dummy
+    type( field_type ), pointer :: log_panel => null()
+
     if ( LPROF ) call start_timing( id, 'fast_physics' )
 
     use_moisture = ( moisture_formulation /= moisture_formulation_dry )
@@ -251,7 +256,15 @@ contains
     call invoke(setval_X(theta_latest, theta_star), &
                 setval_X(u_latest, u_star) )
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta fast start', theta)
+    call theta%copy_field_properties(log_dummy)
+    log_panel => get_panel_id( theta%get_mesh() )
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, theta, log_panel, 1_i_def) )
+    end if
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast start', theta_latest)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+    end if
 
 #ifdef UM_PHYSICS
 
@@ -286,7 +299,13 @@ contains
         call invoke(inc_X_plus_Y(theta_latest, dtheta), &
                     inc_X_plus_Y(u_latest, du) )
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after bl b4conv', dtheta)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+        end if
         call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after bl b4conv', theta_latest)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+        end if
       end if
     end if
 
@@ -304,7 +323,13 @@ contains
       ! the dynamics in dtheta.
       call invoke(inc_X_plus_Y(theta_latest, dtheta) )
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after cld b4conv', dtheta)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+      end if
       call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after cld b4conv', theta_latest)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+      end if
       ! Reset departure_exner to the arrival point value so that later
       ! call to pc2_pressure_forcing is not double-counting
       call cloud_fields%get_field('departure_exner_wth', departure_exner_wth)
@@ -371,7 +396,13 @@ contains
                   inc_X_plus_Y(theta_latest, dtheta), &
                   inc_X_plus_Y(u_latest, du))
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after convection', dtheta)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+      end if
       call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after convection', theta_latest)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+      end if
 
     end if
 
@@ -395,7 +426,13 @@ contains
         call invoke(inc_X_plus_Y(theta_latest, dtheta), &
                     inc_X_plus_Y(u_latest, du) )
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast after bl', dtheta)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+        end if
         call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after bl', theta_latest)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+        end if
       end if
     !--------------------------------------------------------------------
     ! Jules surface and sub-surface (snow and hydrology)
@@ -454,7 +491,13 @@ contains
                   inc_X_plus_Y(mr(imr_v), dmv_stph), &
                   inc_X_plus_Y(u_latest, du_stph) )
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_stph fast', dtheta_stph)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_stph, log_panel, 1_i_def) )
+      end if
       call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after stph', theta_latest)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+      end if
 
       if (blpert_type /= blpert_type_off) then
         call dtheta_stph%copy_field_properties(dtheta_blpert)
@@ -466,7 +509,13 @@ contains
         call invoke(inc_X_plus_Y(theta_latest, dtheta_blpert), &
                     inc_X_plus_Y(mr(imr_v), dmv_blpert) )
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_blpert fast', dtheta_blpert)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta_blpert, log_panel, 1_i_def) )
+        end if
         call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast after blpert', theta_latest)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+        end if
 
       end if
     end if
@@ -500,11 +549,20 @@ contains
                   inc_X_plus_Y(mr(imr_v),    dmr_cld(imr_v)), &
                   inc_X_plus_Y(mr(imr_cl),   dmr_cld(imr_cl)))
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_cld fast', dtheta_cld)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_cld, log_panel, 1_i_def) )
+      end if
     end if
 
     ! Calculate total physics increment
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_latest fast end', theta_latest)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+    end if
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta_star fast end', theta_star)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, theta_star, log_panel, 1_i_def) )
+    end if
     call invoke(X_minus_Y(dtheta, theta_latest, theta_star), &
                 X_minus_Y(du, u_latest, u_star) )
 
@@ -520,6 +578,9 @@ contains
                                printmax=20.0_r_def, name='dtheta fast')
     call print_nan_loc_alg(config, dtheta, LOG_LEVEL_DEBUG, 'dtheta fast')
     call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta fast', dtheta)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+    end if
     call log_field_minmax(LOG_LEVEL_DEBUG, 'du fast', du)
 
     if ( use_moisture ) then
@@ -532,6 +593,7 @@ contains
       end if
     end if
 
+    call log_dummy%field_final()
     if ( LPROF ) call stop_timing( id, 'fast_physics' )
 
   end subroutine fast_physics

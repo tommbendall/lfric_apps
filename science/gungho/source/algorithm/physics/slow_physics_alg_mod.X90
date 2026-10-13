@@ -35,6 +35,8 @@ module slow_physics_alg_mod
   use print_field_stats_alg_mod, only: print_field_stats_alg
   use print_nan_loc_alg_mod,     only: print_nan_loc_alg
   use sci_field_minmax_alg_mod,  only: log_field_minmax
+  use log_column_kernel_mod,     only: log_column_kernel_type
+  use sci_geometric_constants_mod, only: get_panel_id
   use physics_config_mod,        only: microphysics_placement,         &
                                        microphysics_placement_slow,    &
                                        electric_placement,             &
@@ -374,6 +376,9 @@ contains
     type(mesh_type),        pointer :: aerosol_twod_mesh => null()
 #endif
     integer(tik)                    :: id
+    ! ...for column logging
+    type( field_type ) :: log_dummy
+    type( field_type ), pointer :: log_panel => null()
     if ( LPROF ) call start_timing( id, 'slow_physics' )
     if (write_conservation_diag) then
       call moisture_conservation_alg( modeldb%config, rho, mr, 'Before slow' )
@@ -383,7 +388,12 @@ contains
     !--------------------------------------------------------------------
     call invoke( setval_c(dtheta, 0.0_r_def), &
                  setval_c(du, 0.0_r_def) )
+    call theta%copy_field_properties(log_dummy)
+    log_panel => get_panel_id( mesh )
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta slow start', theta)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, theta, log_panel, 1_i_def) )
+    end if
     call derived_fields%get_field('exner_in_wth', exner_in_wth)
     call derived_fields%get_field('exner_wth_n', exner_wth_n)
     call invoke( setval_X(exner_wth_n,exner_in_wth) )
@@ -432,6 +442,9 @@ contains
       if (theta_forcing_done) then
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_forcing slow', &
                               dtheta_forcing)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta_forcing, log_panel, 1_i_def) )
+        end if
       end if
     end if
 
@@ -446,6 +459,9 @@ contains
                    inc_X_divideby_Y(dtheta_encorr, exner_in_wth) )
       energy_correction_done = .true.
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_encorr slow', dtheta_encorr)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_encorr, log_panel, 1_i_def) )
+      end if
     end if
 
 #ifdef UM_PHYSICS
@@ -592,6 +608,9 @@ contains
       end if
       microphysics_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_mphys slow', dtheta_mphys)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_mphys, log_panel, 1_i_def) )
+      end if
       call f_arr%field_final()
     end if
 
@@ -769,6 +788,9 @@ contains
       call um_sizes_init(1_i_def)
       radiation_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_rad slow', dtheta_rad)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_rad, log_panel, 1_i_def) )
+      end if
       call tile_lw_albedo%field_final()
       call tile_lwinc_albedo%field_final()
       call tile_sw_diffuse_albedo%field_final()
@@ -842,6 +864,9 @@ contains
       spectral_gwd_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_spectral_gwd slow', &
                             dtheta_spectral_gwd)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_spectral_gwd, log_panel, 1_i_def) )
+      end if
     end if
 
     !--------------------------------------------------------------------
@@ -861,6 +886,9 @@ contains
       orographic_drag_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_orographic_drag slow', &
                             dtheta_orographic_drag)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_orographic_drag, log_panel, 1_i_def) )
+      end if
     end if
 
     ! Call methane oxidation code
@@ -948,6 +976,9 @@ contains
       leonard_term_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'thetal_inc_leonard slow', &
                             thetal_inc_leonard)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, thetal_inc_leonard, log_panel, 1_i_def) )
+      end if
 
     end if
 
@@ -995,6 +1026,9 @@ contains
                                              Rd, Rv, cp, cpv, cl, p_zero) )
       evap_condense_done = .true.
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_cld slow', dtheta_cld)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta_cld, log_panel, 1_i_def) )
+      end if
     end if
 
     !=====================================================================
@@ -1104,6 +1138,9 @@ contains
       call dtheta_cld%field_final()
     end if
     call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after increments', dtheta)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+    end if
 
 #ifdef UM_PHYSICS
     !--------------------------------------------------------------------
@@ -1149,8 +1186,14 @@ contains
                     inc_X_plus_Y(bulk_fraction,   dbcf_pc2_checks)    )
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_pc2_checks slow', &
                               dtheta_pc2_checks)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta_pc2_checks, log_panel, 1_i_def) )
+        end if
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after pc2 checks', &
                               dtheta)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+        end if
       end if ! (microphysics_done .or. radiation_done))
 
     end if ! (scheme == scheme_pc2)
@@ -1211,8 +1254,14 @@ contains
                   inc_X_plus_Y(du, du_tmp) )
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after convection', &
                             dtheta)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+      end if
       call log_field_minmax(LOG_LEVEL_DEBUG, &
                             'theta_latest slow after convection', theta_latest)
+      if (clock%get_step() > 64127_i_def) then
+        call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
+      end if
 
     end if
 
@@ -1238,6 +1287,9 @@ contains
                     inc_X_plus_Y(du, du_tmp) )
                     ! u_latest and theta_latest not updated as not used again
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after bl', dtheta)
+        if (clock%get_step() > 64127_i_def) then
+          call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+        end if
 
     !--------------------------------------------------------------------
     ! Jules surface and sub-surface (snow and hydrology)
@@ -1269,6 +1321,9 @@ contains
 
     call print_nan_loc_alg(modeldb%config, dtheta, LOG_LEVEL_DEBUG, 'dtheta slow')
     call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow', dtheta)
+    if (clock%get_step() > 64127_i_def) then
+      call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
+    end if
     call log_field_minmax(LOG_LEVEL_DEBUG, 'du slow', du)
 
     if ( moisture_formulation /= moisture_formulation_dry ) then
@@ -1278,6 +1333,7 @@ contains
       if (write_conservation_diag) &
         call moisture_conservation_alg( modeldb%config, rho, mr, 'After slow' )
     end if
+    call log_dummy%field_final()
     if ( LPROF ) call stop_timing( id, 'slow_physics' )
 
   end subroutine slow_physics
