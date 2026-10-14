@@ -95,7 +95,7 @@ contains
     type(operator_type), pointer :: im3_div
 
     ! Fields for the predictor difference diagnostic
-    type(field_type) :: u_3d, u_diff, h_diff, pred_diff
+    type(field_type) :: u_alt, u_diff, h_diff, pred_diff
     logical          :: sample_pred_diff
     procedure(write_interface), pointer :: write_behaviour
 
@@ -103,29 +103,36 @@ contains
 
     ! Predictor of the wind field (u-beta*dt*rhs)
     if ( .not. si_momentum_equation ) then
+      sample_pred_diff = diagnostic_to_be_sampled('pred_diff')
+      if ( sample_pred_diff ) then
+        ! Copy of the input, to be solved with the method not in use
+        call u_alt%initialise( advected_state(igh_u)%get_function_space() )
+        call invoke( setval_X(u_alt, advected_state(igh_u)) )
+      end if
+
       if (horizontal_transport_predictor) then
-        sample_pred_diff = diagnostic_to_be_sampled('pred_diff')
-        if ( sample_pred_diff ) then
-          ! 3D solve, for comparison with the horizontal solve
-          call u_3d%initialise( advected_state(igh_u)%get_function_space() )
-          call mass_matrix_solver_alg(u_3d, rhs_n)
-        end if
-
         call hori_mass_matrix_solver_alg(advected_state(igh_u), rhs_n, advected_state(igh_u))
-
-        if ( sample_pred_diff ) then
-          call u_diff%initialise( advected_state(igh_u)%get_function_space() )
-          call invoke( X_minus_Y(u_diff, advected_state(igh_u), u_3d) )
-          call extract_w2h_diagnostic_alg(h_diff, pred_diff, u_diff)
-          if ( use_xios_io ) then
-            write_behaviour => write_field_generic
-            call pred_diff%set_write_behaviour(write_behaviour)
-            call pred_diff%write_field('pred_diff')
-            nullify( write_behaviour )
-          end if
-        end if
       else
         call mass_matrix_solver_alg(advected_state(igh_u), rhs_n)
+      end if
+
+      if ( sample_pred_diff ) then
+        ! pred_diff = horizontal solve minus 3D solve
+        call u_diff%initialise( advected_state(igh_u)%get_function_space() )
+        if (horizontal_transport_predictor) then
+          call mass_matrix_solver_alg(u_alt, rhs_n)
+          call invoke( X_minus_Y(u_diff, advected_state(igh_u), u_alt) )
+        else
+          call hori_mass_matrix_solver_alg(u_alt, rhs_n, u_alt)
+          call invoke( X_minus_Y(u_diff, u_alt, advected_state(igh_u)) )
+        end if
+        call extract_w2h_diagnostic_alg(h_diff, pred_diff, u_diff)
+        if ( use_xios_io ) then
+          write_behaviour => write_field_generic
+          call pred_diff%set_write_behaviour(write_behaviour)
+          call pred_diff%write_field('pred_diff')
+          nullify( write_behaviour )
+        end if
       end if
     end if
 
