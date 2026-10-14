@@ -64,6 +64,7 @@ module gungho_model_mod
                                          LOG_LEVEL_TRACE,    &
                                          LOG_LEVEL_WARNING,  &
                                          LOG_LEVEL_ALWAYS
+  use log_coordinates_alg_mod,    only : log_coordinates_alg
   use minmax_tseries_mod,         only : minmax_tseries,      &
                                          minmax_tseries_init, &
                                          minmax_tseries_final
@@ -863,6 +864,7 @@ contains
                               panel_id_inventory,             &
                               surface_altitude )
 
+    call log_coordinates_alg(mesh)
 
     !=======================================================================
     ! 6.0 Initialise runtime constants
