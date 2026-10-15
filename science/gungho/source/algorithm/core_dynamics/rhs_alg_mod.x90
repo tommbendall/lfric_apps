@@ -53,10 +53,11 @@ module rhs_alg_mod
   use mesh_mod,                            only: mesh_type
   use vorticity_advection_kernel_mod,      only: vorticity_advection_kernel_type
   use compute_vorticity_alg_mod,           only: compute_vorticity_alg
-  use fs_continuity_mod,                   only: W1, W2, W3, Wtheta
+  use fs_continuity_mod,                   only: W1, W2, W2h, W3, Wtheta
   use function_space_collection_mod,       only: function_space_collection
   use w2_vorticity_advection_kernel_mod,   only: w2_vorticity_advection_kernel_type
   use pressure_gradient_p0_kernel_mod,     only: pressure_gradient_p0_kernel_type
+  use sci_split_combine_w2_alg_mod,        only: split_w2_field_alg
 
   implicit none
 
@@ -64,6 +65,7 @@ module rhs_alg_mod
   public  :: rhs_alg
   private :: rhs_default_alg
   private :: rhs_general_alg
+  private :: compute_rhs_w2h_alg
 
 contains
 
@@ -92,8 +94,10 @@ contains
   !> @param[in]     compute_rhs_t_d Compute rhs for the potential temperature
   !!                                and density
   !> @param[in]     model_clock     Time in the model
+  !> @param[in,out] rhs_w2h         Optional W2h RHS of the horizontal wind
+  !!                                equation, without the damping layer
   subroutine rhs_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                      compute_rhs_t_d, dlayer_rhs, model_clock )
+                      compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
 
     implicit none
 
@@ -108,16 +112,17 @@ contains
     logical(kind=l_def),          intent(in)    :: compute_eos
     logical(kind=l_def),          intent(in)    :: compute_rhs_t_d
     class(model_clock_type),      intent(in)    :: model_clock
+    type(field_type), optional,   intent(inout) :: rhs_w2h
 
     if (   (rhs(igh_u)%get_element_order_h() == 0) &
      .and. (rhs(igh_u)%get_element_order_v() == 0) &
      .and. (.not. si_momentum_equation)            &
      .and. (eos_method == eos_method_sampled) ) then
       call rhs_default_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                            compute_rhs_t_d, dlayer_rhs, model_clock )
+                            compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
     else
       call rhs_general_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                            compute_rhs_t_d, dlayer_rhs, model_clock )
+                            compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
     end if
 
   end subroutine rhs_alg
@@ -125,7 +130,7 @@ contains
   !> @brief rhs algorithm for the default setup ( lowest order elements,
   !!        explicit momentum advection, global and sampled eos)
   subroutine rhs_default_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                              compute_rhs_t_d, dlayer_rhs, model_clock )
+                              compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
 
     implicit none
 
@@ -140,9 +145,11 @@ contains
     logical(kind=l_def),          intent(in)    :: compute_eos
     logical(kind=l_def),          intent(in)    :: compute_rhs_t_d
     class(model_clock_type),      intent(in)    :: model_clock
+    type(field_type),   optional, intent(inout) :: rhs_w2h
 
     type(operator_type), pointer :: mm_vel    => null(), &
                                     mm_wtheta => null(), &
+                                    mm_w2h => null(),    &
                                     coriolis  => null()
     type(field_type), pointer :: geopotential => null(), &
                                  u            => null(), &
@@ -211,6 +218,11 @@ contains
                  inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_u ),            &
                  enforce_bc_kernel_type(rhs(igh_u)) )
 
+    if ( present(rhs_w2h) ) then
+      mm_w2h => get_mass_matrix_fv(W2h, mesh_id)
+      call compute_rhs_w2h_alg( rhs_w2h, alpha_dt, u_base, rhs_u, mm_w2h )
+    end if
+
     if ( compute_rhs_t_d ) then
       call invoke( &
     ! Compute rhs_theta
@@ -231,7 +243,7 @@ contains
       call invoke( setval_c(rhs(igh_p), 0.0_r_def) )
     end if
 
-    nullify( mm_vel, mm_wtheta,                  &
+    nullify( mm_vel, mm_wtheta, mm_w2h,          &
              geopotential, u, theta, rho, exner, &
              u_base, theta_base, rho_base )
 
@@ -241,7 +253,7 @@ contains
 
   !> @brief rhs algorithm for any generic setup
   subroutine rhs_general_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                              compute_rhs_t_d, dlayer_rhs, model_clock )
+                              compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
 
     implicit none
 
@@ -256,10 +268,12 @@ contains
     logical(kind=l_def),          intent(in)    :: compute_eos
     logical(kind=l_def),          intent(in)    :: compute_rhs_t_d
     class(model_clock_type),      intent(in)    :: model_clock
+    type(field_type), optional,   intent(inout) :: rhs_w2h
 
     type(operator_type), pointer :: mm_vel    => null(), &
                                     mm_wtheta => null(), &
                                     mm_w3_inv => null(), &
+                                    mm_w2h => null(),    &
                                     coriolis  => null()
     type(field_type), pointer :: chi(:)   => null(), &
                                  panel_id     => null(), &
@@ -391,6 +405,11 @@ contains
                  inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_tmp ), &
                  enforce_bc_kernel_type(rhs(igh_u)) )
 
+    if ( present(rhs_w2h) ) then
+      mm_w2h => get_mass_matrix_fe(W2h, mesh_id)
+      call compute_rhs_w2h_alg( rhs_w2h, alpha_dt, u_base, rhs_tmp, mm_w2h )
+    end if
+
     if ( compute_rhs_t_d ) then
       call invoke( name = "compute_rhs_theta_and_rhs_rho", &
       ! Compute rhs_theta
@@ -423,12 +442,44 @@ contains
     end if
 
     nullify( mm_vel, mm_wtheta, mm_w3_inv,       &
-             chi, panel_id,                      &
+             mm_w2h, chi, panel_id,              &
              geopotential, u, theta, rho, exner, &
              mesh, reference_element )
 
     if ( LPROF ) call stop_timing( id, 'dynamics.rhs_alg' )
 
   end subroutine rhs_general_alg
+
+  !> @brief Computes the horizontal-only RHS of the wind equation.
+  !> @details Applies the W2h mass matrix to the horizontal part of the base
+  !!         wind and adds alpha_dt times the horizontal part of the forcing.
+  !> @param[in,out] rhs_w2h  The W2h RHS
+  !> @param[in]     alpha_dt The offcentering parameter times the timestep
+  !> @param[in]     u_base   The W2 base wind
+  !> @param[in]     forcing  The W2 forcing terms
+  !> @param[in]     mm_w2h   The W2h mass matrix
+  subroutine compute_rhs_w2h_alg( rhs_w2h, alpha_dt, u_base, forcing, mm_w2h )
+
+    implicit none
+
+    type(field_type),    intent(inout) :: rhs_w2h
+    real(kind=r_def),    intent(in)    :: alpha_dt
+    type(field_type),    intent(in)    :: u_base
+    type(field_type),    intent(in)    :: forcing
+    type(operator_type), intent(in)    :: mm_w2h
+
+    type(field_type) :: u_base_h, forcing_h, w2v_tmp
+
+    ! The W2v part is discarded
+    call split_w2_field_alg( u_base_h, u_base, w2v_field=w2v_tmp )
+    call split_w2_field_alg( forcing_h, forcing, w2v_field=w2v_tmp )
+
+    call invoke( name = "compute_rhs_w2h",                          &
+                 setval_c( rhs_w2h, 0.0_r_def ),                    &
+                 matrix_vector_kernel_type( rhs_w2h, u_base_h,      &
+                                            mm_w2h ),               &
+                 inc_X_plus_bY( rhs_w2h, alpha_dt, forcing_h ) )
+
+  end subroutine compute_rhs_w2h_alg
 
 end module rhs_alg_mod

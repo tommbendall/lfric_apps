@@ -238,7 +238,8 @@ contains
 
     use hydrostatic_exner_kernel_mod, only : hydrostatic_exner_code
     use formulation_config_mod,       only : eos_method_sampled,           &
-                                             moisture_formulation_dry
+                                             moisture_formulation_dry,     &
+                                             wind_transport_predictor_3d
     use feign_config_mod,             only : feign_formulation_config,     &
                                              feign_initial_pressure_config
     use initial_pressure_config_mod,  only : method_balanced
@@ -271,7 +272,8 @@ contains
                                   init_exner_bt        = .true.,            &
                                   si_momentum_equation=.true.,              &
                                   horizontal_physics_predictor=.false.,     &
-                                  horizontal_transport_predictor=.false.,   &
+                                  wind_transport_predictor =                &
+                                    wind_transport_predictor_3d,            &
                                   vector_invariant=.true.)
 
     call feign_initial_pressure_config( method=method_balanced,             &
@@ -317,7 +319,8 @@ contains
     use feign_config_mod,             only : feign_formulation_config,     &
                                              feign_initial_pressure_config
     use formulation_config_mod,       only : eos_method_sampled,           &
-                                             moisture_formulation_dry
+                                             moisture_formulation_dry,     &
+                                             wind_transport_predictor_3d
     use initial_pressure_config_mod,  only : method_balanced
 
     implicit none
@@ -347,7 +350,8 @@ contains
                                   init_exner_bt        = .false.,            &
                                   si_momentum_equation=.true.,               &
                                   horizontal_physics_predictor=.false.,      &
-                                  horizontal_transport_predictor=.false.,    &
+                                  wind_transport_predictor =                 &
+                                    wind_transport_predictor_3d,             &
                                   vector_invariant=.true.)
 
 

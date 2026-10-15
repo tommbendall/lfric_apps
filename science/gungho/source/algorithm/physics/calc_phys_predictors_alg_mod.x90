@@ -97,7 +97,8 @@ subroutine calc_phys_predictors_alg( derived_fields, rhs_np1, rhs_adv, &
                    aX_plus_Y(rhsu_np1,-1.0_r_def, rhs_np1(igh_u), rhs_n(igh_u)), &
                    inc_X_plus_Y(rhsu_np1, rhs_adv(igh_u)) )
       if ( horizontal_physics_predictor ) then
-        call hori_mass_matrix_solver_alg(du, rhsu_np1)
+        call hori_mass_matrix_solver_alg( du, rhsu_np1,                          &
+                                          preserve_vertical=.false. )
       else
         call mass_matrix_solver_alg(du, rhsu_np1 )
       end if

@@ -9,7 +9,7 @@
 module semi_implicit_timestep_alg_mod
 
   use constants_mod,             only: i_def, r_def, l_def, str_def
-  use fs_continuity_mod,         only: Wtheta, W2
+  use fs_continuity_mod,         only: Wtheta, W2, W2h
   use log_mod,                   only: log_event,         &
                                        log_scratch_space, &
                                        LOG_LEVEL_INFO
@@ -47,7 +47,9 @@ module semi_implicit_timestep_alg_mod
                                         use_wavedynamics,         &
                                         moisture_formulation,     &
                                         moisture_formulation_dry, &
-                                        exner_from_eos
+                                        exner_from_eos,           &
+                                        wind_transport_predictor, &
+                                        wind_transport_predictor_w2h_only
   use io_config_mod,              only: write_conservation_diag, write_diag,  &
                                         use_xios_io, diagnostic_frequency,    &
                                         checkpoint_read
@@ -85,6 +87,8 @@ module semi_implicit_timestep_alg_mod
   use driver_modeldb_mod,         only: modeldb_type
   use mesh_mod,                   only: mesh_type
   use mesh_collection_mod,        only: mesh_collection
+  use function_space_collection_mod, &
+                                  only: function_space_collection
   use model_clock_mod,            only: model_clock_type
   use operator_mod,               only: operator_type
 
@@ -629,6 +633,8 @@ contains
 
     type(field_type), pointer :: ageofair
 
+    ! Horizontal-only RHS for the w2h_only wind predictor
+    type(field_type) :: rhs_w2h
     type(operator_type), pointer :: mm_wt
     type(operator_type), pointer :: mm_vel
 
@@ -804,17 +810,28 @@ contains
     !--------------------------------------------------------------------
     ! Compute the time-level n dynamics terms
     !--------------------------------------------------------------------
-    call rhs_alg( self%rhs_n, varbeta*cast_dt,                    &
-                  self%state_after_slow, self%state_n, moist_dyn, &
-                  compute_eos=.false., compute_rhs_t_d=.true.,    &
-                  dlayer_rhs=.false., model_clock=model_clock )
+    if (wind_transport_predictor == wind_transport_predictor_w2h_only) then
+      call rhs_w2h%initialise( vector_space =                             &
+                  function_space_collection%get_fs(mesh, element_order_h, &
+                                                   element_order_v, W2h) )
+      call rhs_alg( self%rhs_n, varbeta*cast_dt,                    &
+                    self%state_after_slow, self%state_n, moist_dyn, &
+                    compute_eos=.false., compute_rhs_t_d=.true.,    &
+                    dlayer_rhs=.false., model_clock=model_clock,    &
+                    rhs_w2h=rhs_w2h )
+    else
+      call rhs_alg( self%rhs_n, varbeta*cast_dt,                    &
+                    self%state_after_slow, self%state_n, moist_dyn, &
+                    compute_eos=.false., compute_rhs_t_d=.true.,    &
+                    dlayer_rhs=.false., model_clock=model_clock )
+    end if
 
     call copy_bundle(self%state_after_slow, self%advected_state,  bundle_size)
     ! Set the moisture to be transported to point to the moisture after slow physics
     mr_to_adv => self%mr_after_slow
     ! Set predictors for transport
     call predictors_alg(self%advected_state, self%state_n(igh_u), &
-                        self%rhs_n(igh_u),varbeta,model_clock)
+                        self%rhs_n(igh_u), rhs_w2h, varbeta, model_clock)
 
     !==========================================================================
     ! Start the Outer (advection) loop
