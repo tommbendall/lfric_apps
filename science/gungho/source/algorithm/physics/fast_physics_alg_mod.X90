@@ -396,6 +396,8 @@ contains
                            derived_fields, rho, dt)
     end if
 
+    call derived_fields%get_field('u_star', u_star)
+    call log_w2_minmax("u_star", u_star)
     call log_w2_minmax("du fast", du)
     call print_field_stats_alg(dtheta, LOG_LEVEL_INFO, printmin=-20.0_r_def, &
                                printmax=20.0_r_def, name='dtheta fast')

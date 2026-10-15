@@ -33,6 +33,7 @@ module map_physics_fields_alg_mod
                                           log_level
   use print_field_stats_alg_mod,    only: print_field_stats_alg
   use sci_field_minmax_alg_mod,     only: log_field_minmax
+  use log_w2_alg_mod,       only : log_w2_minmax
 
   use timing_mod,                   only: start_timing, stop_timing, tik, LPROF
   implicit none
@@ -126,6 +127,8 @@ contains
     dA => get_da_at_w2(mesh%get_id())
     call invoke(         X_divideby_Y(u_physics, u, dA), &
                 extract_w_kernel_type(velocity_w2v, u_physics) )
+
+    call log_w2_minmax("u", u)
 
     call print_field_stats_alg(u_in_w3, LOG_LEVEL_INFO, &
                                printmin=-150.0_r_def, printmax=150.0_r_def)

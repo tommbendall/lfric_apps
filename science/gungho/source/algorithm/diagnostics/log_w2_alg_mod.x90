@@ -97,6 +97,8 @@ contains
                                printmin=-1.0_r_def, printmax=1.0_r_def,        &
                                name='etadot_wth')
 
+    call log_w2_column(message, field, 306)
+
   end subroutine log_w2_minmax
 
   subroutine log_w2_column(message, field, column_id)
