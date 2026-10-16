@@ -15,6 +15,7 @@ module update_ancils_alg_mod
 
   use section_choice_config_mod,   only: surface, surface_jules
   use process_ssi_kernel_mod,      only: process_ssi_kernel_type
+  use process_sstanom_kernel_mod,  only: process_sstanom_kernel_type
   use log_mod,                     only: LOG_LEVEL_INFO
   use jules_control_init_mod,      only: first_sea_tile, n_sea_tile
   use sci_multi_insert_kernel_mod, only: multi_insert_kernel_type
@@ -23,6 +24,7 @@ module update_ancils_alg_mod
                                          linked_list_item_type
   use sci_geometric_constants_mod, only: get_latitude_fv
   use jules_sea_seaice_config_mod, only: amip_ice_thick
+  use surface_config_mod,          only: sst_anomaly, sst_anomaly_none
   use derived_config_mod,          only: l_couple_sea_ice, l_couple_ocean
 
   implicit none
@@ -79,6 +81,8 @@ contains
       twod_mesh => sea_ice_thickness%get_mesh()
       latitude => get_latitude_fv( W3, twod_mesh%get_id() )
 
+      ! Update all ancillaries here
+
       ! Start at the head of the time_axis linked list
       loop => time_axis_list%get_head()
       do
@@ -107,6 +111,44 @@ contains
               call invoke(multi_insert_kernel_type(tile_temperature,         &
                                                    tstar_sea, first_sea_tile,&
                                                    n_sea_tile ) )
+            end if
+
+          end if
+
+        end select
+
+        loop => loop%next
+
+      end do
+
+      ! Once all the ancillary fields have been processed, any further
+      !  processing that then needs to be done dependent on the new fields
+      !  should be done here. This is due to the fact that the order of
+      !  processing above cannot be guaranteed and this processing requires
+      !  more than one field to have been updated.
+
+      ! Start at the head of the time_axis linked list
+      loop => time_axis_list%get_head()
+      do
+        ! If list is empty or we're at the end of list, exit
+        if ( .not. associated(loop) ) then
+          exit
+        end if
+
+        ! Select the time_axis_type to get at the information in the list payload
+        select type( list_item => loop%payload )
+        type is (time_axis_type)
+          time_axis => list_item
+          axis_name = trim(time_axis%get_name())
+
+          ! If field has been updated
+          if ( time_axis%populate_fields() ) then
+
+            if (axis_name == 'sst_time') then
+              if (sst_anomaly /= sst_anomaly_none) then
+                call invoke(process_sstanom_kernel_type( tile_fraction, &
+                                                         tile_temperature ))
+              end if
             end if
 
           end if
