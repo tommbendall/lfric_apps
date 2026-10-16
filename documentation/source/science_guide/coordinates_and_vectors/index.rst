@@ -14,12 +14,12 @@ used in GungHo, including spherical and cubed-sphere coordinates, rotated and
 stretched meshes, and the interpretation of vector components in non-orthogonal
 bases.
 
-The material is drafted from internal technical notes and is intended as a
-reference for developers and scientists working with geometry-aware operators
-and diagnostics.
-
 .. toctree::
     :maxdepth: 1
 
     coordinate_systems
+    spherical_polar_coordinates
+    equiangular_cubed_sphere_coordinates
+    rotation_and_stretching
     non_orthogonal_wind_components
+    vector_calculus_for_vectors
