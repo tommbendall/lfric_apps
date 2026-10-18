@@ -1,0 +1,496 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+
+!> Test of the finite difference wind predictor kernel, on a planar uniform
+!! mesh with grid spacings dx and dy and layer depth dzl
+module fd_wind_predictor_kernel_mod_test
+
+  use constants_mod, only: i_def, r_def, l_def
+  use funit
+
+  implicit none
+
+  private
+  public :: test_pressure_gradient, test_coriolis_flat,                        &
+            test_coriolis_slope, test_hydrostatic_slope
+
+  integer(kind=i_def), parameter :: nl = 4
+  integer(kind=i_def), parameter :: ncol = 5
+  integer(kind=i_def), parameter :: ndf_w2 = 6
+  integer(kind=i_def), parameter :: undf_w2 = 4 * nl + nl + 1
+  integer(kind=i_def), parameter :: ndf_w3 = 1
+  integer(kind=i_def), parameter :: undf_w3 = nl * ncol
+  integer(kind=i_def), parameter :: ndf_wt = 2
+  integer(kind=i_def), parameter :: undf_wt = (nl + 1) * ncol
+  integer(kind=i_def), parameter :: smap_max = 2
+
+  real(kind=r_def), parameter :: tol = 1.0e-10_r_def
+  real(kind=r_def), parameter :: dx = 2.0_r_def
+  real(kind=r_def), parameter :: dy = 3.0_r_def
+  real(kind=r_def), parameter :: dzl = 0.5_r_def
+  real(kind=r_def), parameter :: cp = 1000.0_r_def
+  real(kind=r_def), parameter :: grav = 9.81_r_def
+  real(kind=r_def), parameter :: theta0 = 300.0_r_def
+  real(kind=r_def), parameter :: sigma(6) = (/ -1.0_r_def, 1.0_r_def,          &
+      1.0_r_def, -1.0_r_def, -1.0_r_def, 1.0_r_def /)
+
+contains
+
+  !> Fills the uniform grid constants, face areas and maps for the central
+  !! column (column 1, with columns 2 to 5 as its W, S, E, N neighbours)
+  subroutine set_up_grid(fd_geom, dA, map_w2, map_w3, map_wt, smap_size,       &
+                         smap_w3, smap_wt, omega_vec)
+
+    implicit none
+
+    real(kind=r_def),    intent(out) :: fd_geom(40), dA(undf_w2)
+    integer(kind=i_def), intent(out) :: map_w2(ndf_w2), map_w3(ndf_w3)
+    integer(kind=i_def), intent(out) :: map_wt(ndf_wt), smap_size(4)
+    integer(kind=i_def), intent(out) :: smap_w3(ndf_w3, smap_max, 4)
+    integer(kind=i_def), intent(out) :: smap_wt(ndf_wt, smap_max, 4)
+    real(kind=r_def),    intent(in)  :: omega_vec(3)
+
+    real(kind=r_def)    :: normal(2, 4), sep(2, 4)
+    integer(kind=i_def) :: df, base, d
+
+    normal(:, 1) = (/ -1.0_r_def, 0.0_r_def /)
+    normal(:, 2) = (/ 0.0_r_def, -1.0_r_def /)
+    normal(:, 3) = (/ 1.0_r_def, 0.0_r_def /)
+    normal(:, 4) = (/ 0.0_r_def, 1.0_r_def /)
+    sep(:, 1) = (/ -dx, 0.0_r_def /)
+    sep(:, 2) = (/ 0.0_r_def, -dy /)
+    sep(:, 3) = (/ dx, 0.0_r_def /)
+    sep(:, 4) = (/ 0.0_r_def, dy /)
+
+    fd_geom(:) = 0.0_r_def
+    do df = 1, 4
+      base = (df - 1) * 9
+      fd_geom(base + 1:base + 2) = normal(:, df)
+      fd_geom(base + 3) = 1.0_r_def / norm2(sep(:, df))
+      ! Correction is zero as the mesh is orthogonal
+      fd_geom(base + 6:base + 7) = sep(:, df)                                  &
+                                 / (2.0_r_def * norm2(sep(:, df))**2)
+      fd_geom(base + 8:base + 9) = 0.5_r_def * normal(:, df)
+    end do
+    fd_geom(37:39) = omega_vec(:)
+    fd_geom(40) = dx * dy
+
+    map_w3(1) = 1
+    map_wt(:) = (/ 1, 2 /)
+    map_w2(:) = (/ 1, nl + 1, 2 * nl + 1, 3 * nl + 1, 4 * nl + 1, 4 * nl + 2 /)
+
+    dA(map_w2(1):map_w2(1) + nl - 1) = dy * dzl
+    dA(map_w2(3):map_w2(3) + nl - 1) = dy * dzl
+    dA(map_w2(2):map_w2(2) + nl - 1) = dx * dzl
+    dA(map_w2(4):map_w2(4) + nl - 1) = dx * dzl
+    dA(map_w2(5):map_w2(5) + nl) = dx * dy
+
+    smap_size(:) = 2
+    do d = 1, 4
+      smap_w3(:, 1, d) = map_w3
+      smap_w3(:, 2, d) = map_w3 + d * nl
+      smap_wt(:, 1, d) = map_wt
+      smap_wt(:, 2, d) = map_wt + d * (nl + 1)
+    end do
+
+  end subroutine set_up_grid
+
+  !> Heights of a surface sloping upwards in x (and y) with gradients sx, sy;
+  !! columns 1 to 5 are the centre, W, S, E, N
+  subroutine set_heights(sx, sy, height_w3, height_wth)
+
+    implicit none
+
+    real(kind=r_def), intent(in)  :: sx, sy
+    real(kind=r_def), intent(out) :: height_w3(undf_w3), height_wth(undf_wt)
+
+    real(kind=r_def)    :: xoff(ncol), yoff(ncol)
+    integer(kind=i_def) :: c, k
+
+    xoff = (/ 0.0_r_def, -dx, 0.0_r_def, dx, 0.0_r_def /)
+    yoff = (/ 0.0_r_def, 0.0_r_def, -dy, 0.0_r_def, dy /)
+    do c = 1, ncol
+      do k = 1, nl
+        height_w3((c - 1) * nl + k) = (k - 0.5_r_def) * dzl                    &
+                                + sx * xoff(c) + sy * yoff(c)
+      end do
+      do k = 1, nl + 1
+        height_wth((c - 1) * (nl + 1) + k) = (k - 1) * dzl                     &
+                                     + sx * xoff(c) + sy * yoff(c)
+      end do
+    end do
+
+  end subroutine set_heights
+
+  !> Calls the kernel for the central column of the 5-column grid
+  subroutine call_centre(u_pred, exner, phi, theta_v, height_w3, height_wth,   &
+                         u, dA, fd_geom, map_w2, map_w3, map_wt, smap_size,    &
+                         smap_w3, smap_wt, rotating)
+
+    use fd_wind_predictor_kernel_mod, only: fd_wind_predictor_code
+    use base_mesh_config_mod,         only: geometry_planar
+
+    implicit none
+
+    real(kind=r_def),    intent(inout) :: u_pred(undf_w2)
+    real(kind=r_def),    intent(in)    :: exner(undf_w3), phi(undf_w3)
+    real(kind=r_def),    intent(in)    :: theta_v(undf_wt)
+    real(kind=r_def),    intent(in)    :: height_w3(undf_w3)
+    real(kind=r_def),    intent(in)    :: height_wth(undf_wt)
+    real(kind=r_def),    intent(in)    :: u(undf_w2), dA(undf_w2), fd_geom(40)
+    integer(kind=i_def), intent(in)    :: map_w2(ndf_w2), map_w3(ndf_w3)
+    integer(kind=i_def), intent(in)    :: map_wt(ndf_wt), smap_size(4)
+    integer(kind=i_def), intent(in)    :: smap_w3(ndf_w3, smap_max, 4)
+    integer(kind=i_def), intent(in)    :: smap_wt(ndf_wt, smap_max, 4)
+    logical(kind=l_def), intent(in)    :: rotating
+
+    integer(kind=i_def) :: map_2d(1)
+
+    map_2d(1) = 1
+    call fd_wind_predictor_code(                                               &
+        nl, u_pred,                                                            &
+        exner, smap_size, smap_max, smap_w3,                                   &
+        phi, smap_size, smap_max, smap_w3,                                     &
+        theta_v, smap_size, smap_max, smap_wt,                                 &
+        height_w3, smap_size, smap_max, smap_w3,                               &
+        height_wth, smap_size, smap_max, smap_wt,                              &
+        u, dA, fd_geom,                                                        &
+        1.0_r_def, cp, 1.0_r_def, geometry_planar, .false., rotating,          &
+        ndf_w2, undf_w2, map_w2,                                               &
+        ndf_w3, undf_w3, map_w3,                                               &
+        ndf_wt, undf_wt, map_wt,                                               &
+        1_i_def, 40_i_def, map_2d )
+
+  end subroutine call_centre
+
+  !> A uniform flow (U, V, W) as fluxes through the faces of the central
+  !! column, for levels that slope with gradients sx, sy
+  subroutine uniform_flow_fluxes(vel, sx, sy, dA, map_w2, u)
+
+    implicit none
+
+    real(kind=r_def),    intent(in)  :: vel(3), sx, sy, dA(undf_w2)
+    integer(kind=i_def), intent(in)  :: map_w2(ndf_w2)
+    real(kind=r_def),    intent(out) :: u(undf_w2)
+
+    integer(kind=i_def) :: df, k
+    real(kind=r_def)    :: nrm(2, 4)
+
+    nrm(:, 1) = (/ -1.0_r_def, 0.0_r_def /)
+    nrm(:, 2) = (/ 0.0_r_def, -1.0_r_def /)
+    nrm(:, 3) = (/ 1.0_r_def, 0.0_r_def /)
+    nrm(:, 4) = (/ 0.0_r_def, 1.0_r_def /)
+    u(:) = 0.0_r_def
+    do df = 1, 4
+      do k = 0, nl - 1
+        u(map_w2(df) + k) = sigma(df) * dA(map_w2(df) + k)                     &
+                        * (nrm(1, df) * vel(1) + nrm(2, df) * vel(2))
+      end do
+    end do
+    ! Flux through a sloping level surface
+    do k = 0, nl
+      u(map_w2(5) + k) = dA(map_w2(5) + k)                                     &
+                       * (vel(3) - sx * vel(1) - sy * vel(2))
+    end do
+
+  end subroutine uniform_flow_fluxes
+
+  !> The two cells sharing each face together give the full pressure gradient
+  @test( )
+  subroutine test_pressure_gradient( )
+
+    use fd_wind_predictor_kernel_mod, only: fd_wind_predictor_code
+    use base_mesh_config_mod,         only: geometry_planar
+
+    implicit none
+
+    real(kind=r_def)    :: fd_geom(40), dA(undf_w2), u_pred(undf_w2)
+    real(kind=r_def)    :: exner(undf_w3), phi(undf_w3), theta_v(undf_wt)
+    real(kind=r_def)    :: height_w3(undf_w3), height_wth(undf_wt), u(undf_w2)
+    real(kind=r_def)    :: x_a, x_b, expected, alpha_dt
+    integer(kind=i_def) :: map_w2(ndf_w2), map_w3(ndf_w3), map_wt(ndf_wt)
+    integer(kind=i_def) :: smap_size(4)
+    integer(kind=i_def) :: smap_w3(ndf_w3, smap_max, 4)
+    integer(kind=i_def) :: smap_wt(ndf_wt, smap_max, 4)
+    integer(kind=i_def) :: map_w2_b(ndf_w2), map_w3_b(ndf_w3), map_wt_b(ndf_wt)
+    integer(kind=i_def) :: size_a(4), size_b(4), map_2d(1), k
+    integer(kind=i_def) :: smw3_a(ndf_w3, smap_max, 4)
+    integer(kind=i_def) :: smw3_b(ndf_w3, smap_max, 4)
+    integer(kind=i_def) :: smwt_a(ndf_wt, smap_max, 4)
+    integer(kind=i_def) :: smwt_b(ndf_wt, smap_max, 4)
+    real(kind=r_def)    :: theta_f
+
+    call set_up_grid(fd_geom, dA, map_w2, map_w3, map_wt, smap_size,           &
+                     smap_w3, smap_wt, (/ 0.0_r_def, 0.0_r_def, 0.0_r_def /))
+    call set_heights(0.0_r_def, 0.0_r_def, height_w3, height_wth)
+
+    ! Cell A is column 1 and cell B is column 4 (its E neighbour). They share
+    ! the E face of A, which is the W face of B. B has no other neighbours,
+    ! so it only changes its W face and its own interior vertical faces
+    map_w2_b = map_w2
+    map_w2_b(1) = map_w2(3)
+    map_w3_b(1) = 1 + 3 * nl
+    map_wt_b = map_wt + 3 * (nl + 1)
+    size_a = 1
+    size_a(3) = 2
+    size_b = 1
+    size_b(1) = 2
+    smw3_a = smap_w3
+    smwt_a = smap_wt
+    smw3_b = smap_w3
+    smwt_b = smap_wt
+    smw3_b(:, 1, :) = map_w3_b
+    smw3_b(:, 2, 1) = map_w3
+    smwt_b(:, 1, :) = map_wt_b
+    smwt_b(:, 2, 1) = map_wt
+
+    ! Linear exner and geopotential, with a vertically varying theta
+    do k = 1, nl
+      exner(k) = 1.0_r_def + 0.1_r_def * k
+      exner(k + 3 * nl) = 1.0_r_def + 0.1_r_def * k + 0.05_r_def
+      phi(k) = 10.0_r_def + 2.0_r_def * k
+      phi(k + 3 * nl) = 10.0_r_def + 2.0_r_def * k - 1.5_r_def
+    end do
+    exner(1 + nl:3 * nl) = 1.0_r_def
+    exner(1 + 4 * nl:) = 1.0_r_def
+    phi(1 + nl:3 * nl) = 1.0_r_def
+    phi(1 + 4 * nl:) = 1.0_r_def
+    do k = 1, nl + 1
+      theta_v(k) = 300.0_r_def + 10.0_r_def * k
+      theta_v(k + 3 * (nl + 1)) = 300.0_r_def + 10.0_r_def * k + 4.0_r_def
+    end do
+    theta_v(2 + nl:3 * (nl + 1)) = 300.0_r_def
+    theta_v(1 + 4 * (nl + 1):) = 300.0_r_def
+
+    alpha_dt = 0.7_r_def
+    u(:) = 0.0_r_def
+    u_pred(:) = 0.0_r_def
+    map_2d(1) = 1
+
+    ! Cell A, then cell B. Dofs not shared are only used by cell A
+    call fd_wind_predictor_code(                                               &
+        nl, u_pred,                                                            &
+        exner, size_a, smap_max, smw3_a,                                       &
+        phi, size_a, smap_max, smw3_a,                                         &
+        theta_v, size_a, smap_max, smwt_a,                                     &
+        height_w3, size_a, smap_max, smw3_a,                                   &
+        height_wth, size_a, smap_max, smwt_a,                                  &
+        u, dA, fd_geom,                                                        &
+        alpha_dt, cp, 1.0_r_def, geometry_planar, .false., .false.,            &
+        ndf_w2, undf_w2, map_w2,                                               &
+        ndf_w3, undf_w3, map_w3,                                               &
+        ndf_wt, undf_wt, map_wt,                                               &
+        1_i_def, 40_i_def, map_2d )
+
+    call fd_wind_predictor_code(                                               &
+        nl, u_pred,                                                            &
+        exner, size_b, smap_max, smw3_b,                                       &
+        phi, size_b, smap_max, smw3_b,                                         &
+        theta_v, size_b, smap_max, smwt_b,                                     &
+        height_w3, size_b, smap_max, smw3_b,                                   &
+        height_wth, size_b, smap_max, smwt_b,                                  &
+        u, dA, fd_geom,                                                        &
+        alpha_dt, cp, 1.0_r_def, geometry_planar, .false., .false.,            &
+        ndf_w2, undf_w2, map_w2_b,                                             &
+        ndf_w3, undf_w3, map_w3_b,                                             &
+        ndf_wt, undf_wt, map_wt_b,                                             &
+        1_i_def, 40_i_def, map_2d )
+
+    ! Shared face (dof 3 of A): sigma*alpha*dA*(X_A - X_B)/dx where theta at
+    ! the face is the mean of the 4 Wtheta values of the 2 columns
+    do k = 1, nl
+      theta_f = 0.25_r_def * ( theta_v(k) + theta_v(k + 1)                     &
+                             + theta_v(k + 3 * (nl + 1))                       &
+                             + theta_v(k + 1 + 3 * (nl + 1)) )
+      x_a = cp * theta_f * exner(k) + phi(k)
+      x_b = cp * theta_f * exner(k + 3 * nl) + phi(k + 3 * nl)
+      expected = alpha_dt * dA(map_w2(3) + k - 1) * (x_a - x_b) / dx
+      @assertEqual(expected, u_pred(map_w2(3) + k - 1), tol)
+    end do
+
+    ! Vertical faces of a column with no horizontal neighbours: the halves from
+    ! the cells above and below sum to the full face value
+    u_pred(:) = 0.0_r_def
+    size_a = 1
+    call fd_wind_predictor_code(                                               &
+        nl, u_pred,                                                            &
+        exner, size_a, smap_max, smw3_a,                                       &
+        phi, size_a, smap_max, smw3_a,                                         &
+        theta_v, size_a, smap_max, smwt_a,                                     &
+        height_w3, size_a, smap_max, smw3_a,                                   &
+        height_wth, size_a, smap_max, smwt_a,                                  &
+        u, dA, fd_geom,                                                        &
+        alpha_dt, cp, 1.0_r_def, geometry_planar, .false., .false.,            &
+        ndf_w2, undf_w2, map_w2,                                               &
+        ndf_w3, undf_w3, map_w3,                                               &
+        ndf_wt, undf_wt, map_wt,                                               &
+        1_i_def, 40_i_def, map_2d )
+    do k = 2, nl
+      theta_f = theta_v(k)
+      x_a = cp * theta_f * exner(k) + phi(k)
+      x_b = cp * theta_f * exner(k - 1) + phi(k - 1)
+      expected = alpha_dt * dA(map_w2(5) + k - 1) * (x_b - x_a) / dzl
+      @assertEqual(expected, u_pred(map_w2(5) + k - 1), tol)
+    end do
+    ! Faces with no neighbour and boundary faces are unchanged
+    @assertEqual(0.0_r_def, maxval(abs(u_pred(1:4 * nl))), tol)
+    @assertEqual(0.0_r_def, u_pred(map_w2(5)), tol)
+    @assertEqual(0.0_r_def, u_pred(map_w2(6) + nl - 1), tol)
+
+  end subroutine test_pressure_gradient
+
+  !> Uniform flow on an f-plane without orography gives -2 Omega x u
+  @test( )
+  subroutine test_coriolis_flat( )
+
+    implicit none
+
+    real(kind=r_def)    :: fd_geom(40), dA(undf_w2), u_pred(undf_w2), u(undf_w2)
+    real(kind=r_def)    :: exner(undf_w3), phi(undf_w3), theta_v(undf_wt)
+    real(kind=r_def)    :: height_w3(undf_w3), height_wth(undf_wt)
+    real(kind=r_def)    :: omega_vec(3), vel(3), acc(3), expected
+    integer(kind=i_def) :: map_w2(ndf_w2), map_w3(ndf_w3), map_wt(ndf_wt)
+    integer(kind=i_def) :: smap_size(4), df, k
+    integer(kind=i_def) :: smap_w3(ndf_w3, smap_max, 4)
+    integer(kind=i_def) :: smap_wt(ndf_wt, smap_max, 4)
+    real(kind=r_def)    :: nrm(2, 4)
+
+    omega_vec = (/ 0.3_r_def, 0.5_r_def, 0.7_r_def /)
+    vel = (/ 2.0_r_def, -1.5_r_def, 0.4_r_def /)
+    call set_up_grid(fd_geom, dA, map_w2, map_w3, map_wt, smap_size,           &
+                     smap_w3, smap_wt, omega_vec)
+    call set_heights(0.0_r_def, 0.0_r_def, height_w3, height_wth)
+    call uniform_flow_fluxes(vel, 0.0_r_def, 0.0_r_def, dA, map_w2, u)
+
+    ! Zero pressure and geopotential forcing
+    exner(:) = 0.0_r_def
+    phi(:) = 0.0_r_def
+    theta_v(:) = 300.0_r_def
+    u_pred(:) = 0.0_r_def
+
+    call call_centre(u_pred, exner, phi, theta_v, height_w3, height_wth, u,    &
+                     dA, fd_geom, map_w2, map_w3, map_wt, smap_size, smap_w3,  &
+                     smap_wt, .true._l_def)
+
+    acc(1) = -(omega_vec(2) * vel(3) - omega_vec(3) * vel(2))
+    acc(2) = -(omega_vec(3) * vel(1) - omega_vec(1) * vel(3))
+    acc(3) = -(omega_vec(1) * vel(2) - omega_vec(2) * vel(1))
+    nrm(:, 1) = (/ -1.0_r_def, 0.0_r_def /)
+    nrm(:, 2) = (/ 0.0_r_def, -1.0_r_def /)
+    nrm(:, 3) = (/ 1.0_r_def, 0.0_r_def /)
+    nrm(:, 4) = (/ 0.0_r_def, 1.0_r_def /)
+
+    ! Each cell adds half of the face value
+    do df = 1, 4
+      do k = 0, nl - 1
+        expected = 0.5_r_def * sigma(df) * dA(map_w2(df) + k)                  &
+                 * (nrm(1, df) * acc(1) + nrm(2, df) * acc(2))
+        @assertEqual(expected, u_pred(map_w2(df) + k), tol)
+      end do
+    end do
+    ! Both halves are from this column
+    do k = 1, nl - 1
+      expected = dA(map_w2(5) + k) * acc(3)
+      @assertEqual(expected, u_pred(map_w2(5) + k), tol)
+    end do
+    @assertEqual(0.0_r_def, u_pred(map_w2(5)), tol)
+    @assertEqual(0.0_r_def, u_pred(map_w2(6) + nl - 1), tol)
+
+    ! No change without rotation
+    u_pred(:) = 0.0_r_def
+    call call_centre(u_pred, exner, phi, theta_v, height_w3, height_wth, u,    &
+                     dA, fd_geom, map_w2, map_w3, map_wt, smap_size, smap_w3,  &
+                     smap_wt, .false._l_def)
+    @assertEqual(0.0_r_def, maxval(abs(u_pred)), tol)
+
+  end subroutine test_coriolis_flat
+
+  !> Uniform horizontal flow over a slope has no vertical velocity, so the
+  !! vertical face values come from the sloping-surface flux of the Coriolis
+  !! acceleration
+  @test( )
+  subroutine test_coriolis_slope( )
+
+    implicit none
+
+    real(kind=r_def)    :: fd_geom(40), dA(undf_w2), u_pred(undf_w2), u(undf_w2)
+    real(kind=r_def)    :: exner(undf_w3), phi(undf_w3), theta_v(undf_wt)
+    real(kind=r_def)    :: height_w3(undf_w3), height_wth(undf_wt)
+    real(kind=r_def)    :: omega_vec(3), vel(3), acc(3), expected
+    real(kind=r_def)    :: sx, sy
+    integer(kind=i_def) :: map_w2(ndf_w2), map_w3(ndf_w3), map_wt(ndf_wt)
+    integer(kind=i_def) :: smap_size(4), k
+    integer(kind=i_def) :: smap_w3(ndf_w3, smap_max, 4)
+    integer(kind=i_def) :: smap_wt(ndf_wt, smap_max, 4)
+
+    sx = 0.2_r_def
+    sy = -0.1_r_def
+    omega_vec = (/ 0.3_r_def, 0.5_r_def, 0.7_r_def /)
+    vel = (/ 2.0_r_def, -1.5_r_def, 0.0_r_def /)
+    call set_up_grid(fd_geom, dA, map_w2, map_w3, map_wt, smap_size,           &
+                     smap_w3, smap_wt, omega_vec)
+    call set_heights(sx, sy, height_w3, height_wth)
+    call uniform_flow_fluxes(vel, sx, sy, dA, map_w2, u)
+
+    exner(:) = 0.0_r_def
+    phi(:) = 0.0_r_def
+    theta_v(:) = 300.0_r_def
+    u_pred(:) = 0.0_r_def
+
+    call call_centre(u_pred, exner, phi, theta_v, height_w3, height_wth, u,    &
+                     dA, fd_geom, map_w2, map_w3, map_wt, smap_size, smap_w3,  &
+                     smap_wt, .true._l_def)
+
+    acc(1) = -(omega_vec(2) * vel(3) - omega_vec(3) * vel(2))
+    acc(2) = -(omega_vec(3) * vel(1) - omega_vec(1) * vel(3))
+    acc(3) = -(omega_vec(1) * vel(2) - omega_vec(2) * vel(1))
+
+    do k = 1, nl - 1
+      ! Halves from the cells above and below
+      expected = dA(map_w2(5) + k) * (acc(3) - sx * acc(1) - sy * acc(2))
+      @assertEqual(expected, u_pred(map_w2(5) + k), tol)
+    end do
+
+  end subroutine test_coriolis_slope
+
+  !> A resting hydrostatic state over a slope gives no increment
+  @test( )
+  subroutine test_hydrostatic_slope( )
+
+    implicit none
+
+    real(kind=r_def)    :: fd_geom(40), dA(undf_w2), u_pred(undf_w2), u(undf_w2)
+    real(kind=r_def)    :: exner(undf_w3), phi(undf_w3), theta_v(undf_wt)
+    real(kind=r_def)    :: height_w3(undf_w3), height_wth(undf_wt)
+    integer(kind=i_def) :: map_w2(ndf_w2), map_w3(ndf_w3), map_wt(ndf_wt)
+    integer(kind=i_def) :: smap_size(4)
+    integer(kind=i_def) :: smap_w3(ndf_w3, smap_max, 4)
+    integer(kind=i_def) :: smap_wt(ndf_wt, smap_max, 4)
+
+    call set_up_grid(fd_geom, dA, map_w2, map_w3, map_wt, smap_size,           &
+                     smap_w3, smap_wt, (/ 0.0_r_def, 0.0_r_def, 0.0_r_def /))
+    call set_heights(0.3_r_def, -0.2_r_def, height_w3, height_wth)
+
+    ! Exner and geopotential depend only on height, with cp*theta*exner
+    ! + geopotential = 0 everywhere, so that the pressure forcing X is zero
+    theta_v(:) = theta0
+    phi(:) = grav * height_w3(:)
+    exner(:) = -phi(:) / (cp * theta0)
+    u(:) = 0.0_r_def
+    u_pred(:) = 0.0_r_def
+
+    call call_centre(u_pred, exner, phi, theta_v, height_w3, height_wth, u,    &
+                     dA, fd_geom, map_w2, map_w3, map_wt, smap_size, smap_w3,  &
+                     smap_wt, .true._l_def)
+
+    @assertEqual(0.0_r_def, maxval(abs(u_pred)), tol)
+
+  end subroutine test_hydrostatic_slope
+
+end module fd_wind_predictor_kernel_mod_test
