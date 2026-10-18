@@ -24,7 +24,7 @@ module dycore_constants_mod
   use sci_fem_constants_mod,              only: get_qr_fe
   use field_mod,                          only: field_type
   use extrusion_mod,                      only: TWOD
-  use fs_continuity_mod,                  only: W2, W3, Wtheta
+  use fs_continuity_mod,                  only: W0, W2, W3, Wtheta
   use function_space_collection_mod,      only: function_space_collection
   use function_space_mod,                 only: function_space_type
   use inventory_by_local_mesh_mod,        only: inventory_by_local_mesh_type
@@ -203,8 +203,9 @@ contains
   !> @brief Returns the geometry constants for the finite difference wind
   !!        predictor
   !> @details A 2D multi-data field with fd_geom_ndata values per column.
-  !!          This is only available for lowest-order elements and native
-  !!          coordinates.
+  !!          This is only available for lowest-order elements. Any
+  !!          coordinate system and order are allowed, as only the corner
+  !!          coordinates are used.
   !> @param[in] mesh_id The ID of the mesh to get the object for
   !> @return The geometry constants
   function get_fd_predictor_geometry(mesh_id) result(fd_geom)
@@ -212,8 +213,6 @@ contains
     use base_mesh_config_mod,      only: f_lat, geometry
     use calc_fd_predictor_geometry_kernel_mod,                                 &
         only: calc_fd_predictor_geometry_kernel_type, fd_geom_ndata
-    use finite_element_config_mod, only: coord_order, coord_system,            &
-                                         coord_system_native
     use planet_config_mod,         only: scaled_omega
 
     implicit none
@@ -229,6 +228,8 @@ contains
     type(field_type),             pointer :: chi(:)
     type(field_type),             pointer :: panel_id
     type(function_space_type),    pointer :: w3_2d_fs
+    type(function_space_type),    pointer :: w0_2d_fs
+    type(field_type)                      :: dummy_w0
     integer(kind=tik)                     :: id
 
     ! Depth of the stencils for the coordinates and panel IDs
@@ -253,18 +254,15 @@ contains
                         "available for lowest-order elements",                 &
                         LOG_LEVEL_ERROR )
       end if
-      if ( coord_system /= coord_system_native .or. coord_order /= 1 ) then
-        call log_event( "The finite difference wind predictor needs " //       &
-                        "native coordinates with coord_order = 1",             &
-                        LOG_LEVEL_ERROR )
-      end if
 
       twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
       w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3,        &
                                                    fd_geom_ndata)
+      w0_2d_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W0)
       halo_depth = twod_mesh%get_halo_depth()
       chi => get_coordinates(mesh_id)
       panel_id => get_panel_id(mesh_id)
+      call dummy_w0%initialise( vector_space=w0_2d_fs )
 
       if ( LPROF ) call start_timing( id, 'runtime_constants.dycore' )
 
@@ -274,7 +272,7 @@ contains
       call invoke( name = "calc_fd_predictor_geometry",                        &
                    calc_fd_predictor_geometry_kernel_type(                     &
                        fd_geom, chi, stencil_depth, panel_id, stencil_depth,   &
-                       geometry, scaled_omega, f_lat) )
+                       dummy_w0, geometry, scaled_omega, f_lat) )
 
       if ( LPROF ) call stop_timing( id, 'runtime_constants.dycore' )
     end if
@@ -324,7 +322,6 @@ contains
       call geopotential_inventory%add_field(                                   &
           geopotential, w3_fs, mesh, halo_depth=MIN(2, mesh%get_halo_depth())  &
       )
-
       if ( rehabilitate ) then
         call invoke( compute_geopotential_kernel_type(geopotential,            &
                                                       chi,                     &

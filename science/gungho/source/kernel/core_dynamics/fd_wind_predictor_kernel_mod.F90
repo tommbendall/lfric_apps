@@ -10,7 +10,7 @@
 !> @brief   Finite difference predictor for the transport wind.
 !> @details Increments a W2 field of fluxes by alpha_dt times the acceleration
 !!          a = -(cp*theta_v*grad(exner) + grad(geopotential)) - 2 Omega x u
-!!          for lowest-order elements with native coordinates.
+!!          for lowest-order elements.
 !!          Each cell adds its own half of the increment to each of its faces,
 !!          using only its own reconstructed gradients and wind, so that the
 !!          two cells sharing a face together give the full face value. The
