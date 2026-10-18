@@ -43,6 +43,7 @@ module wind_transport_alg_mod
   use transport_enumerated_types_mod, only: equation_form_advective
   use transport_field_mod,            only: transport_field
   use transport_metadata_mod,         only: transport_metadata_type
+  use log_w2_alg_mod,       only : log_w2_minmax
 
   implicit none
 
