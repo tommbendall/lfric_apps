@@ -7,6 +7,13 @@
 
 {# Azspice Groups #}
 {% do site_groups.update({
+    "transport_test": [
+        "transport_cylinder_xz_ffsl-BiP100x10-20x20_azspice_gnu_fast-debug-64bit",
+        "transport_cylinder_xz_sl-BiP100x10-20x20_azspice_gnu_fast-debug-64bit",
+        "transport_cylinder_xz_native-sl-BiP100x10-20x20_azspice_gnu_fast-debug-64bit",
+        "transport_cylinder_yz_sl-BiP10x100-200x20_azspice_gnu_fast-debug-64bit",
+        "transport_cylinder_yz_native-sl-BiP10x100-200x20_azspice_gnu_fast-debug-64bit",
+    ],
     "transport_azspice_developer": [
         "transport_cylinder_xz_ffsl-BiP100x10-20x20_azspice_gnu_fast-debug-64bit",
         "transport_cylinder_xz_ffsl-BiP100x10-20x20_azspice_gnu_full-debug-64bit",

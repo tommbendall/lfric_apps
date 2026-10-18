@@ -78,6 +78,12 @@ def make_figure(plotpath, nx, ny, field, component, timestep):
         plotlevel = 38
     elif timestep == 'T000160':
         plotlevel = 54
+    elif timestep == 'T000200':
+        plotlevel = 38 + 20
+    elif timestep == 'T000400':
+        plotlevel = 38 + 40
+    elif timestep == 'T000600':
+        plotlevel = 38 + 60
     else:
         plotlevel = 80
 
@@ -105,7 +111,7 @@ def make_figure(plotpath, nx, ny, field, component, timestep):
                      linewidths=2.0, colors='k', linestyle="", extend='min')
     ax1.plot([x2d[0], x2d[-1]], [zp, zp], 'k--', linewidth=2)
 
-    ax1.set(xlim=[-500, 500], ylim=[0, 1000], aspect=1)
+    ax1.set(xlim=[-500, 500], ylim=[0, 1500], aspect=1)
     ax1.set_xlabel("x (m)", fontsize=32)
     ax1.set_ylabel("z (m)", fontsize=32)
     ax1.set_xticks(np.arange(-500, 750, 250))
@@ -114,7 +120,7 @@ def make_figure(plotpath, nx, ny, field, component, timestep):
     # Plot one-dimensional slice
     slice_1d_fig = plt.figure(figsize=(10, 10))
     plt.plot(np.round(dz[nx//2, :], 10), y_i[nx//2, :] * r2d, 'k', linewidth=4)
-    plt.ylim([0, 1000])
+    plt.ylim([0, 1500])
     plt.ylabel("z (m)", fontsize=24)
     plt.xlabel(r"$\Delta \theta$ (K)", fontsize=24)
     plt.tick_params(axis='both', labelsize=24)

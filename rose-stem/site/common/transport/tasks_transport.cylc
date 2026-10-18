@@ -21,8 +21,69 @@
         "xproc": 2,
         "yproc": 2,
         "wallclock": 20,
-        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v xz all linear cylinder",
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v:w2_vector1:w2_vector2:w2_vector3 xz all linear cylinder",
     }) %}
+
+{% elif task_ns.conf_name == "cylinder_xz_sl-BiP100x10-20x20" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cylinder_xz", "sl"],
+        "resolution": "BiP100x10-20x20",
+        "DT": 4,
+        "tsteps": 500,
+        "mpi_parts": 4,
+        "panel_decomp": "custom",
+        "xproc": 2,
+        "yproc": 2,
+        "wallclock": 20,
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v:w2_vector1:w2_vector2:w2_vector3 xz all linear cylinder",
+    }) %}
+
+{% elif task_ns.conf_name == "cylinder_xz_native-sl-BiP100x10-20x20" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cylinder_xz", "sl", "native"],
+        "resolution": "BiP100x10-20x20",
+        "DT": 4,
+        "tsteps": 500,
+        "mpi_parts": 4,
+        "panel_decomp": "custom",
+        "xproc": 2,
+        "yproc": 2,
+        "wallclock": 20,
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v:w2_vector1:w2_vector2:w2_vector3 xz all linear cylinder",
+    }) %}
+
+{% elif task_ns.conf_name == "cylinder_yz_sl-BiP10x100-200x20" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cylinder_yz", "sl"],
+        "resolution": "BiP10x100-200x20",
+        "DT": 4,
+        "tsteps": 500,
+        "mpi_parts": 4,
+        "panel_decomp": "custom",
+        "xproc": 2,
+        "yproc": 2,
+        "wallclock": 20,
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v:w2_vector1:w2_vector2:w2_vector3 yz all linear cylinder",
+    }) %}
+
+{% elif task_ns.conf_name == "cylinder_yz_native-sl-BiP10x100-200x20" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["cylinder_xz", "sl", "native"],
+        "resolution": "BiP10x100-200x20",
+        "DT": 4,
+        "tsteps": 500,
+        "mpi_parts": 4,
+        "panel_decomp": "custom",
+        "xproc": 2,
+        "yproc": 2,
+        "wallclock": 20,
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v:w2_vector1:w2_vector2:w2_vector3 yz all linear cylinder",
+    }) %}
+
 
 {% elif task_ns.conf_name == "deformation_2d_cylinder_ffsl_bigcfl-C32" %}
 

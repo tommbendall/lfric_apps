@@ -795,4 +795,55 @@ map_adspc2_source_field(:,cell), ndf_adspc3_source_mask, &
     !
   end subroutine invoke_prolong_multidata_linear_kernel_type
 
+  subroutine invoke_log_mesh(chi)
+    use mesh_mod, only : mesh_type
+    use log_mod, only: log_level_info, log_scratch_space, log_event
+    use sci_chi_transform_mod,             only: chi2llr
+    type(field_type), intent(in) :: chi(3)
+
+    integer(kind=i_def) :: cell
+    type(mesh_type), pointer :: mesh => null()
+    real(kind=r_def), pointer, dimension(:) :: chi1_data => null()
+    real(kind=r_def), pointer, dimension(:) :: chi2_data => null()
+    real(kind=r_def), pointer, dimension(:) :: chi3_data => null()
+    integer(kind=i_def), pointer :: map_chi(:,:) => null()
+    type(field_proxy_type) :: chi1_proxy, chi2_proxy, chi3_proxy
+    integer(kind=i_def) :: loop0_start
+    integer(kind=i_def) :: loop0_stop
+    integer(kind=i_def) :: df, ipanel
+    real(kind=r_def) :: lon, lat, radius
+
+    ! Initialise field and/or operator proxies
+    chi1_proxy = chi(1)%get_proxy()
+    chi1_data => chi1_proxy%data
+    chi2_proxy = chi(2)%get_proxy()
+    chi2_data => chi2_proxy%data
+    chi3_proxy = chi(3)%get_proxy()
+    chi3_data => chi3_proxy%data
+
+    ! Create a mesh object
+    mesh => chi1_proxy%vspace%get_mesh()
+
+    ! Look-up dofmaps for each function space
+    map_chi => chi1_proxy%vspace%get_whole_dofmap()
+
+    ! Set-up all of the loop bounds
+    loop0_start = 1
+    loop0_stop = mesh%get_last_edge_cell()
+
+    ipanel = 1_i_def
+
+    ! Call kernels and communication routines
+    do cell = loop0_start, loop0_stop, 1
+      do df = 1, 4
+        call chi2llr(chi1_data(map_chi(df,cell)), chi2_data(map_chi(df,cell)), chi3_data(map_chi(df,cell)), &
+                     ipanel, lon, lat, radius)
+        write(log_scratch_space, '(A,2I4,4E16.8)') 'Chi field = ',cell, df, &
+                    chi1_data(map_chi(df,cell)), chi2_data(map_chi(df,cell)), lon, lat
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+      end do
+    end do
+
+  end subroutine invoke_log_mesh
+
 end module psykal_lite_mod

@@ -38,6 +38,7 @@ use base_mesh_config_mod,       only : geometry, &
                                        geometry_spherical
 use planet_config_mod,          only : p_zero, Rd, kappa, scaled_radius
 use extrusion_config_mod,       only : domain_height
+use initial_wind_config_mod,    only : profile, profile_rotational_yz
 
 implicit none
 
@@ -237,16 +238,21 @@ function analytic_tracer_field(chi, choice, domain_max_x) result(tracer)
     bubble_height = domain_height / 4.0_r_def
     bubble_radius = bubble_height / 2.0_r_def
 
+    if ( profile == profile_rotational_yz ) then
+      l1 = chi(2)
+    else
+      l1 = chi(1)
+    end if
     ! Elliptical distance from centre of bubble
     bubble_dist = bubble_radius &
-      * sqrt( ((chi(1) - XC) / (bubble_width / 2.0_r_def) ) ** 2.0_r_def &
+      * sqrt( ((l1 - XC) / (bubble_width / 2.0_r_def) ) ** 2.0_r_def &
             + ((chi(3) - bubble_zc) / (bubble_height / 2.0_r_def)) ** 2.0_r_def)
 
     slot_width = bubble_width / 12.0_r_def
     slot_length = 17.0_r_def * bubble_height / 24.0_r_def
 
     if ( bubble_dist < bubble_radius ) then
-      if ( abs(chi(1) - XC) > slot_width / 2.0_r_def ) then
+      if ( abs(l1 - XC) > slot_width / 2.0_r_def ) then
         tracer = field_max
       else
         if ( chi(3) < (bubble_zc + bubble_height / 2.0_r_def - slot_length) ) then

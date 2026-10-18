@@ -17,6 +17,7 @@ use initial_wind_config_mod, only: nl_constant,                     &
                                    profile_div_free_reversible,     &
                                    profile_eternal_fountain,        &
                                    profile_NL_case_4,               &
+                                   profile_rotational_yz,           &
                                    profile_rotational,              &
                                    wind_time_period
 use planet_config_mod,       only: scaled_radius
@@ -137,6 +138,33 @@ function analytic_streamfunction( chi, choice, num_options,    &
       psi(2) = coeffs(2) * (ld - lb) ** 2.0_r_def + coeffs(3)
     else
       psi(2) = coeffs(4)
+    end if
+
+  case ( profile_rotational_yz )
+    ! A solid body rotation in a vertical slice
+    ! The stream function is smoothed towards the edge of the domain
+    ! to prevent errors at the boundaries
+    time_period = domain_height  ! One rotation when T = H
+    vortex_zcentre = domain_height / 2.0_r_def
+    lr = domain_height
+    la = 10.0_r_def * lr / 25.0_r_def
+    lb = 12.0_r_def * lr / 25.0_r_def
+    ld = lr * sqrt((chi(2) / (domain_max_x * 2.0_r_def)) ** 2.0_r_def &
+                   + ((chi(3) - vortex_zcentre) / domain_height) ** 2.0_r_def)
+
+    coeffs(1) = pi / time_period
+    coeffs(2) = - pi * la / (time_period * (lb - la))
+    coeffs(3) = pi * la * lb / time_period
+    coeffs(4) = pi * la * lb / time_period
+
+    psi(2) = 0.0_r_def
+    psi(3) = 0.0_r_def
+    if (ld <= la) then
+      psi(1) = coeffs(1) * ld ** 2.0_r_def
+    else if (ld <= lb) then
+      psi(1) = coeffs(2) * (ld - lb) ** 2.0_r_def + coeffs(3)
+    else
+      psi(1) = coeffs(4)
     end if
 
     case default

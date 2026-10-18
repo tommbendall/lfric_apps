@@ -7,6 +7,21 @@
 
 {# Azspice Groups #}
 {% do site_groups.update({
+    "gungho_model_cartesian": [
+        "gungho_model_cart-warm3dbubble-sl-noomp_ex1a_gnu_full-debug-64bit",
+        "gungho_model_cart-warm3dbubble-sl_ex1a_gnu_full-debug-64bit",
+        "gungho_model_cart-warm3dbubble-w3sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-warm3dbubble_ex1a_gnu_fast-debug-64bit",
+    ],
+    "gungho_model_cartesian2": [
+        "gungho_model_cart-warm3dbubble-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-warm3dbubble-sl_ex1a_gnu_full-debug-64bit",
+        "gungho_model_cart-warm3dbubble-w3sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-warm3dbubble_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-bell_3d_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-bell_3d-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-bell_3d-sl_ex1a_gnu_full-debug-64bit",
+    ],
     "gungho_model_azspice_developer": [
         "gungho_model_agnesi_hyd_cart-BiP120x8-2000x2000_azspice_gnu_fast-debug-64bit",
         "gungho_model_baroclinic-C24_MG_azspice_gnu_fast-debug-64bit",
@@ -274,9 +289,27 @@
         "gungho_model_exo-dhj-C24_MG_ex1a_gnu_fast-debug-64bit",
         "gungho_model_exo-dhj-C48_MG_ex1a_gnu_fast-debug-64bit",
     ],
+    "gungho_model_ex1a_cartesian-sl": [
+        "gungho_model_cart-skamarock-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-straka_200m-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-straka_100m-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-straka_50m-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-straka_25m-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-agnesi_hyd-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-agnesi_nhyd-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-schar-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-bell_3d-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-warm3dbubble-sl_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-straka_100m-sl-no-visc_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-straka_50m-sl-no-visc_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-dry-sl-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_robert-moist-lam-sl-BiP100x8-10x10_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_robert-moist-smag-sl-BiP100x8-10x10_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_cart-warm3dbubble-w3sl_ex1a_gnu_fast-debug-64bit",
+    ],
     "gungho_model_ex1a_cartesian": [
+        "gungho_model_ex1a_cartesian-sl",
         "gungho_model_cart-skamarock_ex1a_gnu_fast-debug-64bit",
-        "gungho_model_cart-straka_400m_ex1a_gnu_fast-debug-64bit",
         "gungho_model_cart-straka_200m_ex1a_gnu_fast-debug-64bit",
         "gungho_model_cart-straka_100m_ex1a_gnu_fast-debug-64bit",
         "gungho_model_cart-straka_50m_ex1a_gnu_fast-debug-64bit",
@@ -286,6 +319,9 @@
         "gungho_model_cart-schar_ex1a_gnu_fast-debug-64bit",
         "gungho_model_cart-bell_3d_ex1a_gnu_fast-debug-64bit",
         "gungho_model_cart-warm3dbubble_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-dry-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_robert-moist-lam-BiP100x8-10x10_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_robert-moist-smag-BiP100x8-10x10_ex1a_gnu_fast-debug-64bit",
     ],
     "gungho_model_ex1a_perftools": [
         "gungho_model_baroclinic-no_io-C192_MG_ex1a_perftools-gnu_fast-debug-64bit",
