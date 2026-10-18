@@ -33,7 +33,8 @@ module predictors_alg_mod
                                         wind_transport_predictor_3d,           &
                                         wind_transport_predictor_no_etadot,    &
                                         wind_transport_predictor_no_w,         &
-                                        wind_transport_predictor_w2h_only
+                                        wind_transport_predictor_w2h_only,     &
+                                        wind_transport_predictor_finite_difference
   use transport_config_mod,       only: use_density_predictor, &
                                         cap_density_predictor
 
@@ -67,12 +68,15 @@ contains
   !> @param[in]     rhs_n          The RHS terms for u at time n
   !> @param[in]     rhs_w2h        The horizontal-only RHS terms for u at time n,
   !!                               only used for the w2h_only predictor
+  !> @param[in]     u_pred         The finite difference wind predictor, only
+  !!                               used for the finite_difference predictor
   !> @param[in]     beta           The time n centring parameter
   !> @param[in]     model_clock    Time within the model
   subroutine predictors_alg( advected_state, &
                              wind,           &
                              rhs_n,          &
                              rhs_w2h,        &
+                             u_pred,         &
                              beta,           &
                              model_clock )
 
@@ -83,6 +87,7 @@ contains
     type( field_type ),        intent(in)    :: wind
     type( field_type ),        intent(in)    :: rhs_n
     type( field_type ),        intent(in)    :: rhs_w2h
+    type( field_type ),        intent(in)    :: u_pred
     real( kind=r_def ),        intent(in)    :: beta
     class( model_clock_type ), intent(in)    :: model_clock
 
@@ -127,6 +132,8 @@ contains
                                  vert_field=vert_wind )
         call combine_w2_field_alg( advected_state(igh_u), hori_pred,           &
                                    vert_field=vert_wind )
+      case ( wind_transport_predictor_finite_difference )
+        call invoke( setval_X(advected_state(igh_u), u_pred) )
       case default
         call log_event( "predictors_alg: unrecognised wind_transport_predictor", &
                         LOG_LEVEL_ERROR )

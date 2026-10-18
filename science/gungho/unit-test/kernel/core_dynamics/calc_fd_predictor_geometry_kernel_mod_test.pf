@@ -1,0 +1,488 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+
+!> Test the geometry constants for the finite difference wind predictor
+module calc_fd_predictor_geometry_kernel_mod_test
+
+  use constants_mod, only: i_def, r_def, imdi
+  use funit
+
+  implicit none
+
+  private
+  public :: test_planar_rectangular, test_planar_sheared,                      &
+            test_planar_edge, test_spherical
+
+  integer(kind=i_def), parameter :: ncells = 5
+  integer(kind=i_def), parameter :: ndf_chi = 8
+  integer(kind=i_def), parameter :: undf_chi = ndf_chi * ncells
+  integer(kind=i_def), parameter :: ndata = 40
+  real(kind=r_def),    parameter :: tol = 1.0e-12_r_def
+
+  @TestCase
+  type, extends(TestCase), public :: calc_fd_predictor_geometry_test_type
+    private
+  contains
+    procedure setUp
+    procedure tearDown
+    procedure test_planar_rectangular
+    procedure test_planar_sheared
+    procedure test_planar_edge
+    procedure test_spherical
+  end type calc_fd_predictor_geometry_test_type
+
+contains
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine setUp(this)
+
+    use finite_element_config_mod, only: cellshape_quadrilateral,              &
+                                         coord_system_xyz
+    use feign_config_mod,          only: feign_finite_element_config
+    use sci_chi_transform_mod,     only: init_chi_transforms
+
+    implicit none
+
+    class(calc_fd_predictor_geometry_test_type), intent(inout) :: this
+
+    call feign_finite_element_config( cellshape=cellshape_quadrilateral,       &
+                                      element_order_h=0_i_def,                 &
+                                      element_order_v=0_i_def,                 &
+                                      rehabilitate=.true.,                     &
+                                      coord_order=0_i_def,                     &
+                                      coord_system=coord_system_xyz,           &
+                                      vorticity_in_w1=.false. )
+
+    call init_chi_transforms(imdi, imdi)
+
+  end subroutine setUp
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine tearDown(this)
+
+    use config_loader_mod,     only: final_configuration
+    use sci_chi_transform_mod, only: final_chi_transforms
+
+    implicit none
+
+    class(calc_fd_predictor_geometry_test_type), intent(inout) :: this
+
+    call final_configuration()
+    call final_chi_transforms()
+
+  end subroutine tearDown
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !> Set the 4 base corners of a cell (SW, SE, NW, NE), and copy them to the
+  !! top corners with a height of 1
+  subroutine set_cell_corners(chi_1, chi_2, chi_3, icell, corners_1, corners_2)
+
+    implicit none
+
+    real(kind=r_def),    intent(inout) :: chi_1(undf_chi)
+    real(kind=r_def),    intent(inout) :: chi_2(undf_chi)
+    real(kind=r_def),    intent(inout) :: chi_3(undf_chi)
+    integer(kind=i_def), intent(in)    :: icell
+    real(kind=r_def),    intent(in)    :: corners_1(4)
+    real(kind=r_def),    intent(in)    :: corners_2(4)
+
+    integer(kind=i_def) :: i, first_dof
+
+    first_dof = (icell - 1) * ndf_chi
+    do i = 1, 4
+      chi_1(first_dof + i) = corners_1(i)
+      chi_2(first_dof + i) = corners_2(i)
+      chi_3(first_dof + i) = 0.0_r_def
+      chi_1(first_dof + 4 + i) = corners_1(i)
+      chi_2(first_dof + 4 + i) = corners_2(i)
+      chi_3(first_dof + 4 + i) = 1.0_r_def
+    end do
+
+  end subroutine set_cell_corners
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !> Run the kernel on cell 1, whose neighbours W, S, E, N are cells 2 to 5
+  subroutine run_kernel(geometry, chi_1, chi_2, chi_3, stencil_size, omega,    &
+                        f_lat, fd_geom)
+
+    use calc_fd_predictor_geometry_kernel_mod,                                 &
+        only: calc_fd_predictor_geometry_code
+
+    implicit none
+
+    integer(kind=i_def), intent(in)  :: geometry
+    integer(kind=i_def), intent(in)  :: stencil_size(4)
+    real(kind=r_def),    intent(in)  :: chi_1(undf_chi)
+    real(kind=r_def),    intent(in)  :: chi_2(undf_chi)
+    real(kind=r_def),    intent(in)  :: chi_3(undf_chi)
+    real(kind=r_def),    intent(in)  :: omega
+    real(kind=r_def),    intent(in)  :: f_lat
+    real(kind=r_def),    intent(out) :: fd_geom(ndata)
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: smap_max = 2
+    integer(kind=i_def), parameter :: ndf_w3 = 1
+    integer(kind=i_def), parameter :: undf_w3 = ndata
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = ncells
+
+    integer(kind=i_def) :: map_w3(ndf_w3)
+    integer(kind=i_def) :: map_chi(ndf_chi)
+    integer(kind=i_def) :: map_pid(ndf_pid)
+    integer(kind=i_def) :: chi_smap(ndf_chi, smap_max, 4)
+    integer(kind=i_def) :: pid_smap(ndf_pid, smap_max, 4)
+    real(kind=r_def)    :: panel_id(undf_pid)
+    integer(kind=i_def) :: df, i
+
+    map_w3(1) = 1
+    do i = 1, ndf_chi
+      map_chi(i) = i
+    end do
+    map_pid(1) = 1
+    panel_id(:) = 1.0_r_def
+
+    do df = 1, 4
+      chi_smap(:, 1, df) = map_chi
+      chi_smap(:, 2, df) = map_chi + df * ndf_chi
+      pid_smap(1, 1, df) = 1
+      pid_smap(1, 2, df) = 1 + df
+    end do
+
+    fd_geom(:) = -999.0_r_def
+
+    call calc_fd_predictor_geometry_code( nlayers, fd_geom,                    &
+                                          chi_1, chi_2, chi_3,                 &
+                                          stencil_size, smap_max, chi_smap,    &
+                                          panel_id,                            &
+                                          stencil_size, smap_max, pid_smap,    &
+                                          geometry, omega, f_lat,              &
+                                          ndf_w3, undf_w3, map_w3,             &
+                                          ndf_chi, undf_chi, map_chi,          &
+                                          ndf_pid, undf_pid, map_pid )
+
+  end subroutine run_kernel
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !> Build a planar mesh of cells with a shear, so that row j is shifted in x
+  !! by shear * dy * j. The first cell is at the origin, and the neighbours are
+  !! W, S, E, N
+  subroutine build_planar(dx, dy, shear, chi_1, chi_2, chi_3)
+
+    implicit none
+
+    real(kind=r_def), intent(in)  :: dx
+    real(kind=r_def), intent(in)  :: dy
+    real(kind=r_def), intent(in)  :: shear
+    real(kind=r_def), intent(out) :: chi_1(undf_chi)
+    real(kind=r_def), intent(out) :: chi_2(undf_chi)
+    real(kind=r_def), intent(out) :: chi_3(undf_chi)
+
+    integer(kind=i_def) :: icell
+    integer(kind=i_def) :: offset_i(ncells)
+    integer(kind=i_def) :: offset_j(ncells)
+    real(kind=r_def)    :: origin_x, origin_y
+
+    offset_i(:) = (/ 0, -1, 0, 1, 0 /)
+    offset_j(:) = (/ 0, 0, -1, 0, 1 /)
+
+    do icell = 1, ncells
+      origin_x = offset_i(icell) * dx + shear * dy * offset_j(icell)
+      origin_y = offset_j(icell) * dy
+      call set_cell_corners(                                                   &
+          chi_1, chi_2, chi_3, icell,                                          &
+          (/ origin_x, origin_x + dx, origin_x + shear * dy,                   &
+             origin_x + shear * dy + dx /),                                    &
+          (/ origin_y, origin_y, origin_y + dy, origin_y + dy /) )
+    end do
+
+  end subroutine build_planar
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  @Test
+  subroutine test_planar_rectangular(this)
+
+    use base_mesh_config_mod, only: geometry_planar
+
+    implicit none
+
+    class(calc_fd_predictor_geometry_test_type), intent(inout) :: this
+
+    real(kind=r_def), parameter :: dx = 2.0_r_def
+    real(kind=r_def), parameter :: dy = 3.0_r_def
+    real(kind=r_def), parameter :: omega = 0.5_r_def
+    real(kind=r_def), parameter :: f_lat = 0.3_r_def
+
+    real(kind=r_def)    :: chi_1(undf_chi)
+    real(kind=r_def)    :: chi_2(undf_chi)
+    real(kind=r_def)    :: chi_3(undf_chi)
+    real(kind=r_def)    :: fd_geom(ndata)
+    real(kind=r_def)    :: expected_normal(2, 4)
+    real(kind=r_def)    :: expected_coefficient(4)
+    real(kind=r_def)    :: expected_weights(2, 4)
+    integer(kind=i_def) :: df, base
+
+    call build_planar(dx, dy, 0.0_r_def, chi_1, chi_2, chi_3)
+    call run_kernel( geometry_planar, chi_1, chi_2, chi_3,                     &
+                     (/ 2, 2, 2, 2 /), omega, f_lat, fd_geom )
+
+    ! Faces are W, S, E, N
+    expected_normal(:, 1) = (/ -1.0_r_def, 0.0_r_def /)
+    expected_normal(:, 2) = (/ 0.0_r_def, -1.0_r_def /)
+    expected_normal(:, 3) = (/ 1.0_r_def, 0.0_r_def /)
+    expected_normal(:, 4) = (/ 0.0_r_def, 1.0_r_def /)
+    expected_coefficient(:) = (/ 1.0_r_def / dx, 1.0_r_def / dy,               &
+                                 1.0_r_def / dx, 1.0_r_def / dy /)
+    expected_weights(:, 1) = (/ -0.25_r_def, 0.0_r_def /)
+    expected_weights(:, 2) = (/ 0.0_r_def, -1.0_r_def / 6.0_r_def /)
+    expected_weights(:, 3) = (/ 0.25_r_def, 0.0_r_def /)
+    expected_weights(:, 4) = (/ 0.0_r_def, 1.0_r_def / 6.0_r_def /)
+
+    do df = 1, 4
+      base = (df - 1) * 9
+      @assertEqual(expected_normal(1, df), fd_geom(base + 1), tol)
+      @assertEqual(expected_normal(2, df), fd_geom(base + 2), tol)
+      @assertEqual(expected_coefficient(df), fd_geom(base + 3), tol)
+      ! Orthogonal mesh, so no correction
+      @assertEqual(0.0_r_def, fd_geom(base + 4), tol)
+      @assertEqual(0.0_r_def, fd_geom(base + 5), tol)
+      @assertEqual(expected_weights(1, df), fd_geom(base + 6), tol)
+      @assertEqual(expected_weights(2, df), fd_geom(base + 7), tol)
+      ! Wind weights are half the normal, as faces come in opposite pairs
+      @assertEqual(0.5_r_def * expected_normal(1, df), fd_geom(base + 8), tol)
+      @assertEqual(0.5_r_def * expected_normal(2, df), fd_geom(base + 9), tol)
+    end do
+
+    ! Rotation vector in the local frame (x, y, z) and the area
+    @assertEqual(0.0_r_def, fd_geom(37), tol)
+    @assertEqual(2.0_r_def * omega * cos(f_lat), fd_geom(38), tol)
+    @assertEqual(2.0_r_def * omega * sin(f_lat), fd_geom(39), tol)
+    @assertEqual(dx * dy, fd_geom(40), tol)
+
+  end subroutine test_planar_rectangular
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  @Test
+  subroutine test_planar_sheared(this)
+
+    use base_mesh_config_mod, only: geometry_planar
+
+    implicit none
+
+    class(calc_fd_predictor_geometry_test_type), intent(inout) :: this
+
+    real(kind=r_def), parameter :: dx = 2.0_r_def
+    real(kind=r_def), parameter :: dy = 3.0_r_def
+    real(kind=r_def), parameter :: shear = 0.5_r_def
+    real(kind=r_def), parameter :: gradient(2) = (/ 0.7_r_def, -1.3_r_def /)
+    real(kind=r_def), parameter :: wind(2) = (/ 0.4_r_def, 0.9_r_def /)
+
+    real(kind=r_def)    :: chi_1(undf_chi)
+    real(kind=r_def)    :: chi_2(undf_chi)
+    real(kind=r_def)    :: chi_3(undf_chi)
+    real(kind=r_def)    :: fd_geom(ndata)
+    real(kind=r_def)    :: separation(2, 4)
+    real(kind=r_def)    :: gradient_sum(2)
+    real(kind=r_def)    :: wind_sum(2)
+    real(kind=r_def)    :: normal_length
+    real(kind=r_def)    :: root
+    integer(kind=i_def) :: df, base
+
+    call build_planar(dx, dy, shear, chi_1, chi_2, chi_3)
+    call run_kernel( geometry_planar, chi_1, chi_2, chi_3,                     &
+                     (/ 2, 2, 2, 2 /), 0.5_r_def, 0.3_r_def, fd_geom )
+
+    ! Separation of the neighbouring cell centres
+    separation(:, 1) = (/ -dx, 0.0_r_def /)
+    separation(:, 2) = (/ -shear * dy, -dy /)
+    separation(:, 3) = (/ dx, 0.0_r_def /)
+    separation(:, 4) = (/ shear * dy, dy /)
+
+    gradient_sum(:) = 0.0_r_def
+    wind_sum(:) = 0.0_r_def
+    do df = 1, 4
+      base = (df - 1) * 9
+      normal_length = sqrt(fd_geom(base + 1)**2 + fd_geom(base + 2)**2)
+      @assertEqual(1.0_r_def, normal_length, tol)
+      ! Weights recover the gradient of a linear function exactly
+      gradient_sum(:) = gradient_sum(:) + fd_geom(base + 6:base + 7)           &
+          * dot_product(gradient, separation(:, df))
+      ! Weights recover a uniform wind from its normal components
+      wind_sum(:) = wind_sum(:) + fd_geom(base + 8:base + 9)                   &
+          * dot_product(wind, fd_geom(base + 1:base + 2))
+    end do
+    @assertEqual(gradient(1), gradient_sum(1), tol)
+    @assertEqual(gradient(2), gradient_sum(2), tol)
+    @assertEqual(wind(1), wind_sum(1), tol)
+    @assertEqual(wind(2), wind_sum(2), tol)
+
+    ! E face: the normal is (1, -s) / sqrt(1 + s^2) and the direction to the
+    ! neighbour is (1, 0), so their dot product is 1 / sqrt(1 + s^2)
+    root = sqrt(1.0_r_def + shear**2)
+    base = 2 * 9
+    @assertEqual(1.0_r_def / root, fd_geom(base + 1), tol)
+    @assertEqual(-shear / root, fd_geom(base + 2), tol)
+    @assertEqual(root / dx, fd_geom(base + 3), tol)
+    @assertEqual(-shear**2 / root, fd_geom(base + 4), tol)
+    @assertEqual(-shear / root, fd_geom(base + 5), tol)
+
+    ! N face: the normal is (0, 1) and the direction to the neighbour is
+    ! (s, 1) / sqrt(1 + s^2), at a distance dy * sqrt(1 + s^2)
+    base = 3 * 9
+    @assertEqual(1.0_r_def / dy, fd_geom(base + 3), tol)
+    @assertEqual(-shear, fd_geom(base + 4), tol)
+    @assertEqual(0.0_r_def, fd_geom(base + 5), tol)
+
+    @assertEqual(dx * dy, fd_geom(40), tol)
+
+  end subroutine test_planar_sheared
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  @Test
+  subroutine test_planar_edge(this)
+
+    use base_mesh_config_mod, only: geometry_planar
+
+    implicit none
+
+    class(calc_fd_predictor_geometry_test_type), intent(inout) :: this
+
+    real(kind=r_def), parameter :: dx = 2.0_r_def
+    real(kind=r_def), parameter :: dy = 3.0_r_def
+
+    real(kind=r_def)    :: chi_1(undf_chi)
+    real(kind=r_def)    :: chi_2(undf_chi)
+    real(kind=r_def)    :: chi_3(undf_chi)
+    real(kind=r_def)    :: fd_geom(ndata)
+    integer(kind=i_def) :: i
+
+    call build_planar(dx, dy, 0.0_r_def, chi_1, chi_2, chi_3)
+    ! No western neighbour, as at the edge of a limited-area domain
+    call run_kernel( geometry_planar, chi_1, chi_2, chi_3,                     &
+                     (/ 1, 2, 2, 2 /), 0.5_r_def, 0.3_r_def, fd_geom )
+
+    ! The normal is still known, but there are no neighbour terms
+    @assertEqual(-1.0_r_def, fd_geom(1), tol)
+    @assertEqual(0.0_r_def, fd_geom(2), tol)
+    do i = 3, 7
+      @assertEqual(0.0_r_def, fd_geom(i), tol)
+    end do
+    ! The wind weights still use all faces
+    @assertEqual(-0.5_r_def, fd_geom(8), tol)
+
+    ! The remaining neighbours give a one-sided gradient in x
+    @assertEqual(1.0_r_def / dx, fd_geom(2 * 9 + 6), tol)
+    @assertEqual(0.0_r_def, fd_geom(2 * 9 + 7), tol)
+    @assertEqual(1.0_r_def / (2.0_r_def * dy), fd_geom(3 * 9 + 7), tol)
+
+  end subroutine test_planar_edge
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !> Cells in a longitude-latitude grid on the unit sphere, with the
+  !! coordinates given as global Cartesian values
+  @Test
+  subroutine test_spherical(this)
+
+    use base_mesh_config_mod, only: geometry_spherical
+
+    implicit none
+
+    class(calc_fd_predictor_geometry_test_type), intent(inout) :: this
+
+    real(kind=r_def), parameter :: delta_lon = 0.02_r_def
+    real(kind=r_def), parameter :: delta_lat = 0.02_r_def
+    real(kind=r_def), parameter :: lon_0 = 0.3_r_def
+    real(kind=r_def), parameter :: lat_0 = 0.2_r_def
+    real(kind=r_def), parameter :: omega = 0.7_r_def
+    real(kind=r_def), parameter :: spherical_tol = 2.0e-3_r_def
+
+    real(kind=r_def)    :: chi_1(undf_chi)
+    real(kind=r_def)    :: chi_2(undf_chi)
+    real(kind=r_def)    :: chi_3(undf_chi)
+    real(kind=r_def)    :: fd_geom(ndata)
+    real(kind=r_def)    :: lon(4)
+    real(kind=r_def)    :: lat(4)
+    real(kind=r_def)    :: centre(3)
+    real(kind=r_def)    :: centre_nb(3)
+    real(kind=r_def)    :: height_difference(4)
+    real(kind=r_def)    :: gradient_sum(2)
+    real(kind=r_def)    :: omega_length
+    real(kind=r_def)    :: expected_vertical
+    real(kind=r_def)    :: expected_east
+    real(kind=r_def)    :: expected_north
+    real(kind=r_def)    :: normal_length
+    integer(kind=i_def) :: icell, df, base, i
+    integer(kind=i_def) :: offset_i(ncells)
+    integer(kind=i_def) :: offset_j(ncells)
+
+    offset_i(:) = (/ 0, -1, 0, 1, 0 /)
+    offset_j(:) = (/ 0, 0, -1, 0, 1 /)
+
+    do icell = 1, ncells
+      lon(:) = lon_0 + offset_i(icell) * delta_lon                             &
+          + (/ 0.0_r_def, delta_lon, 0.0_r_def, delta_lon /)
+      lat(:) = lat_0 + offset_j(icell) * delta_lat                             &
+          + (/ 0.0_r_def, 0.0_r_def, delta_lat, delta_lat /)
+      call set_cell_corners( chi_1, chi_2, chi_3, icell,                       &
+                             cos(lat) * cos(lon), cos(lat) * sin(lon) )
+      ! The third coordinate is the z value, rather than the height
+      do i = 1, 4
+        chi_3((icell - 1) * ndf_chi + i) = sin(lat(i))
+        chi_3((icell - 1) * ndf_chi + 4 + i) = sin(lat(i))
+      end do
+    end do
+
+    call run_kernel( geometry_spherical, chi_1, chi_2, chi_3,                  &
+                     (/ 2, 2, 2, 2 /), omega, 0.0_r_def, fd_geom )
+
+    do df = 1, 4
+      base = (df - 1) * 9
+      normal_length = sqrt(fd_geom(base + 1)**2 + fd_geom(base + 2)**2)
+      @assertEqual(1.0_r_def, normal_length, tol)
+    end do
+
+    ! Twice the rotation vector has the same length in the local frame, and
+    ! its vertical part is 2 * omega * sin(latitude)
+    omega_length = sqrt(fd_geom(37)**2 + fd_geom(38)**2 + fd_geom(39)**2)
+    @assertEqual(2.0_r_def * omega, omega_length, tol)
+    expected_vertical = 2.0_r_def * omega * sin(lat_0 + 0.5_r_def * delta_lat)
+    @assertEqual(expected_vertical, fd_geom(39), spherical_tol)
+
+    ! Weights recover the horizontal gradient of z, which is the horizontal
+    ! part of the unit vector (0, 0, 1) in the local frame
+    centre(:) = 0.0_r_def
+    do i = 1, 4
+      centre(:) = centre(:) + (/ chi_1(i), chi_2(i), chi_3(i) /)
+    end do
+    centre(:) = centre(:) / sqrt(dot_product(centre, centre))
+    do df = 1, 4
+      icell = df + 1
+      centre_nb(:) = 0.0_r_def
+      do i = 1, 4
+        centre_nb(:) = centre_nb(:)                                            &
+            + (/ chi_1((icell - 1) * ndf_chi + i),                             &
+                 chi_2((icell - 1) * ndf_chi + i),                             &
+                 chi_3((icell - 1) * ndf_chi + i) /)
+      end do
+      centre_nb(:) = centre_nb(:) / sqrt(dot_product(centre_nb, centre_nb))
+      height_difference(df) = centre_nb(3) - centre(3)
+    end do
+    gradient_sum(:) = 0.0_r_def
+    do df = 1, 4
+      base = (df - 1) * 9
+      gradient_sum(:) = gradient_sum(:) + fd_geom(base + 6:base + 7)           &
+          * height_difference(df)
+    end do
+    expected_east = fd_geom(37) / (2.0_r_def * omega)
+    expected_north = fd_geom(38) / (2.0_r_def * omega)
+    @assertEqual(expected_east, gradient_sum(1), spherical_tol)
+    @assertEqual(expected_north, gradient_sum(2), spherical_tol)
+
+  end subroutine test_spherical
+
+end module calc_fd_predictor_geometry_kernel_mod_test

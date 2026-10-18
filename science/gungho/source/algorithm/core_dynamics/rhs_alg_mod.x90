@@ -14,24 +14,33 @@ module rhs_alg_mod
                                                  LOG_LEVEL_ERROR
   use sci_enforce_bc_kernel_mod,           only: enforce_bc_kernel_type
   use sci_geometric_constants_mod,         only: get_coordinates,     &
+                                                 get_dA_at_w2,      &
+                                                 get_height_fv,     &
                                                  get_panel_id
   use sci_fem_constants_mod,               only: get_mass_matrix_fe,         &
                                                  get_mass_matrix_fv,         &
                                                  get_inverse_mass_matrix_fe, &
                                                  get_inverse_mass_matrix_fv
   use dycore_constants_mod,                only: get_coriolis,       &
+                                                 get_fd_predictor_geometry, &
                                                  get_geopotential,   &
                                                  get_w2_mass_matrix, &
                                                  w2_damping_layer_matrix
   use field_mod,                           only: field_type
   use finite_element_config_mod,           only: vorticity_in_w1
+  use base_mesh_config_mod,                only: geometry
+  use finite_element_config_mod,           only: coord_system,         &
+                                                 coord_system_native
+  use fd_wind_predictor_kernel_mod,        only: fd_wind_predictor_kernel_type
   use formulation_config_mod,              only: rotating,             &
+                                                 shallow,              &
                                                  si_momentum_equation, &
                                                  vector_invariant,     &
                                                  eos_method,           &
                                                  eos_method_sampled,   &
                                                  eos_method_projected
-  use planet_config_mod,                   only: cp, kappa, rd, p_zero
+  use planet_config_mod,                   only: cp, kappa, rd, p_zero, &
+                                                 scaled_radius
   use kinetic_energy_gradient_kernel_mod,  only: kinetic_energy_gradient_kernel_type
   use matrix_vector_kernel_mod,            only: matrix_vector_kernel_type
   use dg_inc_matrix_vector_kernel_mod,     only: dg_inc_matrix_vector_kernel_type
@@ -96,8 +105,13 @@ contains
   !> @param[in]     model_clock     Time in the model
   !> @param[in,out] rhs_w2h         Optional W2h RHS of the horizontal wind
   !!                                equation, without the damping layer
+  !> @param[in,out] u_pred          Optional W2 field of fluxes, set to the base
+  !!                                wind plus alpha_dt times the finite
+  !!                                difference acceleration. Only available
+  !!                                for the default configuration
   subroutine rhs_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                      compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
+                      compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h,        &
+                      u_pred )
 
     implicit none
 
@@ -113,16 +127,19 @@ contains
     logical(kind=l_def),          intent(in)    :: compute_rhs_t_d
     class(model_clock_type),      intent(in)    :: model_clock
     type(field_type), optional,   intent(inout) :: rhs_w2h
+    type(field_type), optional,   intent(inout) :: u_pred
 
     if (   (rhs(igh_u)%get_element_order_h() == 0) &
      .and. (rhs(igh_u)%get_element_order_v() == 0) &
      .and. (.not. si_momentum_equation)            &
      .and. (eos_method == eos_method_sampled) ) then
       call rhs_default_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                            compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
+                            compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h,        &
+                            u_pred )
     else
       call rhs_general_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                            compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
+                            compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h,        &
+                            u_pred )
     end if
 
   end subroutine rhs_alg
@@ -130,7 +147,8 @@ contains
   !> @brief rhs algorithm for the default setup ( lowest order elements,
   !!        explicit momentum advection, global and sampled eos)
   subroutine rhs_default_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                              compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
+                              compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h,        &
+                              u_pred )
 
     implicit none
 
@@ -146,12 +164,17 @@ contains
     logical(kind=l_def),          intent(in)    :: compute_rhs_t_d
     class(model_clock_type),      intent(in)    :: model_clock
     type(field_type),   optional, intent(inout) :: rhs_w2h
+    type(field_type),   optional, intent(inout) :: u_pred
 
     type(operator_type), pointer :: mm_vel    => null(), &
                                     mm_wtheta => null(), &
                                     mm_w2h => null(),    &
                                     coriolis  => null()
-    type(field_type), pointer :: geopotential => null(), &
+    type(field_type), pointer :: fd_geom      => null(), &
+                                 height_w3    => null(), &
+                                 height_wth   => null(), &
+                                 dA_at_w2     => null(), &
+                                 geopotential => null(), &
                                  u            => null(), &
                                  theta        => null(), &
                                  rho          => null(), &
@@ -160,7 +183,7 @@ contains
                                  rho_base     => null(), &
                                  exner        => null()
 
-    type(field_type)    :: rhs_u
+    type(field_type)    :: rhs_u, exner_big
     integer(kind=i_def) :: mesh_id
     type(field_type)    :: theta_v
     integer(tik)        :: id
@@ -208,15 +231,55 @@ contains
       call invoke( matrix_vector_kernel_type( rhs_u, u, coriolis ) )
     end if
     call theta_v%initialise( theta%get_function_space(), halo_depth = req_halo_depth )
-    call invoke( X_times_Y( theta_v, theta, moist_dyn(1) ),               &
-                 inc_X_divideby_Y( theta_v,  moist_dyn(2) ),              &
-                 pressure_gradient_p0_kernel_type( rhs_u, exner,          &
-                                                   geopotential, theta_v, &
-                                                   req_stencil_depth,     &
-                                                   cp),                   &
-                 matrix_vector_kernel_type( rhs(igh_u), u_base, mm_vel ), &
-                 inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_u ),            &
-                 enforce_bc_kernel_type(rhs(igh_u)) )
+    if ( present(u_pred) ) then
+      if ( coord_system /= coord_system_native ) then
+        call log_event( "rhs_alg: the finite difference predictor requires " // &
+                        "native coordinates", LOG_LEVEL_ERROR )
+      end if
+      fd_geom    => get_fd_predictor_geometry(mesh_id)
+      height_w3  => get_height_fv(W3, mesh_id)
+      height_wth => get_height_fv(Wtheta, mesh_id)
+      dA_at_w2   => get_dA_at_w2(mesh_id)
+      call exner_big%initialise(exner%get_function_space(), halo_depth=req_halo_depth)
+
+      ! The stencil reads inside the GH_INC loop to the depth 1 halo mean that
+      ! exner is exchanged to depth 2, sharing the theta_v exchange depth
+      call invoke( X_times_Y(theta_v, theta, moist_dyn(1)),                    &
+                   inc_X_divideby_Y(theta_v,  moist_dyn(2)),                   &
+                   setval_c(u_pred, 0.0_r_def),                                &
+                   setval_X(exner_big, exner),                                 &
+                   fd_wind_predictor_kernel_type(u_pred,                       &
+                                                 exner_big, req_stencil_depth, &
+                                                 geopotential,                 &
+                                                 req_stencil_depth,            &
+                                                 theta_v, req_stencil_depth,   &
+                                                 height_w3,                    &
+                                                 req_stencil_depth,            &
+                                                 height_wth,                   &
+                                                 req_stencil_depth,            &
+                                                 u, dA_at_w2, fd_geom,         &
+                                                 alpha_dt, cp,                 &
+                                                 scaled_radius, geometry,      &
+                                                 shallow, rotating),           &
+                   inc_X_plus_Y(u_pred, u_base),                               &
+                   pressure_gradient_p0_kernel_type(rhs_u, exner,              &
+                                                    geopotential, theta_v,     &
+                                                    req_stencil_depth,         &
+                                                    cp),                       &
+                   matrix_vector_kernel_type(rhs(igh_u), u_base, mm_vel),      &
+                   inc_X_plus_bY(rhs(igh_u), alpha_dt, rhs_u),                 &
+                   enforce_bc_kernel_type(rhs(igh_u)) )
+    else
+      call invoke( X_times_Y( theta_v, theta, moist_dyn(1) ),                  &
+                   inc_X_divideby_Y( theta_v,  moist_dyn(2) ),                 &
+                   pressure_gradient_p0_kernel_type( rhs_u, exner,             &
+                                                     geopotential, theta_v,    &
+                                                     req_stencil_depth,        &
+                                                     cp),                      &
+                   matrix_vector_kernel_type( rhs(igh_u), u_base, mm_vel ),    &
+                   inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_u ),               &
+                   enforce_bc_kernel_type(rhs(igh_u)) )
+    end if
 
     if ( present(rhs_w2h) ) then
       mm_w2h => get_mass_matrix_fv(W2h, mesh_id)
@@ -245,7 +308,8 @@ contains
 
     nullify( mm_vel, mm_wtheta, mm_w2h,          &
              geopotential, u, theta, rho, exner, &
-             u_base, theta_base, rho_base )
+             u_base, theta_base, rho_base,       &
+             fd_geom, height_w3, height_wth, dA_at_w2 )
 
     if ( LPROF ) call stop_timing( id, 'dynamics.rhs_alg' )
 
@@ -253,7 +317,8 @@ contains
 
   !> @brief rhs algorithm for any generic setup
   subroutine rhs_general_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
-                              compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h )
+                              compute_rhs_t_d, dlayer_rhs, model_clock, rhs_w2h,        &
+                              u_pred )
 
     implicit none
 
@@ -269,6 +334,7 @@ contains
     logical(kind=l_def),          intent(in)    :: compute_rhs_t_d
     class(model_clock_type),      intent(in)    :: model_clock
     type(field_type), optional,   intent(inout) :: rhs_w2h
+    type(field_type), optional,   intent(inout) :: u_pred
 
     type(operator_type), pointer :: mm_vel    => null(), &
                                     mm_wtheta => null(), &
@@ -308,6 +374,12 @@ contains
     integer(kind=i_def), parameter :: req_halo_depth = req_stencil_depth + 1
 
     if ( LPROF ) call start_timing( id, 'dynamics.rhs_alg' )
+
+    if ( present(u_pred) ) then
+      call log_event( "rhs_alg: the finite difference predictor requires "  // &
+                      "lowest order elements, si_momentum_equation=.false." // &
+                      " and eos_method='sampled'", LOG_LEVEL_ERROR )
+    end if
 
     mesh_id = base_state(igh_u)%get_mesh_id()
 
