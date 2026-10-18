@@ -9,9 +9,16 @@
 
 !> @brief   Computes horizontal geometry constants for the finite difference
 !! wind predictor.
-!> @details For lowest-order meshes with native coordinates, where the
-!! horizontal coordinates do not vary with height. Everything is
-!! expressed in a local orthonormal frame (east, north, up) at the
+!> @details For lowest-order meshes, where the horizontal coordinates do not
+!! vary with height. Only the cell corner coordinates are used, which are found
+!! by evaluating the coordinate basis functions at the nodes of a dummy 2D W0
+!! field. The corners are identified with the reference element vertex labels
+!! (SWB, SEB, NEB, NWB), which give the order of the W0 nodes, and the faces
+!! with the labels W, S, E, N. The coordinates can be in any coordinate system,
+!! as they are converted to geocentric Cartesian coordinates. For higher-order
+!! coordinate fields the cell geometry is the straight-sided approximation
+!! through the corners.
+!! Everything is expressed in a local orthonormal frame (east, north, up) at the
 !! cell centre. Lengths are for a unit-radius sphere, or are physical
 !! lengths for planar geometry. The values are stored in a 2D
 !! multi-data field with fd_geom_ndata values per column, ordered as:
@@ -28,18 +35,24 @@
 !! - 40    horizontal cell area
 !! Faces with no neighbouring cell (e.g. limited-area edges) have
 !! zeros for values 3-7.
+!!
+!! To be accurate in single precision, all of the geometry is built from
+!! differences of nearby points, relative to the first corner of the cell,
+!! rather than from the absolute positions of points on the planet. The
+!! remaining error is the rounding of the corner coordinates themselves.
 
 module calc_fd_predictor_geometry_kernel_mod
 
 use argument_mod,      only: arg_type,                                         &
                              GH_FIELD, GH_SCALAR, GH_REAL, GH_INTEGER,         &
-                             GH_READ, GH_WRITE,                                &
+                             GH_READ, GH_WRITE, GH_BASIS, GH_EVALUATOR,        &
                              ANY_DISCONTINUOUS_SPACE_1,                        &
                              ANY_DISCONTINUOUS_SPACE_3,                        &
-                             STENCIL, CROSS2D, CELL_COLUMN
+                             STENCIL, CROSS2D, CELL_COLUMN, func_type
 use constants_mod,     only: r_def, i_def, l_def
-use fs_continuity_mod, only: Wchi
+use fs_continuity_mod, only: Wchi, W0
 use kernel_mod,        only: kernel_type
+use reference_element_mod, only: SWB, SEB, NEB, NWB
 
 implicit none
 
@@ -55,16 +68,22 @@ integer(kind=i_def), parameter, public :: fd_geom_ndata = 40
 !! Psy layer.
 type, public, extends(kernel_type) :: calc_fd_predictor_geometry_kernel_type
   private
-  type(arg_type) :: meta_args(6) = (/                                          &
+  type(arg_type) :: meta_args(7) = (/                                          &
       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1),   &
       arg_type(GH_FIELD*3, GH_REAL,    GH_READ,  Wchi, STENCIL(CROSS2D)),      &
       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_3,    &
                STENCIL(CROSS2D)),                                              &
+      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W0),                          &
       arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                               &
       arg_type(GH_SCALAR,  GH_REAL,    GH_READ),                               &
       arg_type(GH_SCALAR,  GH_REAL,    GH_READ)                                &
   /)
+  type(func_type) :: meta_funcs(1) = (/                                        &
+      func_type(Wchi, GH_BASIS)                                                &
+  /)
   integer :: operates_on = CELL_COLUMN
+  integer :: gh_shape = GH_EVALUATOR
+  integer :: gh_evaluator_targets(1) = (/ W0 /)
 contains
   procedure, nopass :: calc_fd_predictor_geometry_code
 end type
@@ -90,6 +109,8 @@ contains
 !!                               branch
 !! @param[in]     pid_smap_max   Max size of the panel ID stencil map
 !! @param[in]     pid_smap       Panel ID stencil map
+!! @param[in]     dummy_w0       Unused dummy 2D W0 field, whose nodes are the
+!!                               cell corners
 !! @param[in]     geometry       Integer indicating the domain geometry
 !! @param[in]     omega          Planet angular velocity
 !! @param[in]     f_lat          F-plane latitude
@@ -102,6 +123,10 @@ contains
 !! @param[in]     ndf_pid        Num DoFs per cell for panel ID
 !! @param[in]     undf_pid       Num DoFs in this partition for panel ID
 !! @param[in]     map_pid        Map of base cell DoFs for panel ID
+!! @param[in]     ndf_w0         Num DoFs per cell for W0
+!! @param[in]     undf_w0        Num DoFs in this partition for W0
+!! @param[in]     map_w0         Map of base cell DoFs for W0
+!! @param[in]     basis_chi_w0   Wchi basis functions evaluated at W0 nodes
 subroutine calc_fd_predictor_geometry_code(                                    &
     nlayers,                                                                   &
     fd_geom,                                                                   &
@@ -113,12 +138,14 @@ subroutine calc_fd_predictor_geometry_code(                                    &
     pid_smap_size,                                                             &
     pid_smap_max,                                                              &
     pid_smap,                                                                  &
+    dummy_w0,                                                                  &
     geometry,                                                                  &
     omega,                                                                     &
     f_lat,                                                                     &
     ndf_w3, undf_w3, map_w3,                                                   &
-    ndf_chi, undf_chi, map_chi,                                                &
-    ndf_pid, undf_pid, map_pid                                                 &
+    ndf_chi, undf_chi, map_chi, basis_chi_w0,                                  &
+    ndf_pid, undf_pid, map_pid,                                                &
+    ndf_w0, undf_w0, map_w0                                                    &
 )
 
   use base_mesh_config_mod,  only: geometry_spherical
@@ -131,11 +158,14 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   integer(kind=i_def), intent(in) :: ndf_w3, undf_w3
   integer(kind=i_def), intent(in) :: ndf_chi, undf_chi
   integer(kind=i_def), intent(in) :: ndf_pid, undf_pid
+  integer(kind=i_def), intent(in) :: ndf_w0, undf_w0
   integer(kind=i_def), intent(in) :: geometry
   integer(kind=i_def), intent(in) :: chi_smap_max
   integer(kind=i_def), intent(in) :: pid_smap_max
 
   real(kind=r_def), intent(inout) :: fd_geom(undf_w3)
+  real(kind=r_def), intent(in)    :: dummy_w0(undf_w0)
+  real(kind=r_def), intent(in)    :: basis_chi_w0(1, ndf_chi, ndf_w0)
   real(kind=r_def), intent(in)    :: chi_1(undf_chi)
   real(kind=r_def), intent(in)    :: chi_2(undf_chi)
   real(kind=r_def), intent(in)    :: chi_3(undf_chi)
@@ -146,27 +176,33 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   integer(kind=i_def), intent(in) :: map_w3(ndf_w3)
   integer(kind=i_def), intent(in) :: map_chi(ndf_chi)
   integer(kind=i_def), intent(in) :: map_pid(ndf_pid)
+  integer(kind=i_def), intent(in) :: map_w0(ndf_w0)
   integer(kind=i_def), intent(in) :: chi_smap_size(4)
   integer(kind=i_def), intent(in) :: chi_smap(ndf_chi, chi_smap_max, 4)
   integer(kind=i_def), intent(in) :: pid_smap_size(4)
   integer(kind=i_def), intent(in) :: pid_smap(ndf_pid, pid_smap_max, 4)
 
-  ! The corners of a cell at the base of the column are chi dofs 1 to 4 (SW,
-  ! SE, NW, NE). Each face has two of them, and the neighbouring cell has the
-  ! matching corner in position nb_corner_1
-  integer(kind=i_def), parameter :: face_corner_1(4) = (/ 1, 1, 2, 3 /)
-  integer(kind=i_def), parameter :: face_corner_2(4) = (/ 3, 2, 4, 4 /)
-  integer(kind=i_def), parameter :: nb_corner_1(4)   = (/ 2, 3, 1, 1 /)
-  real(kind=r_def),    parameter :: min_determinant  = 1.0e-12_r_def
-  real(kind=r_def),    parameter :: min_alignment    = 1.0e-6_r_def
+  ! Corners at the ends of each face, with faces ordered W, S, E, N as in the
+  ! stencil branches
+  integer(kind=i_def), parameter :: face_corner_1(4) = (/ SWB, SWB, SEB, NWB /)
+  integer(kind=i_def), parameter :: face_corner_2(4) = (/ NWB, SEB, NEB, NEB /)
+  ! Tolerances are relative, so scale with the working precision
+  real(kind=r_def),    parameter :: min_determinant  =                         &
+                                      1.0e4_r_def * epsilon(1.0_r_def)
+  real(kind=r_def),    parameter :: min_alignment    =                         &
+                                      max(1.0e-6_r_def,                        &
+                                          1.0e4_r_def * epsilon(1.0_r_def))
 
   ! Internal variables
   integer(kind=i_def) :: df, cell, corner_index, ipanel_cell, base
-  integer(kind=i_def) :: cell_dofs(4)
+  integer(kind=i_def) :: cell_dofs(ndf_chi), nb_corner, j, k
   logical(kind=l_def) :: has_neighbour(4)
 
-  real(kind=r_def) :: corner(3, 4, 0:4)
-  real(kind=r_def) :: centre(3), centre_nb(3), up(3), east(3), north(3)
+  ! Positions of the corners of each cell (cell 0 is this cell), relative to the
+  ! first corner of this cell. These are built from differences of nearby
+  ! points, so they do not suffer from the large size of global coordinates
+  real(kind=r_def) :: offset(3, 4, 0:4)
+  real(kind=r_def) :: centre(3, 0:4), up(3), east(3), north(3)
   real(kind=r_def) :: edge_vec(3), face_mid(3), separation(3)
   real(kind=r_def) :: omega_global(3), omega_local(3)
   real(kind=r_def) :: normal_h(2, 4), separation_h(2, 4), direction_h(2, 4)
@@ -176,63 +212,106 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   real(kind=r_def) :: normal_matrix(2, 2), inverse_matrix(2, 2), determinant
   real(kind=r_def) :: edge_h(2), face_mid_h(2), length, dir_dot_normal
   real(kind=r_def) :: x, y, z, radius
+  real(kind=r_def) :: corner(3, 4), first_corner(3), chi_at_corner(3)
+  real(kind=r_def) :: shared_edge(3), residual, best_residual
 
-  ! Corners of this cell (cell 0) and of each neighbouring cell. The height
-  ! only scales a point, which is removed by normalising
-  corner(:, :, :) = 0.0_r_def
+  offset(:, :, :) = 0.0_r_def
+  centre(:, :) = 0.0_r_def
   has_neighbour(:) = .false.
+
   do cell = 0, 4
     if ( cell == 0 ) then
-      cell_dofs(:) = map_chi(1:4)
+      cell_dofs(:) = map_chi(:)
       ipanel_cell = int(panel_id(map_pid(1)), i_def)
     else if ( chi_smap_size(cell) > 1 ) then
-      cell_dofs(:) = chi_smap(1:4, 2, cell)
+      cell_dofs(:) = chi_smap(:, 2, cell)
       ipanel_cell = int(panel_id(pid_smap(1, 2, cell)), i_def)
       has_neighbour(cell) = .true.
     else
       cycle
     end if
+
+    ! Absolute corner positions, which are the W0 nodes. Only the horizontal
+    ! position matters, so the height is removed by normalising points to the
+    ! unit sphere
     do corner_index = 1, 4
+      chi_at_corner(:) = 0.0_r_def
+      do df = 1, ndf_chi
+        chi_at_corner(1) = chi_at_corner(1) + chi_1(cell_dofs(df)) *           &
+                                              basis_chi_w0(1, df, corner_index)
+        chi_at_corner(2) = chi_at_corner(2) + chi_2(cell_dofs(df)) *           &
+                                              basis_chi_w0(1, df, corner_index)
+        chi_at_corner(3) = chi_at_corner(3) + chi_3(cell_dofs(df)) *           &
+                                              basis_chi_w0(1, df, corner_index)
+      end do
       if ( geometry == geometry_spherical ) then
-        call chi2xyz( chi_1(cell_dofs(corner_index)),                          &
-                      chi_2(cell_dofs(corner_index)),                          &
-                      chi_3(cell_dofs(corner_index)),                          &
+        call chi2xyz( chi_at_corner(1), chi_at_corner(2), chi_at_corner(3),    &
                       ipanel_cell, x, y, z )
         radius = sqrt(x * x + y * y + z * z)
-        corner(:, corner_index, cell) = (/ x, y, z /) / radius
+        corner(:, corner_index) = (/ x, y, z /) / radius
       else
-        corner(:, corner_index, cell) = (/ chi_1(cell_dofs(corner_index)),     &
-                                           chi_2(cell_dofs(corner_index)),     &
-                                           0.0_r_def /)
+        corner(:, corner_index) = (/ chi_at_corner(1), chi_at_corner(2),       &
+                                     0.0_r_def /)
       end if
     end do
+
+    if ( cell == 0 ) then
+      first_corner(:) = corner(:, SWB)
+      up(:) = sum(corner(:, :), dim=2)
+      offset(:, :, 0) = corner(:, :) - spread(first_corner(:), 2, 4)
+    else
+      ! The neighbour can have any orientation, so find which of its corners
+      ! coincide with the ends of the shared face by matching the edge vector
+      ! of the face, comparing only differences of nearby points
+      shared_edge(:) = offset(:, face_corner_2(cell), 0)                       &
+          - offset(:, face_corner_1(cell), 0)
+      best_residual = huge(1.0_r_def)
+      nb_corner = SWB
+      do j = 1, 4
+        do k = 1, 4
+          if ( j /= k ) then
+            residual = sum(abs(corner(:, k) - corner(:, j) - shared_edge(:)))
+            if ( residual < best_residual ) then
+              best_residual = residual
+              nb_corner = j
+            end if
+          end if
+        end do
+      end do
+
+      ! Shift the neighbour so that its matching corner coincides with the
+      ! corner of this cell. This is exact on the sphere, and for planar
+      ! periodic meshes it moves the neighbour to be adjacent to this cell
+      offset(:, :, cell) = corner(:, :) - spread(corner(:, nb_corner), 2, 4)   &
+          + spread(offset(:, face_corner_1(cell), 0), 2, 4)
+    end if
+    centre(:, cell) = 0.25_r_def * sum(offset(:, :, cell), dim=2)
   end do
 
-  ! Cell centre and local frame
-  centre(:) = 0.25_r_def * sum(corner(:, :, 0), dim=2)
+  ! Local orthonormal frame at the cell centre
   if ( geometry == geometry_spherical ) then
-    up(:) = centre(:) / sqrt(dot_product(centre, centre))
-    centre(:) = up(:)
+    up(:) = up(:) / sqrt(dot_product(up, up))
   else
     up(:) = (/ 0.0_r_def, 0.0_r_def, 1.0_r_def /)
   end if
-  edge_vec(:) = 0.5_r_def * ( corner(:, 2, 0) + corner(:, 4, 0)                &
-      - corner(:, 1, 0) - corner(:, 3, 0) )
+  edge_vec(:) = 0.5_r_def * ( offset(:, SEB, 0) + offset(:, NEB, 0)           &
+      - offset(:, SWB, 0) - offset(:, NWB, 0) )
   edge_vec(:) = edge_vec(:) - dot_product(edge_vec, up) * up(:)
   east(:) = edge_vec(:) / sqrt(dot_product(edge_vec, edge_vec))
   north(:) = (/ up(2) * east(3) - up(3) * east(2),                             &
                 up(3) * east(1) - up(1) * east(3),                             &
                 up(1) * east(2) - up(2) * east(1) /)
 
-  ! Horizontal area from the corners projected into the local frame
+  ! Horizontal area from the corners projected into the local frame, which
+  ! is half the cross product of the diagonals
   do df = 1, 4
-    corner_h(1, df) = dot_product(corner(:, df, 0), east)
-    corner_h(2, df) = dot_product(corner(:, df, 0), north)
+    corner_h(1, df) = dot_product(offset(:, df, 0), east)
+    corner_h(2, df) = dot_product(offset(:, df, 0), north)
   end do
-  area = 0.5_r_def * abs( (corner_h(1, 4) - corner_h(1, 1))                    &
-      * (corner_h(2, 3) - corner_h(2, 2))                                      &
-      - (corner_h(2, 4) - corner_h(2, 1))                                      &
-      * (corner_h(1, 3) - corner_h(1, 2)) )
+  area = 0.5_r_def * abs( (corner_h(1, NEB) - corner_h(1, SWB))                &
+      * (corner_h(2, NWB) - corner_h(2, SEB))                                  &
+      - (corner_h(2, NEB) - corner_h(2, SWB))                                  &
+      * (corner_h(1, NWB) - corner_h(1, SEB)) )
 
   normal_h(:, :) = 0.0_r_def
   separation_h(:, :) = 0.0_r_def
@@ -244,12 +323,12 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   do df = 1, 4
 
     ! Outward horizontal unit normal of the face
-    face_mid(:) = 0.5_r_def * ( corner(:, face_corner_1(df), 0)                &
-        + corner(:, face_corner_2(df), 0) ) - centre(:)
+    face_mid(:) = 0.5_r_def * ( offset(:, face_corner_1(df), 0)                &
+        + offset(:, face_corner_2(df), 0) ) - centre(:, 0)
     face_mid_h(1) = dot_product(face_mid, east)
     face_mid_h(2) = dot_product(face_mid, north)
-    edge_vec(:) = corner(:, face_corner_2(df), 0)                              &
-        - corner(:, face_corner_1(df), 0)
+    edge_vec(:) = offset(:, face_corner_2(df), 0)                              &
+        - offset(:, face_corner_1(df), 0)
     edge_h(1) = dot_product(edge_vec, east)
     edge_h(2) = dot_product(edge_vec, north)
     normal_h(:, df) = (/ edge_h(2), -edge_h(1) /)
@@ -261,16 +340,7 @@ subroutine calc_fd_predictor_geometry_code(                                    &
 
     ! Separation of the cell centres, in the local frame
     if ( has_neighbour(df) ) then
-      centre_nb(:) = 0.25_r_def * sum(corner(:, :, df), dim=2)
-      if ( geometry == geometry_spherical ) then
-        centre_nb(:) = centre_nb(:) / sqrt(dot_product(centre_nb, centre_nb))
-      else
-        ! Planar meshes can be periodic, so move the neighbour to be
-        ! adjacent to this cell
-        centre_nb(:) = centre_nb(:) + corner(:, face_corner_1(df), 0)          &
-            - corner(:, nb_corner_1(df), df)
-      end if
-      separation(:) = centre_nb(:) - centre(:)
+      separation(:) = centre(:, df) - centre(:, 0)
       separation_h(1, df) = dot_product(separation, east)
       separation_h(2, df) = dot_product(separation, north)
       distance(df) = sqrt(dot_product(separation_h(:, df),                     &
