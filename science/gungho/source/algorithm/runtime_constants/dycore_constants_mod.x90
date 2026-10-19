@@ -272,7 +272,7 @@ contains
       call invoke( name = "calc_fd_predictor_geometry",                        &
                    calc_fd_predictor_geometry_kernel_type(                     &
                        fd_geom, chi, stencil_depth, panel_id, stencil_depth,   &
-                       dummy_w0, geometry, scaled_omega, f_lat) )
+                       dummy_w0, stencil_depth, geometry, scaled_omega, f_lat) )
 
       if ( LPROF ) call stop_timing( id, 'runtime_constants.dycore' )
     end if

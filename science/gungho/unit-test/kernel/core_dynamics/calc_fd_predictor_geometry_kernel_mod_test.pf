@@ -140,6 +140,9 @@ contains
     integer(kind=i_def) :: map_chi(ndf_chi)
     integer(kind=i_def) :: map_pid(ndf_pid)
     integer(kind=i_def) :: map_w0(ndf_w0)
+    integer(kind=i_def) :: w0_smap(ndf_w0, smap_max, 4)
+    integer(kind=i_def) :: offset_i(ncells), offset_j(ncells), corner_i(ndf_w0)
+    integer(kind=i_def) :: corner_j(ndf_w0)
     real(kind=r_def)    :: dummy_w0(undf_w0)
     real(kind=r_def)    :: basis_chi_w0(1, ndf_chi, ndf_w0)
     integer(kind=i_def) :: chi_smap(ndf_chi, smap_max, 4)
@@ -164,9 +167,21 @@ contains
     fd_geom(:) = -999.0_r_def
     dummy_w0(:) = 0.0_r_def
 
+    ! Each W0 DoF is identified by the position of its corner on the lattice
+    ! of cells, so that cells sharing a corner share the DoF
+    offset_i(:) = (/ 0, -1, 0, 1, 0 /)
+    offset_j(:) = (/ 0, 0, -1, 0, 1 /)
+    corner_i(:) = (/ 0, 1, 1, 0 /)
+    corner_j(:) = (/ 0, 0, 1, 1 /)
+    map_w0(:) = (offset_i(1) + corner_i(:) + 10) * 100                         &
+                + offset_j(1) + corner_j(:) + 10
+    do df = 1, 4
+      w0_smap(:, 1, df) = map_w0(:)
+      w0_smap(:, 2, df) = (offset_i(df + 1) + corner_i(:) + 10) * 100          &
+                          + offset_j(df + 1) + corner_j(:) + 10
+    end do
     ! The chi DoFs are nodal, with the first 4 at the base corners, so the
     ! basis function of each is 1 at the matching W0 node
-    map_w0(:) = (/ (i, i = 1, ndf_w0) /)
     basis_chi_w0(:, :, :) = 0.0_r_def
     do i = 1, ndf_w0
       basis_chi_w0(1, i, i) = 1.0_r_def
@@ -177,7 +192,9 @@ contains
                                           stencil_size, smap_max, chi_smap,    &
                                           panel_id,                            &
                                           stencil_size, smap_max, pid_smap,    &
-                                          dummy_w0, geometry, omega, f_lat,    &
+                                          dummy_w0,                            &
+                                          stencil_size, smap_max, w0_smap,     &
+                                          geometry, omega, f_lat,              &
                                           ndf_w3, undf_w3, map_w3,             &
                                           ndf_chi, undf_chi, map_chi,          &
                                           basis_chi_w0,                        &
