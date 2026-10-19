@@ -43,11 +43,7 @@ contains
                                printmin=1.0E8_r_def, printmax=-1.0E8_r_def,    &
                                name=message)
 
-    call log_scalar_column(message, field, 284)
-    call log_scalar_column(message, field, 305)
     call log_scalar_column(message, field, 306)
-    call log_scalar_column(message, field, 307)
-    call log_scalar_column(message, field, 328)
 
   end subroutine log_scalar_minmax
 

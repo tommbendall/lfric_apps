@@ -57,6 +57,8 @@ module rhs_alg_mod
   use function_space_collection_mod,       only: function_space_collection
   use w2_vorticity_advection_kernel_mod,   only: w2_vorticity_advection_kernel_type
   use pressure_gradient_p0_kernel_mod,     only: pressure_gradient_p0_kernel_type
+  use sci_mass_matrix_solver_alg_mod, only: mass_matrix_solver_alg
+  use log_w2_alg_mod,                      only: log_w2_minmax
 
   implicit none
 
@@ -157,6 +159,7 @@ contains
     integer(kind=i_def) :: mesh_id
     type(field_type)    :: theta_v
     integer(tik)        :: id
+    type(field_type)    :: rhs_u_tmp, field_u_tmp
 
 
     ! For continuous fields the default looping depth is to the depth 1 halo
@@ -210,6 +213,38 @@ contains
                  matrix_vector_kernel_type( rhs(igh_u), u_base, mm_vel ), &
                  inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_u ),            &
                  enforce_bc_kernel_type(rhs(igh_u)) )
+
+    ! DEBUGGING ============================================================== !
+    if (.not. dlayer_rhs) then
+      call rhs_u_tmp%initialise( vector_space=rhs(igh_u)%get_function_space() )
+      call field_u_tmp%initialise( vector_space=rhs(igh_u)%get_function_space() )
+
+      ! Coriolis
+      call invoke( setval_c(rhs_u_tmp, 0.0_r_def),                             &
+                   matrix_vector_kernel_type( rhs_u_tmp, u, coriolis ),        &
+                   inc_a_times_X(alpha_dt, rhs_u_tmp),                         &
+                   enforce_bc_kernel_type(rhs_u_tmp) )
+      call mass_matrix_solver_alg(field_u_tmp, rhs_u_tmp)
+      call log_w2_minmax('RHS_coriolis', field_u_tmp)
+
+      ! Pressure gradient
+      call invoke( setval_c(rhs_u_tmp, 0.0_r_def),                             &
+                   pressure_gradient_p0_kernel_type( rhs_u_tmp, exner,         &
+                                                     geopotential, theta_v,    &
+                                                     req_stencil_depth,        &
+                                                     cp),                      &
+                   inc_a_times_X(alpha_dt, rhs_u_tmp),                         &
+                   enforce_bc_kernel_type(rhs_u_tmp) )
+      call mass_matrix_solver_alg(field_u_tmp, rhs_u_tmp)
+      call log_w2_minmax('RHS_pressure_gradient', field_u_tmp)
+
+      ! u_base
+      call invoke( setval_c(rhs_u_tmp, 0.0_r_def),                             &
+                   matrix_vector_kernel_type( rhs_u_tmp, u_base, mm_vel ),     &
+                   enforce_bc_kernel_type(rhs_u_tmp) )
+      call mass_matrix_solver_alg(field_u_tmp, rhs_u_tmp)
+      call log_w2_minmax('RHS_u_base', field_u_tmp)
+    end if
 
     if ( compute_rhs_t_d ) then
       call invoke( &

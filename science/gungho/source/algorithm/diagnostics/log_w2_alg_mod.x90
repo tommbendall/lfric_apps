@@ -37,9 +37,10 @@ contains
 
   subroutine log_w2_minmax(message, field)
 
-    use physics_mappings_alg_mod,     only: map_physics_winds
+    use physics_mappings_alg_mod,     only: map_physics_winds, split_wind_alg
     use split_w2_field_kernel_mod,    only: split_w2_field_kernel_type
     use print_field_stats_alg_mod,    only: print_field_stats_alg
+    use log_scalar_alg_mod,           only: log_scalar_column
 
     implicit none
 
@@ -54,6 +55,7 @@ contains
     type(field_type)                   :: u_physics
     type(field_type)                   :: u_w2h_physics, etadot_wth
     type(field_type)                   :: u_in_w3, v_in_w3, w_in_w3
+    type(field_type)                   :: u_in_w2h, v_in_w2h, w_in_wth
 
     mesh => field%get_mesh()
     dA => get_dA_at_w2(mesh%get_id())
@@ -71,6 +73,9 @@ contains
     call u_in_w3%initialise(w3_fs)
     call v_in_w3%initialise(w3_fs)
     call w_in_w3%initialise(w3_fs)
+    call u_in_w2h%initialise(w2h_fs)
+    call v_in_w2h%initialise(w2h_fs)
+    call w_in_wth%initialise(w2v_fs)
 
     ! Calculate u_physics and horizontal/vertical components
     call invoke( X_divideby_Y(u_physics, field, dA),                           &
@@ -78,6 +83,7 @@ contains
                                             face_selector_ew, face_selector_ns) )
 
     call map_physics_winds(u_in_w3, v_in_w3, w_in_w3, field)
+    call split_wind_alg(u_in_w2h, v_in_w2h, w_in_wth, field, mesh)
 
 
     call log_event(message, LOG_LEVEL_INFO)
@@ -90,18 +96,15 @@ contains
     call print_field_stats_alg(v_in_w3, LOG_LEVEL_INFO,                        &
                                printmin=-150.0_r_def, printmax=150.0_r_def,    &
                                name='v_in_w3')
-    call print_field_stats_alg(w_in_w3, LOG_LEVEL_INFO,                        &
+    call print_field_stats_alg(w_in_wth, LOG_LEVEL_INFO,                       &
                                printmin=-1.0_r_def, printmax=1.0_r_def,        &
-                               name='w_in_w3')
+                               name='w_in_wth')
     call print_field_stats_alg(etadot_wth, LOG_LEVEL_INFO,                     &
                                printmin=-1.0_r_def, printmax=1.0_r_def,        &
                                name='etadot_wth')
 
-    call log_w2_column(message, field, 284)
-    call log_w2_column(message, field, 305)
     call log_w2_column(message, field, 306)
-    call log_w2_column(message, field, 307)
-    call log_w2_column(message, field, 328)
+    call log_scalar_column(message, w_in_wth, 306)
 
   end subroutine log_w2_minmax
 
