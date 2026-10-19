@@ -3,6 +3,8 @@
 ! For further details please refer to the file LICENCE.original which you
 ! should have received as part of this distribution.
 !-----------------------------------------------------------------------------
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
 
 !> @brief Wrapper algorithm to compute the rhs of the prognostic
 !>        equations
@@ -114,7 +116,7 @@ contains
     if (   (rhs(igh_u)%get_element_order_h() == 0) &
      .and. (rhs(igh_u)%get_element_order_v() == 0) &
      .and. (.not. si_momentum_equation)            &
-     .and. (eos_method == eos_method_sampled) ) then
+     .and. (eos_method == eos_method_sampled) .and. .false.) then
       call rhs_default_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
                             compute_rhs_t_d, dlayer_rhs, model_clock )
     else
@@ -307,7 +309,7 @@ contains
                                  rho_base     => null(), &
                                  exner        => null()
 
-    type(field_type)                       :: rhs_tmp, rhs_eos
+    type(field_type)                       :: rhs_tmp, rhs_eos, field_u_tmp
     type(field_type)                       :: vorticity
     type(quadrature_xyoz_type)             :: qr, qr_exact
     type(quadrature_face_type)             :: qrf
@@ -425,6 +427,41 @@ contains
     call invoke( name = "compute_rhs_u_evaluation",              &
                  inc_X_plus_bY( rhs(igh_u), alpha_dt, rhs_tmp ), &
                  enforce_bc_kernel_type(rhs(igh_u)) )
+
+    ! DEBUGGING ============================================================== !
+    if (.not. dlayer_rhs) then
+      call field_u_tmp%initialise( vector_space = rhs(igh_u)                   &
+                                  %get_function_space() )
+
+      ! Coriolis
+      if ( rotating ) then
+        call invoke( setval_c(rhs_tmp, 0.0_r_def),                             &
+                     matrix_vector_kernel_type( rhs_tmp, u, coriolis ),        &
+                     inc_a_times_X(alpha_dt, rhs_tmp),                         &
+                     enforce_bc_kernel_type(rhs_tmp) )
+        call mass_matrix_solver_alg(field_u_tmp, rhs_tmp)
+        call log_w2_minmax('RHS_coriolis', field_u_tmp)
+      end if
+
+      ! Pressure gradient boundary
+      call invoke( setval_c(rhs_tmp, 0.0_r_def),                               &
+                   pressure_gradient_bd_kernel_type( rhs_tmp, exner_big_halo,  &
+                                                     req_stencil_depth, theta, &
+                                                     moist_dyn, cp, qrf ),     &
+                   hydrostatic_kernel_type( rhs_tmp, exner, theta, moist_dyn,  &
+                                            geopotential, cp, qr ),            &
+                   inc_a_times_X(alpha_dt, rhs_tmp),                           &
+                   enforce_bc_kernel_type(rhs_tmp) )
+      call mass_matrix_solver_alg(field_u_tmp, rhs_tmp)
+      call log_w2_minmax('RHS_pressure_gradient_boundary', field_u_tmp)
+
+      ! u_base
+      call invoke( setval_c(rhs_tmp, 0.0_r_def),                               &
+                   matrix_vector_kernel_type( rhs_tmp, u_base, mm_vel ),       &
+                   enforce_bc_kernel_type(rhs_tmp) )
+      call mass_matrix_solver_alg(field_u_tmp, rhs_tmp)
+      call log_w2_minmax('RHS_u_base', field_u_tmp)
+    end if
 
     if ( compute_rhs_t_d ) then
       call invoke( name = "compute_rhs_theta_and_rhs_rho", &
