@@ -34,6 +34,7 @@ module map_physics_fields_alg_mod
   use print_field_stats_alg_mod,    only: print_field_stats_alg
   use sci_field_minmax_alg_mod,     only: log_field_minmax
   use log_w2_alg_mod,       only : log_w2_minmax
+  use log_scalar_alg_mod,   only : log_scalar_minmax
 
   use timing_mod,                   only: start_timing, stop_timing, tik, LPROF
   implicit none
@@ -146,6 +147,9 @@ contains
     call print_field_stats_alg(rho, LOG_LEVEL_DEBUG, printmin=1e-8_r_def,      &
                                printmax=2.0_r_def, name='rho')
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta', theta)
+
+    call log_scalar_minmax("theta", theta)
+    call log_scalar_minmax("rho", rho)
 
     if ( smagorinsky ) then
 

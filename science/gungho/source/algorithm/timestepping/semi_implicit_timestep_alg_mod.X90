@@ -122,6 +122,7 @@ module semi_implicit_timestep_alg_mod
                                         lam_blend_lbc
   use lam_rhs_alg_mod,            only: calc_rhs_lbc,   &
                                         apply_mask_rhs
+  use log_w2_alg_mod,       only : log_w2_minmax
 
   ! Field mappings
   use calc_phys_predictors_alg_mod, &
@@ -794,6 +795,8 @@ contains
                   inc_X_plus_Y(self%state_after_slow(igh_t), self%dtheta),    &
                   inc_X_plus_Y(self%state_after_slow(igh_u), self%du)         &
                   )
+
+      call log_w2_minmax("u_after_slow", self%state_after_slow(igh_u))
 
       if (self%output_cld_incs) then
         call cld_incs_init(cloud_fields, dcfl_adv, dcff_adv, dbcf_adv, &
