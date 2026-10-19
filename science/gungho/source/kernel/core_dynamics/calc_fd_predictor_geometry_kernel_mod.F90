@@ -36,6 +36,11 @@
 !! Faces with no neighbouring cell (e.g. limited-area edges) have
 !! zeros for values 3-7.
 !!
+!! The orientation of each neighbouring cell is found from the W0 DoFs that it
+!! shares with this cell. This will currently cause issues for degenerate
+!! meshes, in which a neighbouring cell shares more than two corners with this
+!! cell (e.g. a periodic mesh that is only one or two cells wide).
+!!
 !! To be accurate in single precision, all of the geometry is built from
 !! differences of nearby points, relative to the first corner of the cell,
 !! rather than from the absolute positions of points on the planet. The
@@ -73,7 +78,7 @@ type, public, extends(kernel_type) :: calc_fd_predictor_geometry_kernel_type
       arg_type(GH_FIELD*3, GH_REAL,    GH_READ,  Wchi, STENCIL(CROSS2D)),      &
       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_3,    &
                STENCIL(CROSS2D)),                                              &
-      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W0),                          &
+      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W0, STENCIL(CROSS2D)),        &
       arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                               &
       arg_type(GH_SCALAR,  GH_REAL,    GH_READ),                               &
       arg_type(GH_SCALAR,  GH_REAL,    GH_READ)                                &
@@ -111,6 +116,10 @@ contains
 !! @param[in]     pid_smap       Panel ID stencil map
 !! @param[in]     dummy_w0       Unused dummy 2D W0 field, whose nodes are the
 !!                               cell corners
+!! @param[in]     w0_smap_size   Size of the W0 stencil map for each branch
+!! @param[in]     w0_smap_max    Max size of the W0 stencil map
+!! @param[in]     w0_smap        W0 stencil map, whose DoFs identify the corners
+!!                               shared with each neighbouring cell
 !! @param[in]     geometry       Integer indicating the domain geometry
 !! @param[in]     omega          Planet angular velocity
 !! @param[in]     f_lat          F-plane latitude
@@ -139,6 +148,9 @@ subroutine calc_fd_predictor_geometry_code(                                    &
     pid_smap_max,                                                              &
     pid_smap,                                                                  &
     dummy_w0,                                                                  &
+    w0_smap_size,                                                              &
+    w0_smap_max,                                                               &
+    w0_smap,                                                                   &
     geometry,                                                                  &
     omega,                                                                     &
     f_lat,                                                                     &
@@ -162,6 +174,7 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   integer(kind=i_def), intent(in) :: geometry
   integer(kind=i_def), intent(in) :: chi_smap_max
   integer(kind=i_def), intent(in) :: pid_smap_max
+  integer(kind=i_def), intent(in) :: w0_smap_max
 
   real(kind=r_def), intent(inout) :: fd_geom(undf_w3)
   real(kind=r_def), intent(in)    :: dummy_w0(undf_w0)
@@ -181,6 +194,8 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   integer(kind=i_def), intent(in) :: chi_smap(ndf_chi, chi_smap_max, 4)
   integer(kind=i_def), intent(in) :: pid_smap_size(4)
   integer(kind=i_def), intent(in) :: pid_smap(ndf_pid, pid_smap_max, 4)
+  integer(kind=i_def), intent(in) :: w0_smap_size(4)
+  integer(kind=i_def), intent(in) :: w0_smap(ndf_w0, w0_smap_max, 4)
 
   ! Corners at the ends of each face, with faces ordered W, S, E, N as in the
   ! stencil branches
@@ -195,7 +210,7 @@ subroutine calc_fd_predictor_geometry_code(                                    &
 
   ! Internal variables
   integer(kind=i_def) :: df, cell, corner_index, ipanel_cell, base
-  integer(kind=i_def) :: cell_dofs(ndf_chi), nb_corner, j, k
+  integer(kind=i_def) :: cell_dofs(ndf_chi), nb_corner, j
   logical(kind=l_def) :: has_neighbour(4)
 
   ! Positions of the corners of each cell (cell 0 is this cell), relative to the
@@ -213,7 +228,6 @@ subroutine calc_fd_predictor_geometry_code(                                    &
   real(kind=r_def) :: edge_h(2), face_mid_h(2), length, dir_dot_normal
   real(kind=r_def) :: x, y, z, radius
   real(kind=r_def) :: corner(3, 4), first_corner(3), chi_at_corner(3)
-  real(kind=r_def) :: shared_edge(3), residual, best_residual
 
   offset(:, :, :) = 0.0_r_def
   centre(:, :) = 0.0_r_def
@@ -260,24 +274,17 @@ subroutine calc_fd_predictor_geometry_code(                                    &
       up(:) = sum(corner(:, :), dim=2)
       offset(:, :, 0) = corner(:, :) - spread(first_corner(:), 2, 4)
     else
-      ! The neighbour can have any orientation, so find which of its corners
-      ! coincide with the ends of the shared face by matching the edge vector
-      ! of the face, comparing only differences of nearby points
-      shared_edge(:) = offset(:, face_corner_2(cell), 0)                       &
-          - offset(:, face_corner_1(cell), 0)
-      best_residual = huge(1.0_r_def)
-      nb_corner = SWB
-      do j = 1, 4
-        do k = 1, 4
-          if ( j /= k ) then
-            residual = sum(abs(corner(:, k) - corner(:, j) - shared_edge(:)))
-            if ( residual < best_residual ) then
-              best_residual = residual
-              nb_corner = j
-            end if
-          end if
-        end do
+      ! The neighbour can have any orientation. A corner shared by two cells
+      ! has the same W0 DoF in both, so use this to find the corner of the
+      ! neighbour that coincides with the first corner of the shared face
+      nb_corner = 0
+      do j = 1, ndf_w0
+        if ( w0_smap(j, 2, cell) == map_w0(face_corner_1(cell)) ) nb_corner = j
       end do
+      if ( nb_corner == 0 ) then
+        has_neighbour(cell) = .false.
+        cycle
+      end if
 
       ! Shift the neighbour so that its matching corner coincides with the
       ! corner of this cell. This is exact on the sphere, and for planar
