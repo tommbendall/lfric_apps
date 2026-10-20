@@ -116,7 +116,7 @@ contains
     if (   (rhs(igh_u)%get_element_order_h() == 0) &
      .and. (rhs(igh_u)%get_element_order_v() == 0) &
      .and. (.not. si_momentum_equation)            &
-     .and. (eos_method == eos_method_sampled) .and. .false.) then
+     .and. (eos_method == eos_method_sampled) ) then
       call rhs_default_alg( rhs, alpha_dt, base_state, state, moist_dyn, compute_eos, &
                             compute_rhs_t_d, dlayer_rhs, model_clock )
     else
