@@ -78,6 +78,8 @@ start_dump_filename='',
 &finite_element
 cellshape='quadrilateral',
 coord_order=1,
+coord_order_multigrid=1,
+coord_space='Wtheta',
 coord_system='native',
 element_order_h=0,
 element_order_v=0,
@@ -89,7 +91,6 @@ dlayer_on=.false.,
 dry_static_adjust=.true.,
 exner_from_eos=.true.,
 horizontal_physics_predictor=.false.
-horizontal_transport_predictor=.false.
 init_exner_bt=.true.,
 l_multigrid=.false.,
 moisture_formulation='traditional',
@@ -100,6 +101,7 @@ theta_moist_source=.true.
 use_physics=.true.,
 use_wavedynamics=.false.,
 vector_invariant=.false.,
+wind_transport_predictor='3d',
 /
 &helmholtz_solver
 gcrk=18,
@@ -166,6 +168,7 @@ write_minmax_tseries=.false.,
 /
 &jules_hydrology
 l_hydrology=.true.,
+l_inland=.false.,
 l_var_rainfrac=.false.
 /
 &jules_model_environment_lfric

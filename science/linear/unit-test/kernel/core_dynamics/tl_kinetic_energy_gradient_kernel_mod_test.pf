@@ -49,9 +49,10 @@ contains
   subroutine setUp( this )
 
     use finite_element_config_mod, only : cellshape_quadrilateral,     &
-                                          coord_system_xyz
-    use formulation_config_mod,    only : eos_method_sampled,      &
-                                          moisture_formulation_dry
+                                          coord_system_xyz, coord_space_wchi
+    use formulation_config_mod,    only : eos_method_sampled,          &
+                                          moisture_formulation_dry,    &
+                                          wind_transport_predictor_3d
     use feign_config_mod,          only : feign_finite_element_config, &
                                           feign_formulation_config
     use sci_chi_transform_mod,     only : init_chi_transforms
@@ -63,6 +64,8 @@ contains
     call feign_finite_element_config(             &
              cellshape = cellshape_quadrilateral, &
              coord_order = 0_i_def,               &
+             coord_order_multigrid = 1_i_def,     &
+             coord_space = coord_space_wchi,      &
              coord_system = coord_system_xyz,     &
              element_order_h = 0_i_def,           &
              element_order_v = 0_i_def,           &
@@ -88,7 +91,8 @@ contains
                                    use_multires_coupling=.false.,  &
                                    si_momentum_equation = .true.,  &
                                    horizontal_physics_predictor=.false.,   &
-                                   horizontal_transport_predictor=.false., &
+                                   wind_transport_predictor =      &
+                                     wind_transport_predictor_3d,  &
                                    vector_invariant=.false.)
 
     call init_chi_transforms(imdi, imdi)

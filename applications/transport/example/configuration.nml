@@ -32,6 +32,8 @@ element_order_h=0,
 element_order_v=0,
 rehabilitate=.true.,
 coord_order=1,
+coord_order_multigrid=1,
+coord_space='Wchi',
 coord_system='native'
 vorticity_in_w1=.true.,
 /
@@ -165,8 +167,8 @@ test='cosine_hill',
 /
 &formulation
 horizontal_physics_predictor=.false.
-horizontal_transport_predictor=.false.
 use_multires_coupling=.false.
+wind_transport_predictor='3d'
 /
 &departure_points
 horizontal_limit='cap',

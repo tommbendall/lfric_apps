@@ -47,6 +47,8 @@ start_dump_filename='',
 &finite_element
 cellshape='quadrilateral',
 coord_order=1,
+coord_order_multigrid=1,
+coord_space='Wchi',
 coord_system='xyz',
 element_order_h=0,
 element_order_v=0,
@@ -68,6 +70,7 @@ use_multires_coupling=.false.,
 use_physics=.false.,
 use_wavedynamics=.true.,
 vector_invariant=.false.,
+wind_transport_predictor='3d',
 /
 &helmholtz_solver
 fail_on_non_converged=.true.
@@ -173,6 +176,9 @@ l_esm_couple_test=.false.,
 /
 &orography
 orog_init_option='none',
+orography_order=1,
+n_orog_smooth=0,
+w0_multigrid_mapping=.false.
 /
 &partitioning
 panel_decomposition='auto',

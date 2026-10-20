@@ -73,7 +73,7 @@ contains
     use extrusion_config_mod,    only : method_uniform, &
                                         stretching_method_linear
     use finite_element_config_mod, only : cellshape_quadrilateral, &
-                                          coord_system_xyz
+                                          coord_system_xyz, coord_space_wchi
     use feign_config_mod,          only : feign_base_mesh_config,           &
                                           feign_extrusion_config,           &
                                           feign_finite_element_config,      &
@@ -118,6 +118,8 @@ contains
     call feign_finite_element_config(      &
         cellshape=cellshape_quadrilateral, &
         coord_order=0_i_def,               &
+        coord_order_multigrid=1_i_def,     &
+        coord_space=coord_space_wchi,      &
         coord_system=coord_system_xyz,     &
         element_order_h=0_i_def,           &
         element_order_v=0_i_def,           &
@@ -238,7 +240,8 @@ contains
 
     use hydrostatic_exner_kernel_mod, only : hydrostatic_exner_code
     use formulation_config_mod,       only : eos_method_sampled,           &
-                                             moisture_formulation_dry
+                                             moisture_formulation_dry,     &
+                                             wind_transport_predictor_3d
     use feign_config_mod,             only : feign_formulation_config,     &
                                              feign_initial_pressure_config
     use initial_pressure_config_mod,  only : method_balanced
@@ -271,7 +274,8 @@ contains
                                   init_exner_bt        = .true.,            &
                                   si_momentum_equation=.true.,              &
                                   horizontal_physics_predictor=.false.,     &
-                                  horizontal_transport_predictor=.false.,   &
+                                  wind_transport_predictor =                &
+                                    wind_transport_predictor_3d,            &
                                   vector_invariant=.true.)
 
     call feign_initial_pressure_config( method=method_balanced,             &
@@ -317,7 +321,8 @@ contains
     use feign_config_mod,             only : feign_formulation_config,     &
                                              feign_initial_pressure_config
     use formulation_config_mod,       only : eos_method_sampled,           &
-                                             moisture_formulation_dry
+                                             moisture_formulation_dry,     &
+                                             wind_transport_predictor_3d
     use initial_pressure_config_mod,  only : method_balanced
 
     implicit none
@@ -347,7 +352,8 @@ contains
                                   init_exner_bt        = .false.,            &
                                   si_momentum_equation=.true.,               &
                                   horizontal_physics_predictor=.false.,      &
-                                  horizontal_transport_predictor=.false.,    &
+                                  wind_transport_predictor =                 &
+                                    wind_transport_predictor_3d,             &
                                   vector_invariant=.true.)
 
 

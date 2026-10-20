@@ -10,6 +10,7 @@
 
 &formulation
   l_multigrid = .false.
+  wind_transport_predictor = '3d'
 /
 
 &extrusion
@@ -25,6 +26,8 @@
   element_order_v  = 0
   rehabilitate     = .true.
   coord_order      = 1
+  coord_order_multigrid = 1
+  coord_space      = 'Wchi'
   coord_system     = 'native'
   vorticity_in_w1  = .false.
 /

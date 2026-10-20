@@ -32,6 +32,8 @@ start_dump_filename = ''
 &finite_element
 cellshape = 'quadrilateral'
 coord_order = 1
+coord_order_multigrid = 1,
+coord_space = 'Wchi',
 coord_system = 'native'
 element_order_h = 0
 element_order_v = 0
@@ -44,7 +46,6 @@ dlayer_on = .false.
 dry_static_adjust = .false.
 exner_from_eos = .false.
 horizontal_physics_predictor=.false.
-horizontal_transport_predictor=.false.
 init_exner_bt = .false.
 l_multigrid = .true.
 moisture_formulation='dry'
@@ -55,6 +56,7 @@ theta_moist_source=.false.
 use_physics = .false.
 use_wavedynamics = .false.
 vector_invariant = .true.
+wind_transport_predictor = '3d'
 /
 
 &initial_temperature

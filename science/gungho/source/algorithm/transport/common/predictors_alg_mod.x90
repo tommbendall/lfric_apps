@@ -16,6 +16,7 @@ module predictors_alg_mod
 
   ! Constants and types
   use constants_mod,              only: r_def
+  use log_mod,                    only: log_event, LOG_LEVEL_ERROR
   use sci_fem_constants_mod,      only: get_im3_div_fe, &
                                         get_im3_div_fv
   use field_indices_mod,          only: igh_u, igh_d
@@ -27,8 +28,13 @@ module predictors_alg_mod
 
   ! Configurations
   use derived_config_mod,         only: bundle_size
-  use formulation_config_mod,     only: horizontal_transport_predictor, &
-                                        si_momentum_equation
+  use formulation_config_mod,     only: si_momentum_equation,                  &
+                                        wind_transport_predictor,              &
+                                        wind_transport_predictor_3d,           &
+                                        wind_transport_predictor_no_etadot,    &
+                                        wind_transport_predictor_no_w,         &
+                                        wind_transport_predictor_w2h_only,     &
+                                        wind_transport_predictor_finite_difference
   use transport_config_mod,       only: use_density_predictor, &
                                         cap_density_predictor
 
@@ -39,6 +45,9 @@ module predictors_alg_mod
                                   only: mass_matrix_solver_alg
   use sci_hori_mass_matrix_solver_alg_mod, &
                                   only: hori_mass_matrix_solver_alg
+  use sci_split_combine_w2_alg_mod, &
+                                  only: combine_w2_field_alg,                  &
+                                        split_w2_field_alg
 
   use log_w2_alg_mod,       only : log_w2_minmax
 
@@ -59,11 +68,17 @@ contains
   !> @param[in,out] advected_state The state variables that will be transported
   !> @param[in]     wind           The wind at time n
   !> @param[in]     rhs_n          The RHS terms for u at time n
+  !> @param[in]     rhs_w2h        The horizontal-only RHS terms for u at time n,
+  !!                               only used for the w2h_only predictor
+  !> @param[in]     u_pred         The finite difference wind predictor, only
+  !!                               used for the finite_difference predictor
   !> @param[in]     beta           The time n centring parameter
   !> @param[in]     model_clock    Time within the model
   subroutine predictors_alg( advected_state, &
                              wind,           &
                              rhs_n,          &
+                             rhs_w2h,        &
+                             u_pred,         &
                              beta,           &
                              model_clock )
 
@@ -73,8 +88,15 @@ contains
     type( field_type ),        intent(inout) :: advected_state(bundle_size)
     type( field_type ),        intent(in)    :: wind
     type( field_type ),        intent(in)    :: rhs_n
+    type( field_type ),        intent(in)    :: rhs_w2h
+    type( field_type ),        intent(in)    :: u_pred
     real( kind=r_def ),        intent(in)    :: beta
     class( model_clock_type ), intent(in)    :: model_clock
+
+    ! Fields needed for the w2h_only wind predictor
+    type(field_type) :: hori_pred
+    type(field_type) :: hori_tmp
+    type(field_type) :: vert_wind
 
     ! Fields and values needed for the density predictor
     type(field_type) :: divergence
@@ -93,11 +115,31 @@ contains
 
     ! Predictor of the wind field (u-beta*dt*rhs)
     if ( .not. si_momentum_equation ) then
-      if (horizontal_transport_predictor) then
-        call hori_mass_matrix_solver_alg(advected_state(igh_u), rhs_n, advected_state(igh_u))
-      else
+      select case ( wind_transport_predictor )
+      case ( wind_transport_predictor_3d )
         call mass_matrix_solver_alg(advected_state(igh_u), rhs_n)
-      end if
+      case ( wind_transport_predictor_no_etadot )
+        call hori_mass_matrix_solver_alg( advected_state(igh_u), rhs_n,        &
+                                          preserve_vertical=.false.,           &
+                                          vert_field_solve=advected_state(igh_u) )
+      case ( wind_transport_predictor_no_w )
+        call hori_mass_matrix_solver_alg( advected_state(igh_u), rhs_n,        &
+                                          preserve_vertical=.true.,            &
+                                          vert_field_solve=advected_state(igh_u) )
+      case ( wind_transport_predictor_w2h_only )
+        ! Solve for the horizontal wind, keeping the true vertical wind
+        call hori_pred%initialise( rhs_w2h%get_function_space() )
+        call mass_matrix_solver_alg(hori_pred, rhs_w2h)
+        call split_w2_field_alg( hori_tmp, advected_state(igh_u),              &
+                                 vert_field=vert_wind )
+        call combine_w2_field_alg( advected_state(igh_u), hori_pred,           &
+                                   vert_field=vert_wind )
+      case ( wind_transport_predictor_finite_difference )
+        call invoke( setval_X(advected_state(igh_u), u_pred) )
+      case default
+        call log_event( "predictors_alg: unrecognised wind_transport_predictor", &
+                        LOG_LEVEL_ERROR )
+      end select
       call log_w2_minmax("u_transport_pred", advected_state(igh_u))
     end if
 

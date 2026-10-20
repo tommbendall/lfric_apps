@@ -47,6 +47,8 @@ stretching_method='smooth',
 &finite_element
 cellshape='quadrilateral',
 coord_order=1,
+coord_order_multigrid=1,
+coord_space='Wchi',
 coord_system='native',
 element_order_h=0,
 element_order_v=0,
@@ -54,6 +56,7 @@ rehabilitate=.true.,
 /
 &formulation
 use_multires_coupling=.false.,
+wind_transport_predictor='3d',
 /
 &io
 file_convention='UGRID',

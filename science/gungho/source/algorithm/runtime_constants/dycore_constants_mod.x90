@@ -2,6 +2,8 @@
 ! (C) Crown copyright 2024 Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
 !-----------------------------------------------------------------------------
 !
 !> @brief Provides various runtime-constants for the dynamical core.
@@ -21,10 +23,13 @@ module dycore_constants_mod
                                                 get_panel_id
   use sci_fem_constants_mod,              only: get_qr_fe
   use field_mod,                          only: field_type
-  use fs_continuity_mod,                  only: W2, W3, Wtheta
+  use extrusion_mod,                      only: TWOD
+  use fs_continuity_mod,                  only: W0, W2, W3, Wtheta
   use function_space_collection_mod,      only: function_space_collection
   use function_space_mod,                 only: function_space_type
+  use inventory_by_local_mesh_mod,        only: inventory_by_local_mesh_type
   use inventory_by_mesh_mod,              only: inventory_by_mesh_type
+  use local_mesh_mod,                     only: local_mesh_type
   use log_mod,                            only: log_event, LOG_LEVEL_ERROR
   use mesh_collection_mod,                only: mesh_collection
   use mesh_mod,                           only: mesh_type
@@ -55,6 +60,7 @@ module dycore_constants_mod
   type(inventory_by_mesh_type)         :: geopotential_inventory
   type(inventory_by_mesh_type)         :: coriolis_inventory
   type(inventory_by_mesh_type)         :: vert_coriolis_inventory
+  type(inventory_by_local_mesh_type)   :: fd_predictor_geometry_inventory
   type(inventory_by_mesh_type), target :: mm_w2_dl_inventory
   type(inventory_by_mesh_type), target :: mm_w2_si_inventory
   type(inventory_by_mesh_type), target :: mm_w2_dl_lagged_inventory
@@ -74,6 +80,7 @@ module dycore_constants_mod
   public :: final_dycore_constants
   public :: get_coriolis
   public :: get_vert_coriolis
+  public :: get_fd_predictor_geometry
   public :: get_geopotential
   public :: get_w2_mass_matrix
 
@@ -193,6 +200,88 @@ contains
 
   end function get_vert_coriolis
 
+  !> @brief Returns the geometry constants for the finite difference wind
+  !!        predictor
+  !> @details A 2D multi-data field with fd_geom_ndata values per column.
+  !!          This is only available for lowest-order elements. Any
+  !!          coordinate system and order are allowed, as only the corner
+  !!          coordinates are used.
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The geometry constants
+  function get_fd_predictor_geometry(mesh_id) result(fd_geom)
+
+    use base_mesh_config_mod,      only: f_lat, geometry
+    use calc_fd_predictor_geometry_kernel_mod,                                 &
+        only: calc_fd_predictor_geometry_kernel_type, fd_geom_ndata
+    use planet_config_mod,         only: scaled_omega
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    integer(kind=i_def)                   :: local_mesh_id
+    integer(kind=i_def)                   :: halo_depth
+    type(mesh_type),              pointer :: mesh
+    type(mesh_type),              pointer :: twod_mesh
+    type(local_mesh_type),        pointer :: local_mesh
+    logical(kind=l_def)                   :: constant_exists
+    type(field_type),             pointer :: fd_geom
+    type(field_type),             pointer :: chi(:)
+    type(field_type),             pointer :: panel_id
+    type(function_space_type),    pointer :: w3_2d_fs
+    type(function_space_type),    pointer :: w0_2d_fs
+    type(field_type)                      :: dummy_w0
+    integer(kind=tik)                     :: id
+
+    ! Depth of the stencils for the coordinates and panel IDs
+    integer(kind=i_def), parameter :: stencil_depth = 1
+
+    ! Initialise inventory if it hasn't been done so already
+    if (.not. fd_predictor_geometry_inventory%is_initialised()) then
+      call fd_predictor_geometry_inventory%initialise(                         &
+              name="fd_predictor_geometry" )
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+    local_mesh_id = local_mesh%get_id()
+    constant_exists = fd_predictor_geometry_inventory%paired_object_exists(    &
+                      local_mesh_id )
+
+    ! Create constant if it doesn't already exist
+    if (.not. constant_exists) then
+      if ( element_order_h /= 0 .or. element_order_v /= 0 ) then
+        call log_event( "The finite difference wind predictor is only " //     &
+                        "available for lowest-order elements",                 &
+                        LOG_LEVEL_ERROR )
+      end if
+
+      twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+      w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3,        &
+                                                   fd_geom_ndata)
+      w0_2d_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W0)
+      halo_depth = twod_mesh%get_halo_depth()
+      chi => get_coordinates(mesh_id)
+      panel_id => get_panel_id(mesh_id)
+      call dummy_w0%initialise( vector_space=w0_2d_fs )
+
+      if ( LPROF ) call start_timing( id, 'runtime_constants.dycore' )
+
+      call fd_predictor_geometry_inventory%add_field(                          &
+              fd_geom, w3_2d_fs, local_mesh, halo_depth=halo_depth )
+
+      call invoke( name = "calc_fd_predictor_geometry",                        &
+                   calc_fd_predictor_geometry_kernel_type(                     &
+                       fd_geom, chi, stencil_depth, panel_id, stencil_depth,   &
+                       dummy_w0, stencil_depth, geometry, scaled_omega, f_lat) )
+
+      if ( LPROF ) call stop_timing( id, 'runtime_constants.dycore' )
+    end if
+
+    ! Return constant
+    call fd_predictor_geometry_inventory%get_field(local_mesh, fd_geom)
+
+  end function get_fd_predictor_geometry
+
   !> @brief Returns a pointer to the geopotential field
   !> @param[in] mesh_id The ID of the mesh to get the object for
   !> @return The geopotential field
@@ -230,8 +319,9 @@ contains
 
       if ( LPROF ) call start_timing( id, 'runtime_constants.dycore' )
 
-      call geopotential_inventory%add_field(geopotential, w3_fs, mesh)
-
+      call geopotential_inventory%add_field(                                   &
+          geopotential, w3_fs, mesh, halo_depth=MIN(2, mesh%get_halo_depth())  &
+      )
       if ( rehabilitate ) then
         call invoke( compute_geopotential_kernel_type(geopotential,            &
                                                       chi,                     &
@@ -473,6 +563,7 @@ contains
 
     call geopotential_inventory%clear()
     call vert_coriolis_inventory%clear()
+    call fd_predictor_geometry_inventory%clear()
     call coriolis_inventory%clear()
     call mm_w2_dl_inventory%clear()
     call mm_w2_dl_lagged_inventory%clear()

@@ -128,6 +128,7 @@ contains
     type( field_type ), pointer :: tile_heat_flux      => null()
     type( field_type ), pointer :: tile_moisture_flux  => null()
     type( field_type ), pointer :: snowice_melt        => null()
+    type( field_type ), pointer :: snowinc             => null()
     type( field_type ), pointer :: surf_ht_flux        => null()
     type( field_type ), pointer :: snowice_sublimation => null()
     type( field_type ), pointer :: alpha1_tile         => null()
@@ -206,6 +207,7 @@ contains
     call surface_fields%get_field('tile_heat_flux', tile_heat_flux)
     call surface_fields%get_field('tile_moisture_flux', tile_moisture_flux)
     call surface_fields%get_field('snowice_melt', snowice_melt)
+    call surface_fields%get_field('snowinc', snowinc)
     call surface_fields%get_field('surf_ht_flux', surf_ht_flux)
     call surface_fields%get_field('snowice_sublimation', snowice_sublimation)
     call surface_fields%get_field('alpha1_tile', alpha1_tile)
@@ -284,7 +286,8 @@ contains
                                        tile_lw_grey_albedo,                  &
                                        snowice_sublimation, surf_heat_flux,  &
                                        canopy_evap, water_extraction,        &
-                                       snowice_melt, mr_ice, rh_crit,        &
+                                       snowice_melt, snowinc,                &
+                                       mr_ice, rh_crit,                      &
                                        rhokh, fqw, ftl, dtrdz_tq_bl,         &
                                        alpha1_tile, ashtf_prime_tile,        &
                                        dtstar_tile, fracaero_t_tile,         &

@@ -115,7 +115,9 @@ surface_frac_ancil_path='vegetation/fractions_cci/qrparm.veg.frac.fixed',
 /
 &finite_element
 cellshape='quadrilateral',
-coord_order=1,
+coord_order=2,
+coord_order_multigrid=1,
+coord_space='Wchi',
 coord_system='native',
 element_order_h=0,
 element_order_v=0,
@@ -128,7 +130,6 @@ dry_static_adjust=.true.,
 eos_method='sampled',
 exner_from_eos=.false.,
 horizontal_physics_predictor=.false.
-horizontal_transport_predictor=.false.
 init_exner_bt=.true.,
 l_multigrid=.false.,
 lagged_orog=.true.,
@@ -142,6 +143,7 @@ use_multires_coupling=.false.,
 use_physics=.true.,
 use_wavedynamics=.true.,
 vector_invariant=.false.,
+wind_transport_predictor='3d',
 /
 &helmholtz_solver
 fail_on_non_converged=.true.,
@@ -182,12 +184,10 @@ init_option='fd_start_dump',
 lbc_option='none',
 ls_option='none',
 model_eos_height=100,
-n_orog_smooth=0,
 read_w2h_wind=.false.,
 sea_ice_source='ancillary',
 snow_source='start_dump',
 sst_source='ancillary',
-w0_orography_mapping=.false.,
 zero_w2v_wind=.true.,
 /
 &initial_density
@@ -381,6 +381,9 @@ l_esm_couple_test=.false.,
 /
 &orography
 orog_init_option='none',
+orography_order=2,
+n_orog_smooth=0,
+w0_multigrid_mapping=.true.
 /
 &partitioning
 panel_decomposition='auto',
