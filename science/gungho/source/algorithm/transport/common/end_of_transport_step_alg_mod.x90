@@ -65,13 +65,15 @@ module end_of_transport_step_alg_mod
                                             min_val_method_iterative,          &
                                             min_val_method_clipping,           &
                                             theta_dispersion_correction,       &
+                                            theta_top_advective,               &
                                             operators,                         &
                                             operators_fem,                     &
                                             cheap_update,                      &
                                             horizontal_method
-  use transport_constants_mod,        only: get_directional_im3_div_r_tran, &
-                                            get_detj_at_w3_r_tran,          &
-                                            get_element_order_h_transport,  &
+  use transport_constants_mod,        only: get_directional_im3_div_r_tran,    &
+                                            get_detj_at_w3_r_tran,             &
+                                            get_detj_theta_top,                &
+                                            get_element_order_h_transport,     &
                                             get_element_order_v_transport
   use transport_counter_mod,          only: transport_counter_type
   use transport_enumerated_types_mod, only: direction_3d,                      &
@@ -410,9 +412,12 @@ contains
   !> @param[in]     field_in             Field at the beginning of this
   !!                                     transport step
   !> @param[in]     flux                 The mass flux for this transport step.
-  !> @param[in]     flux_precomputations Object storing the reference densities
+  !> @param[in,out] flux_precomputations Object storing the reference densities
   !!                                     and fluxes (used for computing the
   !!                                     dispersion relation correction)
+  !> @param[in,out] disp_precomputations Object storing the flux to be used for
+  !!                                     computing the dispersion correction for
+  !!                                     consistent theta transport
   !> @param[in,out] transport_counter    Object storing transport counters
   !> @param[in]     transport_metadata   Contains the configuration options for
   !!                                     transporting the field
@@ -423,6 +428,7 @@ contains
   !!                                     computed but only on the final step
   subroutine end_of_consistent_step_alg(field_np1, field_in, flux,             &
                                         flux_precomputations,                  &
+                                        disp_precomputations,                  &
                                         transport_counter, transport_metadata, &
                                         compute_field_np1)
 
@@ -444,6 +450,7 @@ contains
     type(r_tran_field_type),         intent(in)    :: field_in
     type(r_tran_field_type),         intent(in)    :: flux
     type(flux_precomputations_type), intent(inout) :: flux_precomputations
+    type(flux_precomputations_type), intent(inout) :: disp_precomputations
     type(transport_counter_type),    intent(inout) :: transport_counter
     type(transport_metadata_type),   intent(in)    :: transport_metadata
     logical(kind=l_def), optional,   intent(in)    :: compute_field_np1
@@ -485,6 +492,7 @@ contains
     logical(kind=l_def)                   :: final_split_step
     logical(kind=l_def)                   :: logspace
     logical(kind=l_def)                   :: do_overwrite
+    logical(kind=l_def)                   :: do_theta_top_advective
     real(kind=r_tran)                     :: min_value
     real(kind=r_tran)                     :: adv_dt
     real(kind=r_tran)                     :: acceptable_min
@@ -515,6 +523,12 @@ contains
       end if
     end if
 
+    do_theta_top_advective = (                                                 &
+        theta_top_advective                                                    &
+        .and. (trim(transport_metadata%get_name()) == 'theta' .or.             &
+         trim(transport_metadata%get_name()) == 'potential_temperature')       &
+    )
+
     ! ------------------------------------------------------------------------ !
     ! Compute consistent dispersion relation correction, if required
     ! ------------------------------------------------------------------------ !
@@ -538,7 +552,7 @@ contains
       sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
       rmultiplicity_shifted => get_rmultiplicity_fv(flux_function_space, shifted_mesh%get_id())
       ref_step = transport_counter%get_split_step_of_whole_step_counter()
-      dry_flux => flux_precomputations%get_ref_flux(prime_extrusion_mesh_id, ref_step)
+      dry_flux => disp_precomputations%get_ref_flux(prime_extrusion_mesh_id, ref_step)
       height_wt => get_height_fv(Wtheta, prime_extrusion_mesh_id)
       logspace = transport_metadata%get_log_space()
       face_selector_ew => get_face_selector_ew(prime_extrusion_mesh_id)
@@ -617,7 +631,11 @@ contains
         sh_w2_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W2)
         rho_d_start => flux_precomputations%get_ref_field(shifted_mesh%get_id(), start_index)
         rho_d_np1 => flux_precomputations%get_ref_field(shifted_mesh%get_id(), np1_index)
-        detj_at_w3 => get_detj_at_w3_r_tran(shifted_mesh%get_id())
+        if (do_theta_top_advective) then
+          detj_at_w3 => get_detj_theta_top(shifted_mesh%get_id())
+        else
+          detj_at_w3 => get_detj_at_w3_r_tran(shifted_mesh%get_id())
+        end if
 
         call mr_sh_w3_start%initialise( sh_w3_fs )
         call mr_sh_w3_np1%initialise( sh_w3_fs )
@@ -626,7 +644,7 @@ contains
         call increment%initialise( sh_w3_fs )
         call sum_flux%initialise( sh_w2_fs )
 
-        if (enforce_min_value) then
+        if (enforce_min_value .or. do_theta_top_advective) then
           ! Assign values in all layers from original mixing ratio
           ! (the inverse of this operation can generate new extrema)
           call invoke( X_times_Y(rho_X_start, mr_start, rho_d_start) )
@@ -708,7 +726,7 @@ contains
         call invoke( X_divideby_Y(field_np1, rho_X_np1, rho_d_np1) )
 
       case ( Wtheta )
-        if (enforce_min_value) then
+        if (enforce_min_value .or. do_theta_top_advective) then
           ! Cannot generate negative values, so just pointwise injection
           call invoke( X_divideby_Y(field_np1, rho_X_np1, rho_d_np1) )
         else
@@ -745,7 +763,7 @@ contains
       )                                                                        &
     )
 
-    if ( do_overwrite  ) then
+    if ( do_overwrite ) then
       ! This code is required while LAMs loop over cells right up to
       ! the edge of a limited area domain.  It can be removed if
       ! we only loop over columns in the interior domain.

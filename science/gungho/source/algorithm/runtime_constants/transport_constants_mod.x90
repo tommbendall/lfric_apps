@@ -18,7 +18,7 @@ module transport_constants_mod
                                                 r_tran, radians_to_degrees
   use copy_field_alg_mod,                 only: copy_field
   use domain_mod,                         only: domain_type
-  use extrusion_mod,                      only: TWOD
+  use extrusion_mod,                      only: TWOD, PRIME_EXTRUSION, SHIFTED
   use sci_geometric_constants_mod,        only: get_coordinates,               &
                                                 get_panel_id,                  &
                                                 get_extended_coordinates,      &
@@ -72,14 +72,22 @@ module transport_constants_mod
   ! Inventories for use in the rest of the model
   ! ========================================================================== !
   ! The Jacobian determinants (volume of cells for lowest-order)
-  type(inventory_by_mesh_type) :: detj_at_w3_r_tran_inventory
-  type(inventory_by_mesh_type) :: detj_at_w2_above_inventory
-  type(inventory_by_mesh_type) :: detj_at_w2_below_inventory
+  type(inventory_by_mesh_type)       :: detj_at_w3_r_tran_inventory
+  type(inventory_by_mesh_type)       :: detj_at_w2_above_inventory
+  type(inventory_by_mesh_type)       :: detj_at_w2_below_inventory
+  type(inventory_by_local_mesh_type) :: detj_theta_top_inventory
+
+  ! Vertical layer depths
+  type(inventory_by_mesh_type)       :: dz_w3_r_tran_inventory
+  type(inventory_by_local_mesh_type) :: dz_theta_top_inventory
 
   ! The vertical FFSL constants
   type(inventory_by_mesh_type) :: third_dla_dz_inventory
   type(inventory_by_mesh_type) :: third_dlb_dz_inventory
   type(inventory_by_mesh_type) :: fourth_dl_dz_inventory
+  type(inventory_by_mesh_type) :: third_dla_dz_theta_top_inventory
+  type(inventory_by_mesh_type) :: third_dlb_dz_theta_top_inventory
+  type(inventory_by_mesh_type) :: fourth_dl_dz_theta_top_inventory
 
   ! W3 mass matrix and its inverse
   type(inventory_by_mesh_type), target :: mm_w3_r_tran_inventory
@@ -122,12 +130,18 @@ module transport_constants_mod
   public :: get_directional_im3_div_r_tran
   public :: get_mass_matrix_r_tran
   public :: get_inverse_mass_matrix_r_tran
+  public :: get_dz_w3_r_tran
+  public :: get_dz_theta_top
   public :: get_detj_at_w3_r_tran
+  public :: get_detj_theta_top
   public :: get_detj_at_w2_above
   public :: get_detj_at_w2_below
   public :: get_third_dla_dz
   public :: get_third_dlb_dz
   public :: get_fourth_dl_dz
+  public :: get_third_dla_dz_theta_top
+  public :: get_third_dlb_dz_theta_top
+  public :: get_fourth_dl_dz_theta_top
   public :: get_extended_mesh_weights
   public :: get_extended_mesh_indices
   public :: get_panel_edge_dist
@@ -155,6 +169,7 @@ module transport_constants_mod
   private :: compute_panel_edge_weights
   private :: compute_halo_masks
   private :: compute_third_dl_dz
+  private :: compute_third_dl_dz_theta_top
 
 contains
 
@@ -556,8 +571,7 @@ contains
     type(mesh_type),              pointer :: mesh
     type(r_tran_field_type),      pointer :: dla_dz(:)
     type(r_tran_field_type),      pointer :: dlb_dz(:)
-    type(r_tran_field_type)               :: dz_w3_rtran
-    type(field_type),             pointer :: dz_w3_rdef
+    type(r_tran_field_type),      pointer :: dz_w3
     type(function_space_type),    pointer :: w3_fs
 
     ! Check inventory is initialised
@@ -577,18 +591,58 @@ contains
 
     w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
 
-    dz_w3_rdef => get_dz_w3(mesh_id)
-    call dz_w3_rtran%initialise( dz_w3_rdef%get_function_space() )
-    call copy_field(dz_w3_rdef, dz_w3_rtran)
-
+    dz_w3 => get_dz_w3_r_tran(mesh_id)
     call third_dla_dz_inventory%add_field_array(dla_dz, w3_fs, 3, mesh)
     call third_dlb_dz_inventory%add_field_array(dlb_dz, w3_fs, 3, mesh)
 
-    call invoke( ffsl_third_dldz_kernel_type(dla_dz, dlb_dz, dz_w3_rtran) )
+    call invoke( ffsl_third_dldz_kernel_type(dla_dz, dlb_dz, dz_w3) )
 
     if ( subroutine_timers ) call timer('runtime_constants.transport')
 
   end subroutine compute_third_dl_dz
+
+  !> @brief Computes the two sets of coefficients for the third-order FFSL
+  !!        edge reconstruction
+  !> @param[in] mesh_id The ID of the mesh to compute the coefficients for
+  subroutine compute_third_dl_dz_theta_top(mesh_id)
+
+    use ffsl_third_dldz_kernel_mod,    only: ffsl_third_dldz_kernel_type
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    type(r_tran_field_type),      pointer :: dla_dz(:)
+    type(r_tran_field_type),      pointer :: dlb_dz(:)
+    type(r_tran_field_type),      pointer :: dz_w3
+    type(function_space_type),    pointer :: w3_fs
+
+    ! Check inventory is initialised
+    if (.not. third_dla_dz_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call third_dla_dz_theta_top_inventory%initialise(name='third_dla_dz_theta_top')
+    end if
+    ! Check inventory is initialised
+    if (.not. third_dlb_dz_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call third_dlb_dz_theta_top_inventory%initialise(name='third_dlb_dz_theta_top')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+
+    if ( subroutine_timers ) call timer('runtime_constants.transport')
+
+    w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+
+    dz_w3 => get_dz_theta_top(mesh_id)
+    call third_dla_dz_theta_top_inventory%add_field_array(dla_dz, w3_fs, 3, mesh)
+    call third_dlb_dz_theta_top_inventory%add_field_array(dlb_dz, w3_fs, 3, mesh)
+
+    call invoke( ffsl_third_dldz_kernel_type(dla_dz, dlb_dz, dz_w3) )
+
+    if ( subroutine_timers ) call timer('runtime_constants.transport')
+
+  end subroutine compute_third_dl_dz_theta_top
 
   ! ========================================================================== !
   ! GETTERS FOR R_TRAN FORMS OF GEOMETRIC OBJECTS
@@ -807,6 +861,158 @@ contains
 
   end function get_detj_at_w2_below
 
+  !> @brief Returns the Det(J) field for transport of theta
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The Det(J) field
+  function get_detj_theta_top(mesh_id) result(detj_theta)
+
+    use copy_theta_mass_kernel_mod, only: copy_theta_mass_kernel_type
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    type(mesh_type),              pointer :: prime_mesh
+    type(mesh_type),              pointer :: shifted_mesh
+    type(local_mesh_type),        pointer :: local_mesh
+    logical(kind=l_def)                   :: constant_exists
+    integer(kind=i_def)                   :: halo_depth
+    integer(kind=i_def)                   :: local_mesh_id
+    type(r_tran_field_type),      pointer :: detj_theta
+    type(r_tran_field_type),      pointer :: detj_shifted
+    type(r_tran_field_type),      pointer :: detj_prime
+    type(function_space_type),    pointer :: w3_fs
+
+    ! Check inventory is initialised
+    if (.not. detj_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call detj_theta_top_inventory%initialise(name='detj_theta_top')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+    local_mesh_id = local_mesh%get_id()
+    constant_exists = detj_theta_top_inventory%paired_object_exists(local_mesh_id)
+
+    if (.not. constant_exists) then
+      prime_mesh => mesh_collection%get_mesh(mesh, PRIME_EXTRUSION)
+      shifted_mesh => mesh_collection%get_mesh(mesh, SHIFTED)
+      detj_shifted => get_detj_at_w3_r_tran(shifted_mesh%get_id())
+      detj_prime => get_detj_at_w3_r_tran(prime_mesh%get_id())
+
+      ! Create the object as it doesn't exist yet
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+
+      w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
+      halo_depth = mesh%get_halo_depth()
+      call detj_theta_top_inventory%add_field(detj_theta, w3_fs, local_mesh,   &
+                                              halo_depth=halo_depth)
+
+      call invoke( copy_theta_mass_kernel_type(detj_theta, detj_shifted,       &
+                                               detj_prime) )
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+    end if
+
+    ! Get existing constant
+    call detj_theta_top_inventory%get_field(local_mesh, detj_theta)
+
+  end function get_detj_theta_top
+
+  !> @brief Returns the layer height at r_tran precision
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The layer height at W3 points
+  function get_dz_w3_r_tran(mesh_id) result(dz_r_tran)
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    logical(kind=l_def)                   :: constant_exists
+    type(r_tran_field_type),      pointer :: dz_r_tran
+    type(field_type),             pointer :: dz_r_def
+    type(function_space_type),    pointer :: w3_fs
+
+    ! Check inventory is initialised
+    if (.not. dz_w3_r_tran_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call dz_w3_r_tran_inventory%initialise(name='dz_w3_r_tran')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    constant_exists = dz_w3_r_tran_inventory%paired_object_exists(mesh_id)
+
+    if (.not. constant_exists) then
+      dz_r_def => get_dz_w3(mesh_id)
+
+      ! Create the object as it doesn't exist yet
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+
+      w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+      call dz_w3_r_tran_inventory%add_field(dz_r_tran, w3_fs, mesh)
+      call copy_field(dz_r_def, dz_r_tran)
+
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+    end if
+
+    ! Get existing constant
+    call dz_w3_r_tran_inventory%get_field(mesh, dz_r_tran)
+
+  end function get_dz_w3_r_tran
+
+  !> @brief Returns the layer height for theta-top transport
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The layer height at W3 points
+  function get_dz_theta_top(mesh_id) result(dz_theta)
+
+    use copy_theta_mass_kernel_mod, only: copy_theta_mass_kernel_type
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    type(mesh_type),              pointer :: prime_mesh
+    type(mesh_type),              pointer :: shifted_mesh
+    type(local_mesh_type),        pointer :: local_mesh
+    logical(kind=l_def)                   :: constant_exists
+    integer(kind=i_def)                   :: local_mesh_id
+    type(r_tran_field_type),      pointer :: dz_theta
+    type(r_tran_field_type),      pointer :: dz_shifted
+    type(r_tran_field_type),      pointer :: dz_prime
+    type(function_space_type),    pointer :: w3_fs
+
+    ! Check inventory is initialised
+    if (.not. dz_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call dz_theta_top_inventory%initialise(name='dz_theta_top')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+    local_mesh_id = local_mesh%get_id()
+    constant_exists = dz_theta_top_inventory%paired_object_exists(local_mesh_id)
+
+    if (.not. constant_exists) then
+      prime_mesh => mesh_collection%get_mesh(mesh, PRIME_EXTRUSION)
+      shifted_mesh => mesh_collection%get_mesh(mesh, SHIFTED)
+      dz_shifted => get_dz_w3_r_tran(shifted_mesh%get_id())
+      dz_prime => get_dz_w3_r_tran(prime_mesh%get_id())
+
+      ! Create the object as it doesn't exist yet
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+
+      w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+      call dz_theta_top_inventory%add_field(dz_theta, w3_fs, local_mesh)
+
+      call invoke( copy_theta_mass_kernel_type(dz_theta, dz_shifted, dz_prime) )
+
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+    end if
+
+    ! Get existing constant
+    call dz_theta_top_inventory%get_field(local_mesh, dz_theta)
+
+  end function get_dz_theta_top
+
   ! ========================================================================== !
   ! GETTERS FOR VERTICAL FFSL CONSTANTS
   ! ========================================================================== !
@@ -884,8 +1090,7 @@ contains
     type(mesh_type),              pointer :: mesh
     logical(kind=l_def)                   :: constant_exists
     type(r_tran_field_type),      pointer :: dl_dz(:)
-    type(r_tran_field_type)               :: dz_w3_rtran
-    type(field_type),             pointer :: dz_w3_rdef
+    type(r_tran_field_type),      pointer :: dz_w3
     type(function_space_type),    pointer :: w2v_fs
 
     ! Check inventory is initialised
@@ -899,18 +1104,16 @@ contains
 
     if (.not. constant_exists) then
 
+      dz_w3 => get_dz_w3_r_tran(mesh_id)
+
       ! Create the object as it doesn't exist yet
       if ( subroutine_timers ) call timer('runtime_constants.transport')
 
       w2v_fs => function_space_collection%get_fs(mesh, 0, 0, W2v)
 
-      dz_w3_rdef => get_dz_w3(mesh_id)
-      call dz_w3_rtran%initialise( dz_w3_rdef%get_function_space() )
-      call copy_field(dz_w3_rdef, dz_w3_rtran)
-
       call fourth_dl_dz_inventory%add_field_array(dl_dz, w2v_fs, 4, mesh)
 
-      call invoke( ffsl_fourth_dldz_kernel_type(dl_dz, dz_w3_rtran) )
+      call invoke( ffsl_fourth_dldz_kernel_type(dl_dz, dz_w3) )
 
       if ( subroutine_timers ) call timer('runtime_constants.transport')
     end if
@@ -919,6 +1122,111 @@ contains
     call fourth_dl_dz_inventory%get_field_array(mesh, dl_dz)
 
   end function get_fourth_dl_dz
+
+  !> @brief Returns the coefficients for third-order edge above interpolation
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The required coefficients
+  function get_third_dla_dz_theta_top(mesh_id) result(dla_dz)
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    logical(kind=l_def)                   :: constant_exists
+    type(r_tran_field_type),      pointer :: dla_dz(:)
+
+    ! Check inventory is initialised
+    if (.not. third_dla_dz_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call third_dla_dz_theta_top_inventory%initialise(name='third_dla_dz_theta_top')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    constant_exists = third_dla_dz_theta_top_inventory%paired_object_exists(mesh_id)
+
+    if (.not. constant_exists) then
+      call compute_third_dl_dz_theta_top(mesh_id)
+    end if
+
+    ! Get existing constant
+    call third_dla_dz_theta_top_inventory%get_field_array(mesh, dla_dz)
+
+  end function get_third_dla_dz_theta_top
+
+  !> @brief Returns the coefficients for third-order edge above interpolation
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The required coefficients
+  function get_third_dlb_dz_theta_top(mesh_id) result(dlb_dz)
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    logical(kind=l_def)                   :: constant_exists
+    type(r_tran_field_type),      pointer :: dlb_dz(:)
+
+    ! Check inventory is initialised
+    if (.not. third_dlb_dz_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call third_dlb_dz_theta_top_inventory%initialise(name='third_dlb_dz_theta_top')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    constant_exists = third_dlb_dz_theta_top_inventory%paired_object_exists(mesh_id)
+
+    if (.not. constant_exists) then
+      call compute_third_dl_dz(mesh_id)
+    end if
+
+    ! Get existing constant
+    call third_dlb_dz_theta_top_inventory%get_field_array(mesh, dlb_dz)
+
+  end function get_third_dlb_dz_theta_top
+
+  !> @brief Returns the constants for fourth-order edge interpolation
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The required constant
+  function get_fourth_dl_dz_theta_top(mesh_id) result(dl_dz)
+
+    use ffsl_fourth_dldz_kernel_mod,    only: ffsl_fourth_dldz_kernel_type
+
+    implicit none
+
+    integer(kind=i_def),       intent(in) :: mesh_id
+    type(mesh_type),              pointer :: mesh
+    logical(kind=l_def)                   :: constant_exists
+    type(r_tran_field_type),      pointer :: dl_dz(:)
+    type(r_tran_field_type),      pointer :: dz_w3
+    type(function_space_type),    pointer :: w2v_fs
+
+    ! Check inventory is initialised
+    if (.not. fourth_dl_dz_theta_top_inventory%is_initialised()) then
+      ! Initialise all inventories together
+      call fourth_dl_dz_theta_top_inventory%initialise(name='fourth_dl_dz_theta_top')
+    end if
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    constant_exists = fourth_dl_dz_theta_top_inventory%paired_object_exists(mesh_id)
+
+    if (.not. constant_exists) then
+
+      dz_w3 => get_dz_theta_top(mesh_id)
+
+      ! Create the object as it doesn't exist yet
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+
+      w2v_fs => function_space_collection%get_fs(mesh, 0, 0, W2v)
+      call fourth_dl_dz_theta_top_inventory%add_field_array(dl_dz, w2v_fs, 4, mesh)
+
+      call invoke( ffsl_fourth_dldz_kernel_type(dl_dz, dz_w3) )
+
+      if ( subroutine_timers ) call timer('runtime_constants.transport')
+    end if
+
+    ! Get existing constant
+    call fourth_dl_dz_theta_top_inventory%get_field_array(mesh, dl_dz)
+
+  end function get_fourth_dl_dz_theta_top
 
   ! ========================================================================== !
   ! GETTERS FOR R_TRAN FORMS OF FINITE ELEMENT OPERATORS
@@ -2308,6 +2616,9 @@ contains
 
     call detj_at_w2_above_inventory%clear()
     call detj_at_w2_below_inventory%clear()
+    call detj_theta_top_inventory%clear()
+    call dz_w3_r_tran_inventory%clear()
+    call dz_theta_top_inventory%clear()
     call im3_div_r_tran_inventory%clear()
     call im3_div_v_r_tran_inventory%clear()
     call im3_div_h_r_tran_inventory%clear()
@@ -2334,6 +2645,9 @@ contains
     call third_dla_dz_inventory%clear()
     call third_dlb_dz_inventory%clear()
     call fourth_dl_dz_inventory%clear()
+    call third_dla_dz_theta_top_inventory%clear()
+    call third_dlb_dz_theta_top_inventory%clear()
+    call fourth_dl_dz_theta_top_inventory%clear()
 
   end subroutine final_transport_constants
 

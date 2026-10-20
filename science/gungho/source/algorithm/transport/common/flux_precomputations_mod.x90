@@ -80,7 +80,8 @@ module flux_precomputations_alg_mod
                                             ffsl_inner_order,                  &
                                             ffsl_outer_order,                  &
                                             dep_pt_stencil_extent
-  use transport_constants_mod,        only: get_detj_at_w3_r_tran
+  use transport_constants_mod,        only: get_detj_at_w3_r_tran,             &
+                                            get_detj_theta_top
   use transport_enumerated_types_mod, only: direction_h,                       &
                                             direction_v,                       &
                                             direction_3d
@@ -99,6 +100,7 @@ module flux_precomputations_alg_mod
     integer(kind=i_def),      allocatable :: mesh_ids(:)
     logical(kind=l_def)                   :: is_initialised_flag = .false.
     logical(kind=l_def)                   :: reset_unity
+    logical(kind=l_def)                   :: theta_top
     logical(kind=l_def)                   :: to_initialise_by_step
     integer(kind=i_def)                   :: splitting
     integer(kind=i_def)                   :: num_steps
@@ -210,6 +212,11 @@ contains
   !!                          the product of wind and dt (for the whole step))
   !> @param[in] reset_unity   Optional, whether to reset the reference unity
   !!                          field for each split step
+  !> @param[in] theta_top     Optional, whether this object is to be used for
+  !!                          the transport of the potential temperature, with
+  !!                          special care in the top layer to avoid the values
+  !!                          on the top surface experience vertical transport.
+  !!                          The default value is false.
   !> @param[in] max_courant_num
   !!                          Optional, maximum Courant number that can be
   !!                          calculated from departure distance calculations.
@@ -218,9 +225,11 @@ contains
   !!                          be used in horizontal calculations.
   subroutine flux_precomputations_initialiser(self, prime_mesh,                &
                                               splitting, num_substeps,         &
-                                              wind, dt, ref_field, flux,       &
-                                              reset_unity, max_courant_num)
+                                              wind, dt,                        &
+                                              ref_field, flux, reset_unity,    &
+                                              theta_top, max_courant_num)
 
+    use copy_theta_mass_kernel_mod, only: copy_theta_mass_kernel_type
     use sci_mapping_constants_mod,  only: get_intermesh_weights_w3_rtran
     use sci_restrict_scalar_weighted_kernel_mod,                               &
                                     only: restrict_scalar_weighted_kernel_type
@@ -235,7 +244,6 @@ contains
     use transport_enumerated_types_mod,                                        &
                                     only: splitting_none, monotone_none
 
-
     implicit none
 
     ! Arguments
@@ -248,10 +256,11 @@ contains
     type(r_tran_field_type), optional,          intent(in)    :: ref_field
     type(r_tran_field_type), optional, target,  intent(in)    :: flux
     logical(kind=l_def),     optional,          intent(in)    :: reset_unity
+    logical(kind=l_def),     optional,          intent(in)    :: theta_top
     integer(kind=i_def),     optional,          intent(in)    :: max_courant_num
 
     ! Local variables
-    integer(kind=i_def) :: i, j, fs_id, step_idx
+    integer(kind=i_def) :: i, j, fs_id, step_idx, idx
     integer(kind=i_def) :: num_steps, num_split_steps
     integer(kind=i_def) :: num_substeps_tmp
     integer(kind=i_def) :: num_meshes
@@ -271,8 +280,12 @@ contains
     type(integer_field_type),  pointer :: face_selector_ew
     type(integer_field_type),  pointer :: face_selector_ns
     type(r_tran_field_type),   pointer :: detj_w3
+    type(r_tran_field_type),   pointer :: detj_theta
+    type(r_tran_field_type),   pointer :: detj_prime
+    type(r_tran_field_type),   pointer :: detj_shifted
     type(r_tran_field_type),   pointer :: weights_w3
     type(r_tran_field_type)            :: tmp_field
+    type(r_tran_field_type)            :: mass_shifted
     type(r_tran_field_type)            :: flux_hori
     type(r_tran_field_type)            :: flux_vert
     type(r_tran_field_type),   pointer :: flux_ptr
@@ -284,7 +297,16 @@ contains
     self%num_substeps = num_substeps
     self%to_initialise_by_step = present(flux)
     self%reset_unity = .false.
+    self%theta_top = .false.
     if (present(reset_unity)) self%reset_unity = reset_unity
+    if (present(theta_top)) self%theta_top = theta_top
+
+    if (self%theta_top .and. .not. present(ref_field)) then
+      call log_event(                                                          &
+              'theta_precomputations must have ref_field provided',            &
+              LOG_LEVEL_ERROR                                                  &
+      )
+    end if
 
     ! Determine settings for extended mesh remapping of density
     if (panel_edge_treatment == panel_edge_treatment_extended_mesh) then
@@ -382,7 +404,9 @@ contains
     allocate( self%is_computed_stencil_extent_outer( num_meshes, num_steps ) )
 
     ! Set name used for logging properties, based on arguments
-    if (present(ref_field)) then
+    if (self%theta_top) then
+      self%name = 'theta'
+    else if (present(ref_field)) then
       self%name = 'tracer'
     else if (.not. self%reset_unity) then
       self%name = 'unity'
@@ -401,28 +425,41 @@ contains
     ! ------------------------------------------------------------------------ !
     ! Set first reference field and mass
     ! ------------------------------------------------------------------------ !
-    w3_fs => function_space_collection%get_fs(prime_mesh, 0, 0, W3)
-
     first_hori_step = get_first_hori_step(splitting)
+
+    if (self%theta_top) then
+      ! Set reference field and mass on shifted mesh
+      idx = 2
+      w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
+    else
+      ! Set reference field and mass on prime mesh
+      idx = 1
+      w3_fs => function_space_collection%get_fs(prime_mesh, 0, 0, W3)
+    end if
 
     if (first_hori_step == 1) then
       halo_depth = prime_mesh%get_halo_depth()
-      call self%ref_field(1,1)%initialise(w3_fs, halo_depth=halo_depth)
-      call self%ref_mass(1,1)%initialise(w3_fs, halo_depth=halo_depth)
+      call self%ref_field(idx,1)%initialise(w3_fs, halo_depth=halo_depth)
+      call self%ref_mass(idx,1)%initialise(w3_fs, halo_depth=halo_depth)
 
     else
       ! First step is vertical, so there won't need to be any halo exchanges
       ! on these fields, and we can set halo depth to 1
       halo_depth = 1
-      call self%ref_field(1,1)%initialise(w3_fs)
-      call self%ref_mass(1,1)%initialise(w3_fs)
+      call self%ref_field(idx,1)%initialise(w3_fs)
+      call self%ref_mass(idx,1)%initialise(w3_fs)
     end if
 
     if (present(ref_field)) then
       ! Checks -----------------------------------------------------------------
       ! Is the reference field on a prime extrusion?
       mesh => ref_field%get_mesh()
-      if (mesh%get_extrusion_id() /= PRIME_EXTRUSION) then
+      if (self%theta_top .and. mesh%get_extrusion_id() /= SHIFTED) then
+        write(log_scratch_space, '(A)')                                        &
+            'theta_precomputations%initialise: the reference field ' //        &
+            'provided is not on a shifted extrusion mesh'
+        call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+      else if (.not. self%theta_top .and. mesh%get_extrusion_id() /= PRIME_EXTRUSION) then
         write(log_scratch_space, '(A)')                                        &
             'flux_precomputations%initialise: the reference field ' //         &
             'provided is not on a prime extrusion mesh'
@@ -439,7 +476,20 @@ contains
       end if
 
       ! Set first reference field for this object ------------------------------
-      if (mesh%get_id() /= self%mesh_ids(1)) then
+      if (self%theta_top) then
+        ! Get reference mass from input reference field and detj on prime mesh
+        ! Then back out the reference field for this precomputations object
+        detj_theta => get_detj_theta_top(self%mesh_ids(2))
+        detj_prime => get_detj_at_w3_r_tran(self%mesh_ids(1))
+        detj_shifted => get_detj_at_w3_r_tran(self%mesh_ids(2))
+        call mass_shifted%initialise( detj_shifted%get_function_space() )
+        call invoke( X_times_Y(mass_shifted, detj_shifted, ref_field),         &
+                     copy_theta_mass_kernel_type(self%ref_mass(2,1),           &
+                                                 mass_shifted, detj_prime),    &
+                     X_divideby_Y(self%ref_field(2,1), self%ref_mass(2,1),     &
+                                  detj_theta) )
+
+      else if (mesh%get_id() /= self%mesh_ids(1)) then
         ! Restrict field to the mesh for this precomputation object
         weights_w3 => get_intermesh_weights_w3_rtran(mesh, prime_mesh)
         call invoke( name='restrict_ref_field',                                &
@@ -456,21 +506,23 @@ contains
       call invoke( setval_c(self%ref_field(1,1), 1.0_r_tran) )
     end if
 
-    ! Multiply by cell volume to get mass
-    ! If extended mesh, remap reference field here
-    detj_w3 => get_detj_at_w3_r_tran(self%mesh_ids(1))
-    if (panel_edge_treatment == panel_edge_treatment_extended_mesh) then
-      call tmp_field%initialise(w3_fs)
-      call invoke( setval_X(tmp_field, self%ref_field(1,1)) )
-      call remap_on_extended_mesh(                                             &
-              self%ref_field(1,1), tmp_field, self%ref_monotone,               &
-              self%ref_enforce_min_value, self%ref_min_value, halo_depth       &
-      )
-      ! @todo #4302: replace this with redundant computation
-      call invoke_deep_X_times_Y(self%ref_mass(1,1), self%ref_field(1,1), detj_w3)
+    if (.not. self%theta_top) then
+      ! Multiply by cell volume to get mass
+      ! If extended mesh, remap reference field here
+      detj_w3 => get_detj_at_w3_r_tran(self%mesh_ids(1))
+      if (panel_edge_treatment == panel_edge_treatment_extended_mesh) then
+        call tmp_field%initialise(w3_fs)
+        call invoke( setval_X(tmp_field, self%ref_field(1,1)) )
+        call remap_on_extended_mesh(                                           &
+                self%ref_field(1,1), tmp_field, self%ref_monotone,             &
+                self%ref_enforce_min_value, self%ref_min_value, halo_depth     &
+        )
+        ! @todo #4302: replace this with redundant computation
+        call invoke_deep_X_times_Y(self%ref_mass(1,1), self%ref_field(1,1), detj_w3)
 
-    else
-      call invoke( X_times_Y(self%ref_mass(1,1), detj_w3, self%ref_field(1,1)) )
+      else
+        call invoke( X_times_Y(self%ref_mass(1,1), detj_w3, self%ref_field(1,1)) )
+      end if
     end if
 
     ! ------------------------------------------------------------------------ !
@@ -625,23 +677,28 @@ contains
   !!                      step) for which the flux corresponds to. NOTE: this
   !!                      must include a time step factor.
   !> @param[in] ref_flux  The input reference flux to store
-  subroutine initialise_step(self, step, ref_flux)
+  !> @param[in] wind_top  Optional, wind for the top model layer
+  subroutine initialise_step(self, step, ref_flux, wind_top)
 
+    use copy_theta_w2h_kernel_mod,    only: copy_theta_w2h_kernel_type
+    use copy_theta_w2v_kernel_mod,    only: copy_theta_w2v_kernel_type
     use sci_restrict_w2_kernel_mod,   only: restrict_w2_kernel_type
     use sci_restrict_w2h_kernel_mod,  only: restrict_w2h_kernel_type
     use sci_restrict_w2v_kernel_mod,  only: restrict_w2v_kernel_type
 
     implicit none
 
-    class(flux_precomputations_type), intent(inout) :: self
-    integer(kind=i_def),              intent(in)    :: step
-    type(r_tran_field_type),          intent(in)    :: ref_flux
+    class(flux_precomputations_type),  intent(inout) :: self
+    integer(kind=i_def),               intent(in)    :: step
+    type(r_tran_field_type),           intent(in)    :: ref_flux
+    type(r_tran_field_type), optional, intent(in)    :: wind_top
 
     ! Local variables
-    integer(kind=i_def)                :: step_of_substep
+    integer(kind=i_def)                :: step_of_substep, idx
     integer(kind=i_def)                :: fs_id, correct_fs_id
     type(mesh_type),           pointer :: mesh
     type(mesh_type),           pointer :: prime_mesh
+    type(mesh_type),           pointer :: shifted_mesh
     type(function_space_type), pointer :: w2_fs
     type(integer_field_type),  pointer :: face_selector_ew
     type(integer_field_type),  pointer :: face_selector_ns
@@ -651,7 +708,21 @@ contains
     ! Checks ------------------------------------------------------------------
     ! Is the reference flux on a prime extrusion?
     mesh => ref_flux%get_mesh()
-    if (mesh%get_extrusion_id() /= PRIME_EXTRUSION) then
+    if (self%theta_top) then
+      if (mesh%get_extrusion_id() /= SHIFTED) then
+        write(log_scratch_space, '(A)')                                        &
+            'theta_precomputations%initialise_step: the reference flux ' //    &
+            'provided for step ', step, ' is not on a shifted extrusion mesh'
+        call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+      end if
+      if (.not. present(wind_top)) then
+        write(log_scratch_space, '(A,I8,A)')                                   &
+            'theta_precomputations%initialise_step: there is no wind ' //      &
+            'provided for step ', step, ' for the top model layer'
+        call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+      end if
+    end if
+    if (.not. self%theta_top .and. mesh%get_extrusion_id() /= PRIME_EXTRUSION) then
       write(log_scratch_space, '(A,I8,A)')                                     &
           'flux_precomputations%initialise_step: the reference flux ' //       &
           'provided for step ', step, ' is not on a prime extrusion mesh'
@@ -671,8 +742,14 @@ contains
       call log_event(log_scratch_space, LOG_LEVEL_ERROR)
     end if
 
+    if (self%theta_top) then
+      idx = 2
+    else
+      idx = 1
+    end if
+
     ! Has the reference flux already been initialised?
-    if (self%ref_flux(1, step)%is_initialised()) then
+    if (self%ref_flux(idx, step)%is_initialised()) then
       write(log_scratch_space, '(A,I8,A)')                                     &
           'flux_precomputations%initialise_step: the reference flux ' //       &
           'for step ', step, ' has already been initialised'
@@ -688,7 +765,32 @@ contains
     end if
 
     ! Set reference flux for this object ---------------------------------------
-    if (mesh%get_id() /= self%mesh_ids(1)) then
+    if (self%theta_top) then
+      ! Combine fluxes from the input reference flux and wind
+      shifted_mesh => mesh_collection%get_mesh(self%mesh_ids(2))
+      w2_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, fs_id)
+      face_selector_ew => get_face_selector_ew(self%mesh_ids(1))
+      face_selector_ns => get_face_selector_ns(self%mesh_ids(1))
+
+      call self%ref_flux(2, step)%initialise(w2_fs)
+
+      select case (ref_flux%which_function_space())
+      case (W2H)
+        call invoke(                                                           &
+            copy_theta_w2h_kernel_type(self%ref_flux(2, step),                 &
+                                       ref_flux, wind_top,                     &
+                                       face_selector_ew, face_selector_ns) )
+      case (W2V)
+        call invoke( copy_theta_w2v_kernel_type(self%ref_flux(2, step),        &
+                                                ref_flux) )
+      case default
+        write(log_scratch_space, '(A,I8)')                                     &
+            'theta_precomputations%initialise_step: flux space not ' //        &
+            'recognised for step ', step
+        call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+      end select
+
+    else if (mesh%get_id() /= self%mesh_ids(1)) then
       ! Restrict flux to the mesh for this precomputation object
       prime_mesh => mesh_collection%get_mesh(self%mesh_ids(1))
       w2_fs => function_space_collection%get_fs(prime_mesh, 0, 0, fs_id)
@@ -955,8 +1057,12 @@ contains
     if (.not. self%ref_field(mesh_idx, step)%is_initialised()) then
       mesh => mesh_collection%get_mesh(mesh_id)
       halo_depth = mesh%get_halo_depth()
-      detj_w3 => get_detj_at_w3_r_tran(mesh_id)
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+      if (self%theta_top) then
+        detj_w3 => get_detj_theta_top(mesh_id)
+      else
+        detj_w3 => get_detj_at_w3_r_tran(mesh_id)
+      end if
 
       ! Obtain reference field from mass
       ref_mass => self%get_ref_mass(mesh_id, step)
@@ -1061,8 +1167,12 @@ contains
       mesh => mesh_collection%get_mesh(mesh_id)
       halo_depth = mesh%get_halo_depth()
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
-      detj_w3 => get_detj_at_w3_r_tran(mesh_id)
       call self%ref_mass(mesh_idx, step)%initialise(w3_fs, halo_depth=halo_depth)
+      if (self%theta_top) then
+        detj_w3 => get_detj_theta_top(mesh_id)
+      else
+        detj_w3 => get_detj_at_w3_r_tran(mesh_id)
+      end if
 
       ! To determine the reference mass, use the following priorities:
       ! ---------------------------------------------------------------------- !
@@ -1243,8 +1353,12 @@ contains
       mesh => mesh_collection%get_mesh(mesh_id)
       halo_depth = mesh%get_halo_depth()
       ref_mass => self%get_ref_mass_x(mesh_id, step)
-      detj_w3 => get_detj_at_w3_r_tran(mesh_id)
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+      if (self%theta_top) then
+        detj_w3 => get_detj_theta_top(mesh_id)
+      else
+        detj_w3 => get_detj_at_w3_r_tran(mesh_id)
+      end if
 
       if ( subroutine_timers ) call timer('transport.get_ref_field_xy')
 
@@ -1307,8 +1421,12 @@ contains
       mesh => mesh_collection%get_mesh(mesh_id)
       halo_depth = mesh%get_halo_depth()
       ref_mass => self%get_ref_mass_y(mesh_id, step)
-      detj_w3 => get_detj_at_w3_r_tran(mesh_id)
       w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+      if (self%theta_top) then
+        detj_w3 => get_detj_theta_top(mesh_id)
+      else
+        detj_w3 => get_detj_at_w3_r_tran(mesh_id)
+      end if
 
       if ( subroutine_timers ) call timer('transport.get_ref_field_xy')
 
@@ -1854,7 +1972,12 @@ contains
     if (panel_edge_treatment == panel_edge_treatment_extended_mesh) then
       call tmp_mass%initialise(w3_fs)
       call tmp_field%initialise(w3_fs)
-      detj_w3 => get_detj_at_w3_r_tran(mesh_id)
+      if (self%theta_top) then
+        detj_w3 => get_detj_theta_top(mesh_id)
+      else
+        detj_w3 => get_detj_at_w3_r_tran(mesh_id)
+      end if
+
       ! Remap field in x
       call invoke( setval_X(tmp_mass, self%ref_mass_x(mesh_idx, step_idx)),    &
                    X_divideby_Y(tmp_field, tmp_mass, detj_w3) )

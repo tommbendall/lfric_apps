@@ -14,7 +14,6 @@ module ffsl_vert_alg_mod
   use fs_continuity_mod,                only: W2V
   use function_space_mod,               only: function_space_type
   use function_space_collection_mod,    only: function_space_collection
-  use sci_geometric_constants_mod,      only: get_dz_w3
   use log_mod,                          only: log_event, LOG_LEVEL_ERROR
   use mesh_mod,                         only: mesh_type
   use r_tran_field_mod,                 only: r_tran_field_type
@@ -25,7 +24,12 @@ module ffsl_vert_alg_mod
   use transport_constants_mod,          only: get_detj_at_w3_r_tran,           &
                                               get_third_dla_dz,                &
                                               get_third_dlb_dz,                &
-                                              get_fourth_dl_dz
+                                              get_fourth_dl_dz,                &
+                                              get_dz_w3_r_tran,                &
+                                              get_dz_theta_top,                &
+                                              get_third_dla_dz_theta_top,      &
+                                              get_third_dlb_dz_theta_top,      &
+                                              get_fourth_dl_dz_theta_top
   use transport_controller_mod,         only: transport_controller_type
   use transport_counter_mod,            only: transport_counter_type
   use transport_enumerated_types_mod,   only: equation_form_consistent,        &
@@ -35,7 +39,6 @@ module ffsl_vert_alg_mod
   use wind_precomputations_alg_mod,     only: wind_precomputations_type
 
   ! Algorithms
-  use copy_field_alg_mod,               only: copy_field
   use ffsl_advective_updates_alg_mod,   only: swift_inner_update_tracer,       &
                                               ffsl_advective_increment
 
@@ -52,7 +55,8 @@ module ffsl_vert_alg_mod
   use io_config_mod,                    only: subroutine_timers
   use transport_config_mod,             only: ffsl_unity_3d,                   &
                                               wind_mono_top,                   &
-                                              wind_mono_top_depth
+                                              wind_mono_top_depth,             &
+                                              theta_top_advective
 
   implicit none
 
@@ -122,6 +126,7 @@ contains
     ! Transport options
     logical(kind=l_def) :: to_compute_adv_inc
     logical(kind=l_def) :: to_compute_field_np1
+    logical(kind=l_def) :: do_theta_top_advective
     integer(kind=i_def) :: equation_form
     integer(kind=i_def) :: splitting
 
@@ -156,6 +161,11 @@ contains
 
     splitting = transport_metadata%get_splitting()
     equation_form = transport_metadata%get_equation_form()
+    do_theta_top_advective = (                                                 &
+        theta_top_advective .and. equation_form == equation_form_consistent    &
+        .and. (trim(transport_metadata%get_name()) == 'theta' .or.             &
+         trim(transport_metadata%get_name()) == 'potential_temperature')       &
+    )
 
     ! Compute advected field, if required --------------------------------------
     if (to_compute_adv_inc .or. to_compute_field_np1) then
@@ -168,7 +178,10 @@ contains
 
       call increment%initialise( vector_space = field_fs )
 
-      if (equation_form == equation_form_consistent) then
+      if (do_theta_top_advective) then
+        ffsl_precomputations => transport_controller%get_theta_precomputations()
+        step = transport_counter%get_split_step_of_whole_step_counter()
+      else if (equation_form == equation_form_consistent) then
         ffsl_precomputations => transport_controller%get_flux_precomputations()
         step = transport_counter%get_split_step_of_whole_step_counter()
       else if (ffsl_unity_3d) then
@@ -246,7 +259,7 @@ contains
     type(r_tran_field_type),         pointer :: dl_dz(:)
     type(r_tran_field_type),         pointer :: dla_dz(:)
     type(r_tran_field_type),         pointer :: dlb_dz(:)
-    type(field_type),                pointer :: dz_w3_rdef
+    type(r_tran_field_type),         pointer :: dz_w3
 
     ! Function spaces
     type(function_space_type), pointer :: field_fs
@@ -259,9 +272,7 @@ contains
     integer(kind=i_def) :: equation_form
     integer(kind=i_def) :: splitting
     logical(kind=l_def) :: first_order_cheap_update
-
-    ! Internal fields
-    type(r_tran_field_type) :: dz_w3
+    logical(kind=l_def) :: do_theta_top_advective
 
     ! Useful constants
     integer(kind=i_def) :: mesh_id
@@ -289,6 +300,12 @@ contains
     splitting = transport_metadata%get_splitting()
     first_order_cheap_update = transport_controller%get_cheap_update_step()
 
+    do_theta_top_advective = (                                                 &
+        theta_top_advective .and. equation_form == equation_form_consistent    &
+        .and. (trim(transport_metadata%get_name()) == 'theta' .or.             &
+         trim(transport_metadata%get_name()) == 'potential_temperature')       &
+    )
+
     ! The minimum value is required for the quasi-monotone limiter, if
     ! it is not set we assume positivity.
     ! If other monotonicity is required then min_val is unused
@@ -309,7 +326,10 @@ contains
     call mass_flux%initialise( vector_space = w2v_fs )
 
     ! Point to appropriate pre-computed fields ---------------------------------
-    if (equation_form == equation_form_consistent) then
+    if (do_theta_top_advective) then
+      ffsl_precomputations => transport_controller%get_theta_precomputations()
+      step = transport_counter%get_split_step_of_whole_step_counter()
+    else if (equation_form == equation_form_consistent) then
       ffsl_precomputations => transport_controller%get_flux_precomputations()
       step = transport_counter%get_split_step_of_whole_step_counter()
     else if (ffsl_unity_3d) then
@@ -336,9 +356,11 @@ contains
 
     if ( vertical_order /= 0 ) then
       ! Get objects only needed for high order flux
-      dz_w3_rdef => get_dz_w3(mesh_id)
-      call dz_w3%initialise( vector_space = field_fs )
-      call copy_field(dz_w3_rdef, dz_w3)
+      if (do_theta_top_advective) then
+        dz_w3 => get_dz_theta_top(mesh_id)
+      else
+        dz_w3 => get_dz_w3_r_tran(mesh_id)
+      end if
     end if
 
     ! Compute fluxes -----------------------------------------------------------
@@ -379,8 +401,14 @@ contains
           monotone_above = 1
         end if
 
-        dla_dz => get_third_dla_dz(mesh_id)
-        dlb_dz => get_third_dlb_dz(mesh_id)
+        if (do_theta_top_advective) then
+          dla_dz => get_third_dla_dz_theta_top(mesh_id)
+          dlb_dz => get_third_dlb_dz_theta_top(mesh_id)
+        else
+          dla_dz => get_third_dla_dz(mesh_id)
+          dlb_dz => get_third_dlb_dz(mesh_id)
+        end if
+
         call invoke( ffsl_flux_z_nirvana_kernel_type(mass_flux,                &
                                                      frac_wind_or_flux,        &
                                                      dep_pts_z,                &
@@ -399,7 +427,12 @@ contains
 
     case ( 2 )
       ! PPM reconstruction
-      dl_dz => get_fourth_dl_dz(mesh_id)
+      if (do_theta_top_advective) then
+        dl_dz => get_fourth_dl_dz_theta_top(mesh_id)
+      else
+        dl_dz => get_fourth_dl_dz(mesh_id)
+      end if
+
       call invoke( ffsl_flux_z_ppm_kernel_type(mass_flux,                      &
                                                frac_wind_or_flux,              &
                                                dep_pts_z,                      &

@@ -88,6 +88,7 @@ module transport_controller_mod
     type(wind_precomputations_type)        :: wind_precomputations
     type(flux_precomputations_type)        :: ffsl_precomputations
     type(flux_precomputations_type)        :: flux_precomputations
+    type(flux_precomputations_type)        :: theta_precomputations
 
     ! Fields to used in initialised precomputation objects
     type(r_tran_field_type), allocatable :: wind_n_rtran
@@ -111,6 +112,7 @@ module transport_controller_mod
     procedure, public  :: get_wind_precomputations
     procedure, public  :: get_ffsl_precomputations
     procedure, public  :: get_flux_precomputations
+    procedure, public  :: get_theta_precomputations
     procedure, public  :: check_reference_field
     procedure, public  :: get_dep_stencil_extent
     procedure, public  :: get_reference_splitting
@@ -497,6 +499,7 @@ contains
     if (allocated(self%wind_np1_rtran)) deallocate(self%wind_np1_rtran)
     if (allocated(self%ref_field_rtran)) deallocate(self%ref_field_rtran)
 
+    call self%theta_precomputations%finalise()
     call self%ffsl_precomputations%finalise()
     call self%flux_precomputations%finalise()
     call self%wind_precomputations%finalise()
@@ -884,6 +887,93 @@ contains
     flux_precomputations => self%flux_precomputations
 
   end function get_flux_precomputations
+
+  !> @brief Returns a pointer to the theta_precomputations object, which may be
+  !!        used for the transport of the potential temperature field.
+  !> @return The theta_precomputations object
+  function get_theta_precomputations(self) result(theta_precomputations)
+
+    use transport_config_mod,      only: splitting
+    use split_transport_utils_mod, only: get_dry_config, get_num_split_steps
+
+    implicit none
+
+    class(transport_controller_type), target, intent(inout) :: self
+
+    type(flux_precomputations_type), pointer :: theta_precomputations
+    type(flux_precomputations_type), pointer :: ffsl_precomputations
+    type(flux_precomputations_type), pointer :: flux_precomputations
+    type(mesh_type),                 pointer :: mesh
+    type(mesh_type),                 pointer :: shifted_mesh
+    type(r_tran_field_type),         pointer :: ref_field
+    type(r_tran_field_type),         pointer :: flux
+    type(r_tran_field_type),         pointer :: wind
+    integer(kind=i_def)                      :: step, num_split_steps
+    integer(kind=i_def)                      :: reference_splitting
+    integer(kind=i_def)                      :: max_courant_num
+    integer(kind=i_def)                      :: prime_mesh_id, shifted_mesh_id
+
+    ! If object is not created, then create it here
+    if (.not. self%theta_precomputations%is_initialised()) then
+
+      if (.not. self%flux_precomputations%is_initialised()                     &
+          .or. .not. self%ffsl_precomputations%is_initialised()) then
+        call log_event(                                                        &
+                'To initialise theta_precomputations object, need to have ' // &
+                'both ffsl_precomputations and flux_precomputations ' //       &
+                'appropriately initialised', LOG_LEVEL_ERROR                   &
+        )
+      end if
+
+      ! This is initialised using the initial reference field used for tracer
+      ! transport, on the shifted mesh. Each step is initialised using both the
+      ! reference flux (on the shifted mesh) and the transporting wind (on the
+      ! prime mesh)
+      mesh => self%transporting_wind%get_mesh()
+      prime_mesh_id = mesh%get_id()
+      shifted_mesh => mesh_collection%get_mesh(mesh, SHIFTED)
+      shifted_mesh_id = shifted_mesh%get_id()
+      reference_splitting = splitting(get_dry_config())
+      num_split_steps = get_num_split_steps(reference_splitting)*self%num_substeps
+      ffsl_precomputations => self%get_ffsl_precomputations()
+      flux_precomputations => self%get_flux_precomputations()
+      ref_field => flux_precomputations%get_ref_field(shifted_mesh_id, 1)
+
+      ! Determine the halo depths to be used in theta computations
+      if (share_stencil_extent .and. self%ffsl_precomputations%is_initialised()) then
+        ! Get the extent that is stored/calculated in this controller object
+        ! This likely comes from the first time horizontal departure distances
+        ! are calculated for density transport
+        max_courant_num = self%get_dep_stencil_extent(                         &
+                mesh%get_id(), 1, outer_step=.false., flux_calc=.false.        &
+        )
+
+        call self%theta_precomputations%initialise(                            &
+                mesh, reference_splitting, self%num_substeps,                  &
+                ref_field=ref_field, theta_top=.true.,                         &
+                max_courant_num=max_courant_num                                &
+        )
+      else
+        ! Either not sharing stencil extent or don't yet know it, so do not
+        ! pass the max_courant_num argument
+        call self%theta_precomputations%initialise(                            &
+                mesh, reference_splitting, self%num_substeps,                  &
+                ref_field=ref_field, theta_top=.true.                          &
+        )
+      end if
+
+      ! Now initialise the steps
+      do step = 1, num_split_steps
+        flux => flux_precomputations%get_ref_flux(shifted_mesh_id, step)
+        wind => ffsl_precomputations%get_ref_flux(prime_mesh_id, step)
+        call self%theta_precomputations%initialise_step(step, flux, wind_top=wind)
+      end do
+    end if
+
+    ! Return existing object
+    theta_precomputations => self%theta_precomputations
+
+  end function get_theta_precomputations
 
   !> @brief Returns a pointer to the rtran ref_field, which is used
   !!        for the adjoint model.

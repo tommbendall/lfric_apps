@@ -305,7 +305,7 @@ contains
       call calculate_null_flux(flux, field_np1, direction)
       call end_of_consistent_step_alg(                                         &
               field_np1, field_n, flux, flux_precomputations,                  &
-              transport_counter, transport_metadata                            &
+              flux_precomputations, transport_counter, transport_metadata      &
       )
     case ( equation_form_advective )
       call end_of_advective_step_alg(                                          &

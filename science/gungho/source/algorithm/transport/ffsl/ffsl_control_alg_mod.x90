@@ -47,6 +47,9 @@ module ffsl_control_alg_mod
   use sci_inject_sh_w3_to_wt_kernel_mod, only: inject_sh_w3_to_wt_kernel_type
   use sci_inject_wt_to_sh_w3_kernel_mod, only: inject_wt_to_sh_w3_kernel_type
 
+  ! Config
+  use transport_config_mod,             only: theta_top_advective
+
   implicit none
 
   private
@@ -79,14 +82,17 @@ contains
     integer(kind=i_def)                      :: direction
     logical(kind=l_def)                      :: compute_adv_field
     logical(kind=l_def)                      :: enforce_min_value
+    logical(kind=l_def)                      :: do_theta_top_advective
     integer(kind=i_def)                      :: function_space
     integer(kind=i_def)                      :: vertical_order
+    integer(kind=i_def)                      :: equation_form
     type(function_space_type),       pointer :: w3_shifted_fs
     type(mesh_type),                 pointer :: mesh
     type(mesh_type),                 pointer :: shifted_mesh
     type(transport_counter_type),    pointer :: transport_counter
     type(transport_metadata_type),   pointer :: transport_metadata
     type(flux_precomputations_type), pointer :: flux_precomputations
+    type(flux_precomputations_type), pointer :: disp_precomputations
 
     ! Use pointers inside of this algorithm for field_n and field_np1
     ! which saves on a field copy
@@ -100,13 +106,18 @@ contains
     mesh => field_n%get_mesh()
     transport_counter => transport_controller%get_transport_counter()
     transport_metadata => transport_controller%get_transport_metadata()
-    flux_precomputations => transport_controller%get_flux_precomputations()
 
     function_space = field_n%which_function_space()
     enforce_min_value = transport_metadata%get_enforce_min_value()
+    equation_form = transport_metadata%get_equation_form()
     direction = get_splitting_direction(                                       &
         transport_metadata%get_splitting(),                                    &
         transport_counter%get_split_step_of_substep_counter()                  &
+    )
+    do_theta_top_advective = (                                                 &
+        theta_top_advective .and. equation_form == equation_form_consistent    &
+        .and. (trim(transport_metadata%get_name()) == 'theta' .or.             &
+         trim(transport_metadata%get_name()) == 'potential_temperature')       &
     )
 
     ! Get time step
@@ -135,7 +146,7 @@ contains
                                                         0_i_def, W3)
       call field_n_w3_shifted%initialise( vector_space = w3_shifted_fs )
       call field_np1_w3_shifted%initialise( vector_space = w3_shifted_fs )
-      if (enforce_min_value) then
+      if (enforce_min_value .or. do_theta_top_advective) then
         call invoke( setval_X(field_n_w3_shifted, field_n) )
       else
         ! Interpolate in bottom/top layers
@@ -186,7 +197,7 @@ contains
 
     if (function_space == Wtheta .and. compute_adv_field) then
       ! If Wtheta variable, move field_np1 back to Wtheta
-      if (enforce_min_value) then
+      if (enforce_min_value .or. do_theta_top_advective) then
         ! Can't generate negatives by extrapolation, so just inject
         call invoke( setval_X(field_np1, field_np1_w3_shifted) )
       else
@@ -199,9 +210,11 @@ contains
     ! End of transport step generic routines
     ! ======================================================================== !
 
-    select case ( transport_metadata%get_equation_form() )
+    select case ( equation_form )
 
     case ( equation_form_conservative )
+
+      flux_precomputations => transport_controller%get_flux_precomputations()
 
       ! Include dt in the mass flux
       call invoke( inc_a_times_X(step_dt, mass_flux) )
@@ -217,6 +230,13 @@ contains
 
     case ( equation_form_consistent )
 
+      disp_precomputations => transport_controller%get_flux_precomputations()
+      if (do_theta_top_advective) then
+        flux_precomputations => transport_controller%get_theta_precomputations()
+      else
+        flux_precomputations => transport_controller%get_flux_precomputations()
+      end if
+
       ! Include dt in the mass flux
       call invoke( inc_a_times_X(step_dt, mass_flux) )
 
@@ -225,7 +245,8 @@ contains
       ! If this is not the final step, field_np1 already includes the *advective*
       ! increment, and may be adjusted to enforce min value or in blending zone
       call end_of_consistent_step_alg(                                         &
-              field_np1, field_n, mass_flux, flux_precomputations,             &
+              field_np1, field_n, mass_flux,                                   &
+              flux_precomputations, disp_precomputations,                      &
               transport_counter, transport_metadata, compute_field_np1=.false. &
       )
 
