@@ -6,6 +6,7 @@
 
 module log_w2_alg_mod
 
+  use config_mod,                       only: config_type
   use constants_mod,                    only: r_def, l_def, i_def
   use field_mod,                        only: field_type
   use integer_field_mod,                only: integer_field_type
@@ -35,7 +36,7 @@ module log_w2_alg_mod
 
 contains
 
-  subroutine log_w2_minmax(message, field)
+  subroutine log_w2_minmax(config, message, field)
 
     use physics_mappings_alg_mod,     only: map_physics_winds
     use split_w2_field_kernel_mod,    only: split_w2_field_kernel_type
@@ -43,6 +44,7 @@ contains
 
     implicit none
 
+    type(config_type),   intent(in) :: config
     character(len=*),    intent(in) :: message
     type(field_type),    intent(in) :: field
 
@@ -52,7 +54,7 @@ contains
     type(integer_field_type),  pointer :: face_selector_ns
     type(field_type),          pointer :: dA
     type(field_type)                   :: u_physics
-    type(field_type)                   :: u_w2h_physics, w_in_wth
+    type(field_type)                   :: u_w2h_physics, etadot_wth
     type(field_type)                   :: u_in_w3, v_in_w3, w_in_w3
 
     mesh => field%get_mesh()
@@ -67,32 +69,35 @@ contains
     ! Initialise fields
     call u_physics%initialise(w2_fs)
     call u_w2h_physics%initialise(w2h_fs)
-    call w_in_wth%initialise(w2v_fs)
+    call etadot_wth%initialise(w2v_fs)
     call u_in_w3%initialise(w3_fs)
     call v_in_w3%initialise(w3_fs)
     call w_in_w3%initialise(w3_fs)
 
     ! Calculate u_physics and horizontal/vertical components
     call invoke( X_divideby_Y(u_physics, field, dA),                           &
-                 split_w2_field_kernel_type(u_w2h_physics, w_in_wth, u_physics,&
+                 split_w2_field_kernel_type(u_w2h_physics, etadot_wth, u_physics,&
                                             face_selector_ew, face_selector_ns) )
 
     call map_physics_winds(u_in_w3, v_in_w3, w_in_w3, field)
 
 
     call log_event(message, LOG_LEVEL_INFO)
-    call print_field_stats_alg(u_w2h_physics, LOG_LEVEL_INFO,                  &
+    call print_field_stats_alg(config, u_w2h_physics, LOG_LEVEL_INFO,          &
                                printmin=-150.0_r_def, printmax=150.0_r_def,    &
                                name='u_w2h_physics')
-    call print_field_stats_alg(u_in_w3, LOG_LEVEL_INFO,                        &
+    call print_field_stats_alg(config, u_in_w3, LOG_LEVEL_INFO,                &
                                printmin=-150.0_r_def, printmax=150.0_r_def,    &
                                name='u_in_w3')
-    call print_field_stats_alg(v_in_w3, LOG_LEVEL_INFO,                        &
+    call print_field_stats_alg(config, v_in_w3, LOG_LEVEL_INFO,                &
                                printmin=-150.0_r_def, printmax=150.0_r_def,    &
                                name='v_in_w3')
-    call print_field_stats_alg(w_in_wth, LOG_LEVEL_INFO,                       &
-                               printmin=-150.0_r_def, printmax=150.0_r_def,    &
-                               name='w_in_wth')
+    call print_field_stats_alg(config, w_in_w3, LOG_LEVEL_INFO,                &
+                               printmin=-1.0_r_def, printmax=1.0_r_def,        &
+                               name='w_in_w3')
+    call print_field_stats_alg(config, etadot_wth, LOG_LEVEL_INFO,             &
+                               printmin=-1.0_r_def, printmax=1.0_r_def,        &
+                               name='etadot_wth')
 
   end subroutine log_w2_minmax
 
