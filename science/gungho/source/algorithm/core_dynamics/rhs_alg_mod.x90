@@ -547,6 +547,7 @@ contains
                    enforce_bc_kernel_type(rhs_tmp) )
       call mass_matrix_solver_alg(field_u_tmp, rhs_tmp)
       call log_w2_minmax('RHS_u_base', field_u_tmp)
+    end if
 
     ! ======================================================================== !
 
