@@ -14,6 +14,8 @@ module print_field_stats_alg_mod
   use constants_mod,            only: r_def, str_def, i_def, rmdi,             &
                                       radians_to_degrees, r_tran, l_def
   use log_mod,                  only: log_event, log_at_level, log_scratch_space
+  use logging_config_mod,       only: log_sums_and_norms
+  use base_mesh_config_mod,     only: prime_mesh_name
   use mesh_collection_mod,      only: mesh_collection
   use fs_continuity_mod,        only: W3, Wtheta, W2H, W2V
   use sci_geometric_constants_mod,    &
@@ -22,7 +24,7 @@ module print_field_stats_alg_mod
                                       get_height_fe, get_height_fv
   use field_stats_kernel_mod,   only: field_stats_kernel_type
   use extrusion_mod,            only: TWOD
-  use sci_field_minmax_alg_mod, only: get_field_minmax
+  use sci_field_minmax_alg_mod, only: get_field_minmax, get_field_sum_norm
 
   implicit none
 
@@ -70,7 +72,9 @@ subroutine print_field_stats_alg(config, field_rdef, level_of_logging, &
 
   integer(kind=i_def)       :: fs_id
   integer(kind=i_def)       :: elt_order_h, elt_order_v
+  integer(kind=i_def)       :: nan_count
   real(kind=r_def)          :: fmin_rdef, fmax_rdef
+  real(kind=r_def)          :: fsum_rdef, fnorm_rdef
   real(kind=r_def)          :: minvalue_rdef, maxvalue_rdef
   logical(kind=l_def)       :: to_print_all_stats, supported_fs
   character(len=str_def)    :: field_name
@@ -96,8 +100,19 @@ subroutine print_field_stats_alg(config, field_rdef, level_of_logging, &
 
     ! Log min/max
     call get_field_minmax(field_rdef, fmin_rdef, fmax_rdef)
-    write(log_scratch_space,'(A,A,A,F16.8,A,F16.8)') &
-         'Field Min/max ',trim(field_name),' = ',fmin_rdef,' ',fmax_rdef
+    if (log_sums_and_norms) then
+      call get_field_sum_norm(field_rdef, fsum_rdef, fnorm_rdef, nan_count)
+      write(log_scratch_space, '(A,A,A,4E16.8)') &
+          'Field Min/max/sum/norm ', trim(field_name), ' = ',                  &
+          fmin_rdef, fmax_rdef, fsum_rdef, fnorm_rdef
+      if (nan_count > 0) then
+        write(log_scratch_space, '(A,I0)') 'Number of NaNs: ', nan_count
+        call log_event(log_scratch_space, level_of_logging)
+      end if
+    else
+      write(log_scratch_space,'(A,A,A,F16.8,A,F16.8)') &
+          'Field Min/max ',trim(field_name),' = ',fmin_rdef,' ',fmax_rdef
+    end if
     call log_event(log_scratch_space, level_of_logging)
 
     fs_id = field_rdef%which_function_space()
