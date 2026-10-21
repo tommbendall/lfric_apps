@@ -38,6 +38,7 @@ use argument_mod,          only: arg_type,                                     &
                                  ANY_DISCONTINUOUS_SPACE_1,                    &
                                  ANY_DISCONTINUOUS_SPACE_3,                    &
                                  ANY_DISCONTINUOUS_SPACE_5,                    &
+                                 ANY_DISCONTINUOUS_SPACE_6,                    &
                                  CELL_COLUMN
 use fs_continuity_mod,      only: W2h, W2
 use constants_mod,          only: r_def, r_tran, i_def, l_def
@@ -65,10 +66,10 @@ type, public, extends(kernel_type) :: panel_edge_remap_w2h_kernel_type
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! parl_w2_at_w2_y
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! perp_w2_at_w2_x
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! perp_w2_at_w2_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! parl_w2_rot_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! perp_w2_rot_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! parl_w2_rot_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! perp_w2_rot_y
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! parl_w2_rot_x
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! perp_w2_rot_x
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! parl_w2_rot_y
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! perp_w2_rot_y
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! eave_lon_x (diagnostic)
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! eave_lat_x (diagnostic)
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! correct_flux_x (diagnostic)
@@ -126,11 +127,14 @@ contains
 !!                                      fields
 !> @param[in]     map_wr                DoF map for remapped fields
 !> @param[in]     ndf_w2h               Num DoFs per cell for the staged values
-!!                                      and rotation factors
 !> @param[in]     undf_w2h              Num DoFs for this partition for the
-!!                                      staged values and rotation factors
-!> @param[in]     map_w2h               DoF map for the staged values and
+!!                                      staged values
+!> @param[in]     map_w2h               DoF map for the staged values
+!> @param[in]     ndf_wrot              Num DoFs per cell for the (2D) rotation
+!!                                      factors
+!> @param[in]     undf_wrot             Num DoFs for this partition for the
 !!                                      rotation factors
+!> @param[in]     map_wrot              DoF map for the rotation factors
 !> @param[in]     ndf_ww                Num DoFs per cell for the diagnostic fields
 !> @param[in]     undf_ww               Num DoFs for this partition for the
 !!                                      diagnostic fields
@@ -162,6 +166,7 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
                                       remap_depth, include_perp_p,           &
                                       ndf_wr, undf_wr, map_wr,               &
                                       ndf_w2h, undf_w2h, map_w2h,            &
+                                      ndf_wrot, undf_wrot, map_wrot,         &
                                       ndf_ww, undf_ww, map_ww,               &
                                       ndf_w2, undf_w2, map_w2,               &
                                       ndf_pid, undf_pid, map_pid             &
@@ -174,12 +179,14 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
   integer(kind=i_def), intent(in)    :: ndf_ww, undf_ww
   integer(kind=i_def), intent(in)    :: ndf_wr, undf_wr
   integer(kind=i_def), intent(in)    :: ndf_w2h, undf_w2h
+  integer(kind=i_def), intent(in)    :: ndf_wrot, undf_wrot
   integer(kind=i_def), intent(in)    :: ndf_pid, undf_pid
   integer(kind=i_def), intent(in)    :: ndf_w2, undf_w2
 
   integer(kind=i_def), intent(in)    :: map_wr(ndf_wr)
   integer(kind=i_def), intent(in)    :: map_ww(ndf_ww)
   integer(kind=i_def), intent(in)    :: map_w2h(ndf_w2h)
+  integer(kind=i_def), intent(in)    :: map_wrot(ndf_wrot)
   integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
   integer(kind=i_def), intent(in)    :: map_w2(ndf_w2)
 
@@ -192,10 +199,10 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
   real(kind=r_tran),   intent(in)    :: parl_w2_at_w2_y(undf_w2h)
   real(kind=r_tran),   intent(in)    :: perp_w2_at_w2_x(undf_w2h)
   real(kind=r_tran),   intent(in)    :: perp_w2_at_w2_y(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: parl_w2_rot_x(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: perp_w2_rot_x(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: parl_w2_rot_y(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: perp_w2_rot_y(undf_w2h)
+  real(kind=r_tran),   intent(in)    :: parl_w2_rot_x(undf_wrot)
+  real(kind=r_tran),   intent(in)    :: perp_w2_rot_x(undf_wrot)
+  real(kind=r_tran),   intent(in)    :: parl_w2_rot_y(undf_wrot)
+  real(kind=r_tran),   intent(in)    :: perp_w2_rot_y(undf_wrot)
   real(kind=r_tran),   intent(in)    :: eave_lon_x(undf_ww)
   real(kind=r_tran),   intent(in)    :: eave_lat_x(undf_ww)
   real(kind=r_tran),   intent(in)    :: correct_flux_x(undf_ww)
@@ -250,6 +257,7 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
                   dA_at_w2_eave, face,                                         &
                   ndf_wr, undf_wr, map_wr,                                     &
                   ndf_w2h, undf_w2h, map_w2h,                                  &
+                  ndf_wrot, undf_wrot, map_wrot,                               &
                   ndf_w2, undf_w2, map_w2                                      &
           )
 
@@ -265,6 +273,7 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
                   dA_at_w2_eave, face,                                         &
                   ndf_wr, undf_wr, map_wr,                                     &
                   ndf_w2h, undf_w2h, map_w2h,                                  &
+                  ndf_wrot, undf_wrot, map_wrot,                               &
                   ndf_w2, undf_w2, map_w2                                      &
           )
         end if
@@ -287,6 +296,19 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
         call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
         wr_idx = map_wr(face)
+        ! TEMP DEBUG T4: to remove
+        write(log_scratch_space, *) 'T4 KR col=', pid_idx, ' face=', face,    &
+          ' dist_WESN=', panel_edge_dist_W(pid_idx), panel_edge_dist_E(pid_idx),&
+          panel_edge_dist_S(pid_idx), panel_edge_dist_N(pid_idx),              &
+          ' remap_depth=', remap_depth,                                        &
+          ' parl_rot_x=', parl_w2_rot_x(map_wrot(face)),                       &
+          ' perp_rot_x=', perp_w2_rot_x(map_wrot(face)),                       &
+          ' perp_at_x=', perp_w2_at_w2_x(map_w2h(face)),                       &
+          ' parl_rot_y=', parl_w2_rot_y(map_wrot(face)),                       &
+          ' perp_rot_y=', perp_w2_rot_y(map_wrot(face)),                       &
+          ' perp_at_y=', perp_w2_at_w2_y(map_w2h(face)),                       &
+          ' dA_eave=', dA_at_w2_eave(map_w2(face))
+        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
         write(log_scratch_space, '(A,I0,A,I0,A,E20.12,A,E20.12)')                  &
           'PEREGRIN W2H POST col=', pid_idx, ' face=', face,                      &
           ' remapped_flux_x=', remapped_flux_x(wr_idx),                          &
@@ -347,6 +369,7 @@ subroutine panel_edge_remap_w2h_1d( nlayers,                                   &
                                     dA_at_w2_eave, face,                       &
                                     ndf_wr, undf_wr, map_wr,                   &
                                     ndf_w2h, undf_w2h, map_w2h,                &
+                                    ndf_wrot, undf_wrot, map_wrot,             &
                                     ndf_w2, undf_w2, map_w2                    &
 )
 
@@ -357,30 +380,35 @@ subroutine panel_edge_remap_w2h_1d( nlayers,                                   &
   integer(kind=i_def), intent(in)    :: face
   integer(kind=i_def), intent(in)    :: ndf_wr, undf_wr
   integer(kind=i_def), intent(in)    :: ndf_w2h, undf_w2h
+  integer(kind=i_def), intent(in)    :: ndf_wrot, undf_wrot
   integer(kind=i_def), intent(in)    :: ndf_w2, undf_w2
 
   integer(kind=i_def), intent(in)    :: map_wr(ndf_wr)
   integer(kind=i_def), intent(in)    :: map_w2h(ndf_w2h)
+  integer(kind=i_def), intent(in)    :: map_wrot(ndf_wrot)
   integer(kind=i_def), intent(in)    :: map_w2(ndf_w2)
 
   real(kind=r_tran),   intent(inout) :: remapped_field(undf_wr)
   real(kind=r_tran),   intent(in)    :: parl_w2_at_w2(undf_w2h)
   real(kind=r_tran),   intent(in)    :: perp_w2_at_w2(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: parl_w2_rot(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: perp_w2_rot(undf_w2h)
+  real(kind=r_tran),   intent(in)    :: parl_w2_rot(undf_wrot)
+  real(kind=r_tran),   intent(in)    :: perp_w2_rot(undf_wrot)
   real(kind=r_def),    intent(in)    :: dA_at_w2_eave(undf_w2)
 
   ! Internal variables
-  integer(kind=i_def) :: nvert, r_idx, w2h_idx, w2_idx
+  integer(kind=i_def) :: nvert, r_idx, w2h_idx, rot_idx, w2_idx
 
   nvert = nlayers - 1
   r_idx = map_wr(face)
   w2h_idx = map_w2h(face)
+  rot_idx = map_wrot(face)
   w2_idx = map_w2(face)
 
+  ! The rotation factors are 2D (one value per column), so are not indexed
+  ! over the vertical
   remapped_field(r_idx : r_idx+nvert) =                                        &
-      ( parl_w2_rot(w2h_idx : w2h_idx+nvert) * parl_w2_at_w2(w2h_idx : w2h_idx+nvert) &
-      + perp_w2_rot(w2h_idx : w2h_idx+nvert) * perp_w2_at_w2(w2h_idx : w2h_idx+nvert) ) &
+      ( parl_w2_rot(rot_idx) * parl_w2_at_w2(w2h_idx : w2h_idx+nvert)          &
+      + perp_w2_rot(rot_idx) * perp_w2_at_w2(w2h_idx : w2h_idx+nvert) )        &
       * dA_at_w2_eave(w2_idx : w2_idx+nvert)
 
 end subroutine panel_edge_remap_w2h_1d

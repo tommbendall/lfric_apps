@@ -94,6 +94,8 @@ use sci_face_selector_support_mod, only: face_from_face_selector
 use sci_vert_edge_selector_support_mod, only: num_vert_edges_to_do,           &
                                              decode_vert_edge_selector
 use coord_transform_mod,     only: PANEL_ROT_MATRIX
+! TEMP DEBUG T4: to remove
+use log_mod,                 only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
 
 implicit none
 
@@ -964,12 +966,76 @@ contains
       id(2) = id2
     end if
 
+    ! TEMP DEBUG T4: to remove (set 1 face targets only)
+    if (.not. present(is_corner_target) .and. .not. present(is_w3_target)) then
+      write(log_scratch_space, *) 'T4 LAG col=', pid_idx, ' tdf=', target_df,  &
+        ' sdf=', source_df, ' x_dir=', is_x_direction, ' owned=', owned_panel, &
+        ' swapped=', swapped_panel, ' edge=', panel_edge,                      &
+        ' interp_dir=', interp_dir, ' ncells=', ncells_in_stencil
+      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+      write(log_scratch_space, *) 'T4 LAG2 col=', pid_idx, ' tdf=', target_df, &
+        ' x0=', x0, ' x1=', x1(1:ncells_in_stencil),                           &
+        ' id=', id(1:ndata), ' wgt=', wgt(1:ndata), ' wsum=', SUM(wgt(1:ndata))
+      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    end if
+
   end subroutine compute_lagrange_weights
 
   !-----------------------------------------------------------------------------
-  !> @brief Compute the cos/sin rotation factors between the native and eave
-  !!        coordinate frames at the target W2H DoF "target_df". This mirrors
-  !!        the rotation-factor calculation of peregrin_weights_kernel_mod.
+  !> @brief Unit normals to the alpha=const and beta=const grid lines of a
+  !!        panel at (alpha, beta), as global Cartesian vectors. The signs are
+  !!        such that each normal has a positive component along the
+  !!        corresponding alpha or beta tangent.
+  subroutine compute_face_normals(alpha, beta, panel, n_alpha, n_beta)
+
+    implicit none
+
+    real(kind=r_def),    intent(in)  :: alpha, beta
+    integer(kind=i_def), intent(in)  :: panel
+    real(kind=r_def),    intent(out) :: n_alpha(3), n_beta(3)
+
+    real(kind=r_def) :: abr(3), t_alpha(3), t_beta(3), r_hat(3)
+
+    abr = (/ alpha, beta, unit_radius /)
+    t_alpha = alphabetar2xyz_vector((/ 1.0_r_def, 0.0_r_def, 0.0_r_def /),     &
+                                    abr, panel)
+    t_beta = alphabetar2xyz_vector((/ 0.0_r_def, 1.0_r_def, 0.0_r_def /),      &
+                                   abr, panel)
+    r_hat = alphabetar2xyz_vector((/ 0.0_r_def, 0.0_r_def, 1.0_r_def /),       &
+                                  abr, panel)
+
+    n_alpha = cross_product(t_beta, r_hat)
+    n_alpha = SIGN(1.0_r_def, DOT_PRODUCT(n_alpha, t_alpha)) * n_alpha         &
+              / SQRT(SUM(n_alpha**2))
+    n_beta = cross_product(r_hat, t_alpha)
+    n_beta = SIGN(1.0_r_def, DOT_PRODUCT(n_beta, t_beta)) * n_beta             &
+             / SQRT(SUM(n_beta**2))
+
+  end subroutine compute_face_normals
+
+  pure function cross_product(a, b) result(c)
+
+    implicit none
+
+    real(kind=r_def), intent(in) :: a(3), b(3)
+    real(kind=r_def)             :: c(3)
+
+    c(1) = a(2)*b(3) - a(3)*b(2)
+    c(2) = a(3)*b(1) - a(1)*b(3)
+    c(3) = a(1)*b(2) - a(2)*b(1)
+
+  end function cross_product
+
+  !-----------------------------------------------------------------------------
+  !> @brief Compute the factors that convert the "parl_w2" and "perp_w2"
+  !!        values (P-panel face values of the slot's own and of the
+  !!        cross orientation) into the value on the neighbour (eave) panel's
+  !!        extended-mesh face stored in this DoF slot. The eave face normal is
+  !!        decomposed in the two P-panel face normals, and the stored sign
+  !!        convention (W/E and alpha-type faces positive, S/N and beta-type
+  !!        faces negative) is applied. On rotated panel edges the slot's eave
+  !!        face is of the other (alpha/beta) type. Also computes the analytic
+  !!        solid-body-rotation flux through the eave face, for diagnostics.
   subroutine compute_rotation_factors(target_df, is_x_direction,               &
                                        neighbour_panel_id,                     &
                                        parallel_factor, perp_factor,           &
@@ -990,9 +1056,14 @@ contains
     real(kind=r_def)    :: alpha_native, beta_native
     real(kind=r_def)    :: alpha_eave, beta_eave
     real(kind=r_def)    :: xyz(3), eave_xyz_true(3), r
-    real(kind=r_def)    :: normal_sphere_vec(3), normal_cart(3), normal_llr(3)
-    real(kind=r_def)    :: e_alpha_native(3), e_beta_native(3)
-    real(kind=r_def)    :: e_alpha_eave(3), e_beta_eave(3)
+    real(kind=r_def)    :: alpha_own, beta_own
+    real(kind=r_def)    :: n_alpha_own(3), n_beta_own(3)
+    real(kind=r_def)    :: n_alpha_nbr(3), n_beta_nbr(3)
+    real(kind=r_def)    :: n_par(3), n_perp(3), n_q(3), normal_llr(3)
+    real(kind=r_def)    :: gram, rhs_par, rhs_perp, c_par, c_perp, s_par, s_q
+    logical(kind=l_def) :: slot_is_ns, rotated_edge, q_is_alpha
+    ! TEMP DEBUG T4: to remove
+    real(kind=r_def)    :: lon_native, lat_native, xyz_native(3)
 
     chi_1_df = 0.0_r_def
     chi_2_df = 0.0_r_def
@@ -1017,14 +1088,6 @@ contains
     call xyz2alphabetar(                                                       &
         xyz(1), xyz(2), xyz(3), owned_panel, alpha_native, beta_native, r      &
     )
-    e_alpha_native = MATMUL(                                                   &
-            PANEL_ROT_MATRIX(:,:,owned_panel),                                 &
-            (/ -SIN(alpha_native), COS(alpha_native), 0.0_r_def /)             &
-    )
-    e_beta_native = MATMUL(                                                    &
-            PANEL_ROT_MATRIX(:,:,owned_panel),                                 &
-            (/-SIN(beta_native), 0.0_r_def, COS(beta_native) /)                &
-    )
 
     alpha_eave = 0.0_r_def
     beta_eave = 0.0_r_def
@@ -1041,38 +1104,18 @@ contains
         beta_eave = beta_eave + beta_y(idx) * basis_wx_2d_ww(1, dfc, target_df)
       end do
     end if
-    e_alpha_eave = MATMUL(                                                     &
-            PANEL_ROT_MATRIX(:,:,neighbour_panel_id),                          &
-            (/ -SIN(alpha_eave), COS(alpha_eave), 0.0_r_def /)                 &
-    )
-    e_beta_eave = MATMUL(                                                      &
-            PANEL_ROT_MATRIX(:,:,neighbour_panel_id),                          &
-            (/-SIN(beta_eave), 0.0_r_def, COS(beta_eave) /)                    &
-    )
-
-    ! TODO: this is not going to be correct, I think we need to rotate the
-    ! vector based on the panel
-    select case (target_df)
-    case (S, N)
-      parallel_factor = DOT_PRODUCT(e_beta_eave, e_beta_native)
-      perp_factor = DOT_PRODUCT(e_beta_eave, e_alpha_native)
-
-    case (W, E)
-      parallel_factor = DOT_PRODUCT(e_alpha_eave, e_alpha_native)
-      perp_factor = DOT_PRODUCT(e_alpha_eave, e_beta_native)
-    end select
-
-
-    ! ======================================================================== !
-    ! Diagnostic: to remove
+    ! Position of the eave face DoF on the sphere, and its coordinates in the
+    ! owned panel's frame (the frame of the donor values being interpolated)
     call alphabetar2xyz(                                                       &
         alpha_eave, beta_eave, 1.0_r_def, neighbour_panel_id,                  &
         xyz(1), xyz(2), xyz(3)                                                 &
     )
+    call xyz2alphabetar(                                                       &
+        xyz(1), xyz(2), xyz(3), owned_panel, alpha_own, beta_own, r            &
+    )
 
-    ! Diagnostic true eave lon/lat, obtained by applying the same
-    ! rotate/stretch corrections used above for the target DoF's own
-    ! native position
+    ! True eave lon/lat, obtained by applying the same rotate/stretch
+    ! corrections used above for the target DoF's own native position
     eave_xyz_true = xyz
     if (to_rotate) then
       eave_xyz_true = matmul(inverse_rot_matrix, eave_xyz_true)
@@ -1083,28 +1126,87 @@ contains
     call xyz2ll(eave_xyz_true(1), eave_xyz_true(2), eave_xyz_true(3),          &
                 eave_lon_out, eave_lat_out)
 
-    call xyz2alphabetar(                                                       &
-        xyz(1), xyz(2), xyz(3), owned_panel, alpha_eave, beta_eave, r          &
-    )
+    call compute_face_normals(alpha_own, beta_own, owned_panel,                &
+                              n_alpha_own, n_beta_own)
+    call compute_face_normals(alpha_eave, beta_eave, neighbour_panel_id,       &
+                              n_alpha_nbr, n_beta_nbr)
 
-    ! Diagnostic "correct" flux: project the analytic solid-body-rotation
-    ! wind (u0*cos(lat), v=0) onto this face's own true normal direction at
-    ! the true eave position (S/N faces: beta direction, W/E faces: alpha
-    ! direction), rather than assuming the normal is purely zonal - near a
-    ! panel edge the true normal is not purely zonal. Mesh stretching is not
-    ! accounted for in this vector projection (only in the position above)
-    if (target_df == S .or. target_df == N) then
-      normal_sphere_vec = (/ 0.0_r_def, 1.0_r_def, 0.0_r_def /)
+    ! On rotated panel edges the extended mesh is rotated, so the eave face
+    ! stored in an S/N slot is an alpha-type face (and W/E slots beta-type)
+    select case (10*owned_panel + neighbour_panel_id)
+    case (14, 23, 35, 46, 52, 61, 16, 25, 32, 41, 53, 64)
+      rotated_edge = .true.
+    case default
+      rotated_edge = .false.
+    end select
+
+    slot_is_ns = (target_df == S .or. target_df == N)
+    if (slot_is_ns) then
+      n_par = n_beta_own
+      n_perp = n_alpha_own
+      s_par = -1.0_r_def
     else
-      normal_sphere_vec = (/ 1.0_r_def, 0.0_r_def, 0.0_r_def /)
+      n_par = n_alpha_own
+      n_perp = n_beta_own
+      s_par = 1.0_r_def
     end if
-    normal_cart = alphabetar2xyz_vector(normal_sphere_vec,                    &
-                                        (/ alpha_eave, beta_eave, 1.0_r_def /), &
-                                        owned_panel)
-    normal_cart = normal_cart / SQRT(SUM(normal_cart(:)**2))
-    normal_llr = cart2sphere_vector(eave_xyz_true, normal_cart)
-    correct_flux_out = u0 * COS(eave_lat_out) * normal_llr(1) * dt           &
+
+    q_is_alpha = (slot_is_ns .eqv. rotated_edge)
+    if (q_is_alpha) then
+      n_q = n_alpha_nbr
+      s_q = 1.0_r_def
+    else
+      n_q = n_beta_nbr
+      s_q = -1.0_r_def
+    end if
+
+    ! Decompose the eave face normal in the two (non-orthogonal) owned-panel
+    ! face normals. The cross-orientation face has the opposite stored sign
+    gram = DOT_PRODUCT(n_par, n_perp)
+    rhs_par = DOT_PRODUCT(n_par, n_q)
+    rhs_perp = DOT_PRODUCT(n_perp, n_q)
+    c_par = (rhs_par - gram*rhs_perp) / (1.0_r_def - gram*gram)
+    c_perp = (rhs_perp - gram*rhs_par) / (1.0_r_def - gram*gram)
+    parallel_factor = c_par * s_q * s_par
+    perp_factor = -c_perp * s_q * s_par
+
+    ! Diagnostic "correct" flux: the analytic solid-body-rotation wind
+    ! (u0*cos(lat), v=0) through the eave face, in the stored sign convention.
+    ! Mesh stretching is not accounted for in this vector projection (only in
+    ! the position above)
+    normal_llr = cart2sphere_vector(eave_xyz_true, n_q)
+    correct_flux_out = s_q * u0 * COS(eave_lat_out) * normal_llr(1) * dt       &
                         * dA_at_w2(map_w2(target_df))
+
+    ! TEMP DEBUG T4: to remove
+    xyz_native = (/ 0.0_r_def, 0.0_r_def, 0.0_r_def /)
+    call alphabetar2xyz(alpha_native, beta_native, 1.0_r_def, owned_panel,     &
+                        xyz_native(1), xyz_native(2), xyz_native(3))
+    call xyz2ll(xyz_native(1), xyz_native(2), xyz_native(3),                   &
+                lon_native, lat_native)
+    write(log_scratch_space, '(A,I0,A,I0,A,L1,A,I0,A,I0,6(A,E14.6))')         &
+      'T4 ROT1 col=', pid_idx, ' df=', target_df, ' x_dir=', is_x_direction,   &
+      ' owned=', owned_panel, ' nbr=', neighbour_panel_id,                     &
+      ' a_nat=', alpha_native, ' b_nat=', beta_native,                        &
+      ' a_eave_nbr=', alpha_eave, ' b_eave_nbr=', beta_eave,                  &
+      ' a_eave_own=', alpha_own, ' b_eave_own=', beta_own
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    write(log_scratch_space, '(A,I0,A,I0,8(A,E14.6))')                         &
+      'T4 ROT2 col=', pid_idx, ' df=', target_df,                              &
+      ' lon_nat=', lon_native, ' lat_nat=', lat_native,                        &
+      ' lon_eave=', eave_lon_out, ' lat_eave=', eave_lat_out,                  &
+      ' parl=', parallel_factor, ' perp=', perp_factor,                        &
+      ' dA=', dA_at_w2(map_w2(target_df)),                                     &
+      ' correct=', correct_flux_out
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    write(log_scratch_space, *) 'T4 ROT3 col=', pid_idx, ' df=', target_df,    &
+      ' rotated=', rotated_edge, ' q_alpha=', q_is_alpha,                      &
+      ' c_par=', c_par, ' c_perp=', c_perp, ' s_par=', s_par, ' s_q=', s_q
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    write(log_scratch_space, *) 'T4 ROT4 col=', pid_idx, ' df=', target_df,    &
+      ' n_par=', n_par, ' n_perp=', n_perp, ' n_q=', n_q,                      &
+      ' normal_llr=', normal_llr
+    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
   end subroutine compute_rotation_factors
 

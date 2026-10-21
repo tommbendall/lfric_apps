@@ -83,7 +83,7 @@ module panel_edge_remap_w2h_alg_mod
 
   ! TODO: to remove
   use sci_field_minmax_alg_mod, only: log_field_minmax
-  use log_mod, only: log_event, LOG_LEVEL_INFO
+  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_INFO
 
   implicit none
 
@@ -229,6 +229,12 @@ contains
     ! column at remap_depth may be owned (per vert_edge_selector) by a
     ! neighbouring column at remap_depth + 1 (see instructions doc Sec. 2.5)
     w1v_halo_depth = remap_depth + 1
+
+    ! TEMP DEBUG T4: to remove
+    write(log_scratch_space, *) 'T4 DEPTHS ALG ffsl_depth=', ffsl_depth,       &
+      ' remap_depth=', remap_depth, ' cross_depth=', cross_depth,              &
+      ' mesh_halo_depth=', mesh%get_halo_depth()
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
     call remapped_flux_x%initialise(fs, halo_depth=flux_field%get_field_halo_depth())
     call remapped_flux_y%initialise(fs, halo_depth=flux_field%get_field_halo_depth())

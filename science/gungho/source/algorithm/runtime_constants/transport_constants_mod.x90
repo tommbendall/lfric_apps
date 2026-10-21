@@ -40,6 +40,7 @@ module transport_constants_mod
   use local_mesh_mod,                     only: local_mesh_type
   use log_mod,                            only: log_event, log_scratch_space,  &
                                                 LOG_LEVEL_ERROR,               &
+                                                LOG_LEVEL_INFO,                &
                                                 LOG_LEVEL_WARNING
   use mesh_collection_mod,                only: mesh_collection
   use mesh_mod,                           only: mesh_type
@@ -830,6 +831,11 @@ contains
     w2h_fs_rot => function_space_collection%get_fs(twod_mesh, 0, 0, W2H)
     w1v_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W1V, ndata)
     w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3, ndata)
+
+    ! TEMP DEBUG T4: to remove
+    write(log_scratch_space, *) 'T4 DEPTHS TC remap_depth=', remap_depth,      &
+      ' cross_depth=', cross_depth, ' max_halo_depth=', max_halo_depth
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
     if (.not. interp_w2h_weights_x_inventory%is_initialised()) then
       call interp_w2h_weights_x_inventory%initialise(name="interp_w2h_weights_x")

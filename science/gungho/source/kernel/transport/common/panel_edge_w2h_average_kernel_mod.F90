@@ -130,13 +130,13 @@ contains
 !> @param[in]     undf_wv           Num DoFs for this partition for the W1V
 !!                                  field
 !> @param[in]     map_wv            DoF map for the W1V field
-!> @param[in]     ndf_pid           Num DoFs per cell for panel ID field
-!> @param[in]     undf_pid          Num DoFs for this partition for panel ID
-!> @param[in]     map_pid           DoF map for panel ID field
 !> @param[in]     ndf_w3            Num DoFs per cell for the W3 field
 !> @param[in]     undf_w3           Num DoFs for this partition for the W3
 !!                                  field
 !> @param[in]     map_w3            DoF map for the W3 field
+!> @param[in]     ndf_pid           Num DoFs per cell for panel ID field
+!> @param[in]     undf_pid          Num DoFs for this partition for panel ID
+!> @param[in]     map_pid           DoF map for panel ID field
 subroutine panel_edge_w2h_average_code( nlayers,                              &
                                         perp_w2_at_w2_x,                      &
                                         perp_w2_at_w2_y,                      &
@@ -154,8 +154,8 @@ subroutine panel_edge_w2h_average_code( nlayers,                              &
                                         include_perp_p,                       &
                                         ndf_wr, undf_wr, map_wr,              &
                                         ndf_wv, undf_wv, map_wv,              &
-                                        ndf_pid, undf_pid, map_pid,           &
-                                        ndf_w3, undf_w3, map_w3              &
+                                        ndf_w3, undf_w3, map_w3,              &
+                                        ndf_pid, undf_pid, map_pid            &
 )
 
   implicit none
