@@ -128,6 +128,7 @@ module semi_implicit_timestep_alg_mod
   use lam_rhs_alg_mod,            only: calc_rhs_lbc,   &
                                         apply_mask_rhs
   use log_w2_alg_mod,       only : log_w2_minmax
+  use log_scalar_alg_mod,       only : log_scalar_minmax
 
   ! Field mappings
   use calc_phys_predictors_alg_mod, &
@@ -1047,7 +1048,7 @@ contains
           ! Solve semi-implicit system: A*inc = rhs, and incement state by inc
           !--------------------------------------------------------------------
 
-          call log_w2_minmax("RHS_RHS_np1", self%rhs_np1(igh_u))
+          call log_scalar_minmax("RHS_RHS_np1", self%rhs_np1(igh_u))
 
           call semi_implicit_solver_alg_step( self%state, self%rhs_np1, &
                                               moist_dyn(gas_law),       &

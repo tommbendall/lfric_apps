@@ -70,6 +70,7 @@ module rhs_alg_mod
   use pressure_gradient_p0_kernel_mod,     only: pressure_gradient_p0_kernel_type
   use sci_mass_matrix_solver_alg_mod, only: mass_matrix_solver_alg
   use log_w2_alg_mod,                      only: log_w2_minmax
+  use log_scalar_alg_mod,                  only: log_scalar_minmax
   use sci_split_combine_w2_alg_mod,        only: split_w2_field_alg
 
   implicit none
@@ -314,7 +315,7 @@ contains
                    enforce_bc_kernel_type(rhs_u_tmp) )
       call mass_matrix_solver_alg(field_u_tmp, rhs_u_tmp)
       call log_w2_minmax('RHS_pressure_gradient', field_u_tmp)
-      call log_w2_minmax('RHS_RHS_pressure_gradient', rhs_u_tmp)
+      call log_scalar_minmax('RHS_RHS_pressure_gradient', rhs_u_tmp)
 
       ! u_base
       call invoke( setval_c(rhs_u_tmp, 0.0_r_def),                             &

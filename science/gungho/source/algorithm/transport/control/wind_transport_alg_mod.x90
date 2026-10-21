@@ -50,6 +50,7 @@ module wind_transport_alg_mod
   use transport_field_mod,            only: transport_field
   use transport_metadata_mod,         only: transport_metadata_type
   use log_w2_alg_mod,       only : log_w2_minmax
+  use log_scalar_alg_mod,   only : log_scalar_minmax
   use split_w2_to_ws_kernel_mod,      only: split_w2_to_ws_kernel_type
   use combine_ws_to_w2_kernel_mod,    only: combine_ws_to_w2_kernel_type
   use apply_wind_metrics_kernel_mod,  only: apply_wind_metrics_kernel_type
@@ -403,7 +404,7 @@ contains
     call mass_matrix_solver_alg(u_w2_field, rhs_u)
     call invoke( inc_X_plus_Y(u_w2_field, wind_n) )
     call log_w2_minmax("u_transport", u_w2_field)
-    call log_w2_minmax("RHS_RHS_adv", rhs_u)
+    call log_scalar_minmax("RHS_RHS_adv", rhs_u)
 
     if ( LPROF ) call stop_timing( id_to, 'transport.wind')
 
