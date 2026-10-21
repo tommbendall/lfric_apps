@@ -1,0 +1,240 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+
+!> Test the "parl_w2" Lagrange interpolation applied to a W2H field on the
+!! cubed-sphere panel extension.
+!!
+!! The donor-stencil/weights arithmetic for the x (S/N target) remap reuses
+!! the exact cell layout, weights and field values already validated by
+!! panel_edge_remap_kernel_mod_test.pf's test_all (a cubic Lagrange
+!! interpolation reproducing the exact value 2.0 at the interpolation
+!! point), re-expressed here with each donor cell's S-face value stored at
+!! its W2H global index instead of a single-DoF scalar field index.
+module panel_edge_interpolate_w2h_kernel_mod_test
+
+  use constants_mod, only: l_def, i_def, r_tran, r_def, IMDI
+  use reference_element_mod, only: W, S, E, N
+  use funit
+
+  implicit none
+
+  private
+  public :: test_all
+
+  @TestCase
+  type, extends(TestCase), public :: panel_edge_interpolate_w2h_test_type
+    private
+  contains
+    procedure test_all
+  end type panel_edge_interpolate_w2h_test_type
+
+contains
+
+  @Test
+  subroutine test_all( this )
+
+    use panel_edge_interpolate_w2h_kernel_mod, only: panel_edge_interpolate_w2h_code
+
+    implicit none
+
+    class(panel_edge_interpolate_w2h_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-5_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: ndata = 4
+    integer(kind=i_def), parameter :: ncells = 6
+    integer(kind=i_def), parameter :: ndf_ws = 4
+    integer(kind=i_def), parameter :: undf_ws = ncells*ndf_ws*nlayers
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = 1
+    integer(kind=i_def), parameter :: ndf_wr = 4
+    integer(kind=i_def), parameter :: undf_wr = ndf_wr*nlayers
+    integer(kind=i_def), parameter :: ndf_wv = 4
+    integer(kind=i_def), parameter :: undf_wv = ndf_wv*nlayers
+    integer(kind=i_def), parameter :: ndf_w3 = 1
+    integer(kind=i_def), parameter :: undf_w3 = ndf_w3*nlayers
+    integer(kind=i_def), parameter :: ndf_ww = 4
+    integer(kind=i_def), parameter :: undf_ww = ndf_ww*ndata
+    integer(kind=i_def), parameter :: depth = 1
+
+    integer(kind=i_def)            :: map_ww(ndf_ww)
+    integer(kind=i_def)            :: map_ws(ndf_ws)
+    integer(kind=i_def)            :: map_wr(ndf_wr)
+    integer(kind=i_def)            :: map_wv(ndf_wv)
+    integer(kind=i_def)            :: map_w3(ndf_w3)
+    integer(kind=i_def)            :: map_pid(ndf_pid)
+
+    integer(kind=i_def)            :: wsx_stencil_size(4), wsy_stencil_size(4)
+    integer(kind=i_def), parameter :: max_length = 3
+    integer(kind=i_def)            :: wsx_stencil_map(ndf_ws, max_length, 4)
+    integer(kind=i_def)            :: wsy_stencil_map(ndf_ws, max_length, 4)
+
+    real(kind=r_tran)              :: parl_w2_at_w2_x(undf_wr)
+    real(kind=r_tran)              :: parl_w2_at_w2_y(undf_wr)
+    real(kind=r_tran)              :: perp_p_at_w1v_x(undf_wv)
+    real(kind=r_tran)              :: perp_p_at_w1v_y(undf_wv)
+    real(kind=r_tran)              :: parl_p_at_w3_x(undf_w3)
+    real(kind=r_tran)              :: parl_p_at_w3_y(undf_w3)
+    real(kind=r_tran)              :: field_for_x(undf_ws)
+    real(kind=r_tran)              :: field_for_y(undf_ws)
+    real(kind=r_tran)              :: interp_w2h_weights_x(undf_ww)
+    real(kind=r_tran)              :: interp_w2h_weights_y(undf_ww)
+    integer(kind=i_def)            :: interp_w2h_indices_x(undf_ww)
+    integer(kind=i_def)            :: interp_w2h_indices_y(undf_ww)
+    integer(kind=i_def)            :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def)            :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def)            :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def)            :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def)            :: face_selector_ew(undf_pid)
+    integer(kind=i_def)            :: face_selector_ns(undf_pid)
+
+    integer(kind=i_def) :: df
+
+    ! DoF maps: a single owned column (cell 1), 4 faces per cell, 1 layer
+    do df = 1, ndf_ws
+      map_ws(df) = df
+    end do
+    do df = 1, ndf_wr
+      map_wr(df) = df
+    end do
+    do df = 1, ndf_wv
+      map_wv(df) = df
+    end do
+    map_w3(1) = 1
+    map_pid(1) = 1
+    do df = 1, ndf_ww
+      map_ww(df) = (df-1)*ndata + 1
+    end do
+
+    ! Reuse the donor-cell layout validated by panel_edge_remap_kernel_mod_test:
+    !     | 6 |
+    !     | 5 |
+    ! | 2 | 1 |
+    !     | 3 |
+    !     | 4 |
+    ! S branch (south of cell 1): cells [1, 3, 4]. N branch: cells [1, 5, 6].
+    ! W/E branches are not exercised by this test (near a W/E panel edge, x
+    ! remap only).
+    wsx_stencil_size(W) = 2
+    wsx_stencil_size(S) = 3
+    wsx_stencil_size(E) = 1
+    wsx_stencil_size(N) = 3
+    wsy_stencil_size = wsx_stencil_size
+
+    wsx_stencil_map(:,:,:) = 0
+    ! S-face (df=S) and N-face (df=N) entries of each donor cell, addressed
+    ! as (cell-1)*ndf_ws + df
+    wsx_stencil_map(S, 1, S) = (1-1)*ndf_ws + S
+    wsx_stencil_map(S, 2, S) = (3-1)*ndf_ws + S
+    wsx_stencil_map(S, 3, S) = (4-1)*ndf_ws + S
+    wsx_stencil_map(S, 1, N) = (1-1)*ndf_ws + S
+    wsx_stencil_map(S, 2, N) = (5-1)*ndf_ws + S
+    wsx_stencil_map(S, 3, N) = (6-1)*ndf_ws + S
+    wsx_stencil_map(N, 1, S) = (1-1)*ndf_ws + N
+    wsx_stencil_map(N, 2, S) = (3-1)*ndf_ws + N
+    wsx_stencil_map(N, 3, S) = (4-1)*ndf_ws + N
+    wsx_stencil_map(N, 1, N) = (1-1)*ndf_ws + N
+    wsx_stencil_map(N, 2, N) = (5-1)*ndf_ws + N
+    wsx_stencil_map(N, 3, N) = (6-1)*ndf_ws + N
+    wsy_stencil_map = wsx_stencil_map
+
+    ! Near a W/E panel edge, so the x remap is active; nowhere near a S/N
+    ! panel edge, so the y remap defaults to a plain copy-through
+    panel_edge_dist_W(1) = 1
+    panel_edge_dist_E(1) = -ABS(IMDI)
+    panel_edge_dist_S(1) = -ABS(IMDI)
+    panel_edge_dist_N(1) = -ABS(IMDI)
+
+    ! Own both S and N faces, neither W nor E
+    face_selector_ew(1) = 0
+    face_selector_ns(1) = 2
+
+    ! S-face donor values, cubic Lagrange interpolation to x=0 giving 2.0
+    ! (identical arithmetic to panel_edge_remap_kernel_mod_test's test_all)
+    field_for_x(:) = -61.0_r_tran
+    field_for_x((1-1)*ndf_ws+S) = 3.0_r_tran
+    field_for_x((3-1)*ndf_ws+S) = 3.0_r_tran
+    field_for_x((5-1)*ndf_ws+S) = 83.0_r_tran
+    field_for_x((6-1)*ndf_ws+S) = 387.0_r_tran
+    ! N-face: own cell's value only, used by the identity weights below
+    field_for_x((1-1)*ndf_ws+N) = 55.0_r_tran
+
+    field_for_y(:) = -99.0_r_tran
+    field_for_y((1-1)*ndf_ws+S) = 11.0_r_tran
+    field_for_y((1-1)*ndf_ws+N) = 22.0_r_tran
+
+    ! S target: cubic Lagrange weights onto x=0, donors at combined-stencil
+    ! positions [4, 3, 1, 5] (cell4, cell3, cell1, cell5)
+    interp_w2h_weights_x(map_ww(S):map_ww(S)+3) =                              &
+        (/ -0.0625_r_tran, 0.5625_r_tran, 0.5625_r_tran, -0.0625_r_tran /)
+    interp_w2h_indices_x(map_ww(S):map_ww(S)+3) = (/ 3, 2, 1, 4 /)
+
+    ! N target: identity (own cell only)
+    interp_w2h_weights_x(map_ww(N):map_ww(N)+3) =                              &
+        (/ 1.0_r_tran, 0.0_r_tran, 0.0_r_tran, 0.0_r_tran /)
+    interp_w2h_indices_x(map_ww(N):map_ww(N)+3) = (/ 1, 1, 1, 1 /)
+
+    ! y weights are not exercised (compute_y = .false.), but must exist
+    interp_w2h_weights_y(:) = 0.0_r_tran
+    interp_w2h_indices_y(:) = 1
+
+    parl_w2_at_w2_x(:) = 0.0_r_tran
+    parl_w2_at_w2_y(:) = 0.0_r_tran
+    perp_p_at_w1v_x(:) = -1.0_r_tran
+    perp_p_at_w1v_y(:) = -1.0_r_tran
+    parl_p_at_w3_x(:) = -1.0_r_tran
+    parl_p_at_w3_y(:) = -1.0_r_tran
+
+    call panel_edge_interpolate_w2h_code( nlayers,                             &
+                                          parl_w2_at_w2_x,                     &
+                                          parl_w2_at_w2_y,                    &
+                                          perp_p_at_w1v_x,                    &
+                                          perp_p_at_w1v_y,                    &
+                                          parl_p_at_w3_x,                     &
+                                          parl_p_at_w3_y,                     &
+                                          field_for_x,                        &
+                                          wsx_stencil_size, max_length,       &
+                                          wsx_stencil_map,                    &
+                                          field_for_y,                        &
+                                          wsy_stencil_size, max_length,       &
+                                          wsy_stencil_map,                    &
+                                          interp_w2h_weights_x,               &
+                                          interp_w2h_indices_x,               &
+                                          interp_w2h_weights_y,               &
+                                          interp_w2h_indices_y,               &
+                                          panel_edge_dist_W, panel_edge_dist_E, &
+                                          panel_edge_dist_S, panel_edge_dist_N, &
+                                          face_selector_ew, face_selector_ns, &
+                                          depth, ndata,                       &
+                                          ndf_wr, undf_wr, map_wr,            &
+                                          ndf_wv, undf_wv, map_wv,            &
+                                          ndf_w3, undf_w3, map_w3,            &
+                                          ndf_ws, undf_ws, map_ws,            &
+                                          ndf_ww, undf_ww, map_ww,            &
+                                          ndf_pid, undf_pid, map_pid          &
+    )
+
+    ! S target: cubic Lagrange interpolation reproduces the exact value 2.0
+    @assertEqual(2.0_r_tran, parl_w2_at_w2_x(map_wr(S)), tol)
+    ! N target: identity weights reproduce the own-cell value unchanged
+    @assertEqual(55.0_r_tran, parl_w2_at_w2_x(map_wr(N)), tol)
+
+    ! Not near a S/N edge: the y remap is a plain copy-through at both faces
+    @assertEqual(11.0_r_tran, parl_w2_at_w2_y(map_wr(S)), tol)
+    @assertEqual(22.0_r_tran, parl_w2_at_w2_y(map_wr(N)), tol)
+
+    ! W1V/W3 staging outputs are placeholders in this phase: always zero
+    @assertEqual(0.0_r_tran, perp_p_at_w1v_x(map_wv(1)), tol)
+    @assertEqual(0.0_r_tran, perp_p_at_w1v_y(map_wv(1)), tol)
+    @assertEqual(0.0_r_tran, parl_p_at_w3_x(map_w3(1)), tol)
+    @assertEqual(0.0_r_tran, parl_p_at_w3_y(map_w3(1)), tol)
+
+  end subroutine test_all
+
+end module panel_edge_interpolate_w2h_kernel_mod_test
