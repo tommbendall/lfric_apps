@@ -403,6 +403,7 @@ contains
     call mass_matrix_solver_alg(u_w2_field, rhs_u)
     call invoke( inc_X_plus_Y(u_w2_field, wind_n) )
     call log_w2_minmax("u_transport", u_w2_field)
+    call log_w2_minmax("RHS_RHS_adv", rhs_u)
 
     if ( LPROF ) call stop_timing( id_to, 'transport.wind')
 

@@ -103,8 +103,13 @@ contains
                                printmin=-1.0_r_def, printmax=1.0_r_def,        &
                                name='etadot_wth')
 
+    call log_w2_column(message, field, 305)
+    call log_scalar_column(message, w_in_wth, 305)
     call log_w2_column(message, field, 306)
     call log_scalar_column(message, w_in_wth, 306)
+    call log_w2_column(message, field, 307)
+    call log_scalar_column(message, w_in_wth, 307)
+
 
   end subroutine log_w2_minmax
 

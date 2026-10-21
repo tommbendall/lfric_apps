@@ -1046,6 +1046,9 @@ contains
           !--------------------------------------------------------------------
           ! Solve semi-implicit system: A*inc = rhs, and incement state by inc
           !--------------------------------------------------------------------
+
+          call log_w2_minmax("RHS_RHS_np1", self%rhs_np1(igh_u))
+
           call semi_implicit_solver_alg_step( self%state, self%rhs_np1, &
                                               moist_dyn(gas_law),       &
                                               mr,                       &

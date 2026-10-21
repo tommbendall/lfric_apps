@@ -314,6 +314,7 @@ contains
                    enforce_bc_kernel_type(rhs_u_tmp) )
       call mass_matrix_solver_alg(field_u_tmp, rhs_u_tmp)
       call log_w2_minmax('RHS_pressure_gradient', field_u_tmp)
+      call log_w2_minmax('RHS_RHS_pressure_gradient', rhs_u_tmp)
 
       ! u_base
       call invoke( setval_c(rhs_u_tmp, 0.0_r_def),                             &

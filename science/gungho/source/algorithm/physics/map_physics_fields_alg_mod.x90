@@ -150,6 +150,7 @@ contains
 
     call log_scalar_minmax("theta", theta)
     call log_scalar_minmax("rho", rho)
+    call log_scalar_minmax("exner", exner)
 
     if ( smagorinsky ) then
 
