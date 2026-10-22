@@ -177,13 +177,6 @@ subroutine panel_corner_remap_w2h_code( nlayers,                                
              ndf_ww, undf_ww, map_ww                                             &
         )
       end if
-      ! TODO: to remove
-      if (pid_idx == 864) then
-        write(log_scratch_space, *) 'PANEL CORNER REMAP W2H: ', face, j, &
-          remapped_flux_y(map_wr(face)), field_for_y(map_ws(W)), field_for_y(map_ws(E)), &
-          field_for_y(map_ws(S)), field_for_y(map_ws(N))
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-      end if
     else if (face == S .or. face == N) then
       if (compute_x) then
         call panel_corner_remap_w2h_1d(                                          &

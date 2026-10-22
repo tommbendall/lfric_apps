@@ -52,9 +52,6 @@ module horizontal_cubic_sl_panel_remap_kernel_mod
   use kernel_mod,            only: kernel_type
   use reference_element_mod, only: W, E, S, N
 
-  ! TODO: to remove
-  use log_mod, only: log_event, log_level_debug, log_scratch_space
-
   implicit none
 
   private
@@ -614,13 +611,6 @@ contains
             + rotated_switch(k)*remapped_field_swapped(f_idx+k-1)              &
           )                                                                    &
         )
-        ! TODO: to remove
-        if (field_local(k,j) < -100.0_r_tran) then
-          write(log_scratch_space, *) 'CUBIC REMAP BAD VALUE: ', field_local(k,j), map_wf(1), &
-            j, rel_idx(k), edge_dist_l, edge_dist_r, rot_edge_dist_l, rot_edge_dist_r, &
-            rotated_switch(k), remap_switch(k)
-          call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-        end if
       end do
     end do
 
@@ -634,13 +624,6 @@ contains
         + (xx(:)-x0) * (xx(:)-x1) * (xx(:)-x3) * den2 * field_local(:,3)       &
         + (xx(:)-x0) * (xx(:)-x1) * (xx(:)-x2) * den3 * field_local(:,4)       &
     )
-
-    select case (map_wf(1))
-    case (50, 66, 82, 98)
-      write(log_scratch_space, *) 'SL CUBIC REMAP', map_wf(1), direction, &
-        field(map_wf(1)), field_out(1), displacement(1)
-      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-    end select
 
     ! ======================================================================== !
     ! Apply monotonicity constraints

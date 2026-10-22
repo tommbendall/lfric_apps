@@ -152,11 +152,13 @@ contains
     type(r_tran_field_type), pointer :: dry_mass_y
 
     ! Departure quantities for the PEREGRIN corrected-flux (u - u_hat) 1D SL
-    ! panel-edge step: the "_peregrin_x"/"_peregrin_y" analogues of the
-    ! departure quantities used by the normal horizontal SL kernels
-    ! (horizontal_linear_sl_kernel_type)
-    type(r_tran_field_type),  pointer :: dep_dist_peregrin_x
-    type(r_tran_field_type),  pointer :: dep_dist_peregrin_y
+    ! panel-edge step: the "_peregrin" analogues of the departure quantities
+    ! used by the normal horizontal SL kernels
+    ! (horizontal_linear_sl_kernel_type), one per axis label of the remapped
+    ! eaves
+    type(r_tran_field_type),  pointer :: dep_dist_peregrin_1
+    type(r_tran_field_type),  pointer :: dep_dist_peregrin_2
+    type(r_tran_field_type),  pointer :: dep_dist_peregrin_3
 
     ! Function spaces
     type(function_space_type), pointer :: field_fs
@@ -305,8 +307,9 @@ contains
       dry_mass_y => flux_precomputations%get_ref_mass_y(mesh_id, step)
 
       ! PEREGRIN corrected-flux departure distances for the 1D SL panel-edge step
-      dep_dist_peregrin_x => flux_precomputations%get_dep_dist_peregrin_x(mesh_id, step)
-      dep_dist_peregrin_y => flux_precomputations%get_dep_dist_peregrin_y(mesh_id, step)
+      dep_dist_peregrin_1 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 1)
+      dep_dist_peregrin_2 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 2)
+      dep_dist_peregrin_3 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 3)
     else
       flux_precomputations => transport_controller%get_ffsl_precomputations()
       step = transport_counter%get_split_step_of_substep_counter()
@@ -348,8 +351,9 @@ contains
       dry_mass_y => flux_precomputations%get_ref_mass_y(mesh_id, step)
 
       ! PEREGRIN corrected-flux departure distances for the 1D SL panel-edge step
-      dep_dist_peregrin_x => flux_precomputations%get_dep_dist_peregrin_x(mesh_id, step)
-      dep_dist_peregrin_y => flux_precomputations%get_dep_dist_peregrin_y(mesh_id, step)
+      dep_dist_peregrin_1 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 1)
+      dep_dist_peregrin_2 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 2)
+      dep_dist_peregrin_3 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 3)
     end if
 
     ! The eave-remap depth needs to cover both the inner and outer flux
@@ -405,8 +409,9 @@ contains
                     field_n_big_copy, dep_stencil_extent_inner,                &
                     field_n_rx, dep_stencil_extent_inner,                      &
                     field_n_ry, dep_stencil_extent_inner,                      &
-                    dep_dist_peregrin_x,                                       &
-                    dep_dist_peregrin_y,                                       &
+                    dep_dist_peregrin_1,                                       &
+                    dep_dist_peregrin_2,                                       &
+                    dep_dist_peregrin_3,                                       &
                     panel_id, panel_edge_dist                                  &
             ),                                                                 &
     ! Inner transport: calculate flux_inner and flux_inner_edge_downwind in a

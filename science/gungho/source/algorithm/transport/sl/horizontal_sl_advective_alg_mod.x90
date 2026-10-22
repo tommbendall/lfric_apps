@@ -70,11 +70,6 @@ module horizontal_sl_advective_alg_mod
                                           panel_edge_treatment_remapping,      &
                                           ffsl_unity_3d
 
-  ! TODO to remove
-  use log_mod, only: LOG_LEVEL_DEBUG, log_scratch_space
-  use sci_field_minmax_alg_mod, only: log_field_minmax
-  use log_column_kernel_mod, only: log_column_kernel_type
-
   implicit none
 
   private
@@ -158,8 +153,9 @@ module horizontal_sl_advective_alg_mod
     type(transport_counter_type),    pointer :: transport_counter
     type(transport_metadata_type),   pointer :: transport_metadata
     type(r_tran_field_type),         pointer :: dep_dist_xy
-    type(r_tran_field_type),         pointer :: dep_dist_peregrin_x
-    type(r_tran_field_type),         pointer :: dep_dist_peregrin_y
+    type(r_tran_field_type),         pointer :: dep_dist_peregrin_1
+    type(r_tran_field_type),         pointer :: dep_dist_peregrin_2
+    type(r_tran_field_type),         pointer :: dep_dist_peregrin_3
     integer(kind=i_def)                      :: dep_stencil_extent_xy
 
     if ( LPROF ) call start_timing( id, 'transport.sl_horizontal' )
@@ -226,8 +222,9 @@ module horizontal_sl_advective_alg_mod
       )
 
       if (do_peregrin) then
-        dep_dist_peregrin_x => ffsl_precomputations%get_dep_dist_peregrin_x(mesh_id, step)
-        dep_dist_peregrin_y => ffsl_precomputations%get_dep_dist_peregrin_y(mesh_id, step)
+        dep_dist_peregrin_1 => ffsl_precomputations%get_dep_dist_peregrin(mesh_id, step, 1)
+        dep_dist_peregrin_2 => ffsl_precomputations%get_dep_dist_peregrin(mesh_id, step, 2)
+        dep_dist_peregrin_3 => ffsl_precomputations%get_dep_dist_peregrin(mesh_id, step, 3)
       end if
 
     else
@@ -240,11 +237,14 @@ module horizontal_sl_advective_alg_mod
       )
 
       if (do_peregrin) then
-        dep_dist_peregrin_x => wind_precomputations%get_dep_dist_peregrin_x(   &
-            mesh_id, splitting, step                                          &
+        dep_dist_peregrin_1 => wind_precomputations%get_dep_dist_peregrin(     &
+            mesh_id, splitting, step, 1                                        &
         )
-        dep_dist_peregrin_y => wind_precomputations%get_dep_dist_peregrin_y(   &
-            mesh_id, splitting, step                                          &
+        dep_dist_peregrin_2 => wind_precomputations%get_dep_dist_peregrin(     &
+            mesh_id, splitting, step, 2                                        &
+        )
+        dep_dist_peregrin_3 => wind_precomputations%get_dep_dist_peregrin(     &
+            mesh_id, splitting, step, 3                                        &
         )
       end if
 
@@ -284,18 +284,6 @@ module horizontal_sl_advective_alg_mod
     call invoke( setval_x(field_n_big, field_n) )
     field_n_copy => field_n_big
 
-    ! TODO: to remove
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_n', field_n_big)
-
-    call invoke( log_column_kernel_type(field_n, field_n_big, panel_id, 50),   &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 66),   &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 82),   &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 98),   &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 81),   &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 864),  &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 863),  &
-                 log_column_kernel_type(field_n, field_n_big, panel_id, 862) )
-
     ! ======================================================================== !
     ! INNER TRANSPORT STEP
     ! ======================================================================== !
@@ -309,10 +297,6 @@ module horizontal_sl_advective_alg_mod
           field_n_rx, field_n_ry, field_n_big, field_n_big,                    &
           remap_extent, monotone_remap, enforce_minvalue, min_val              &
       )
-
-      ! TODO: to remove
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_n_rx', field_n_rx)
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_n_ry', field_n_ry)
     end if
 
     ! Inner step, depending on scheme
@@ -338,10 +322,6 @@ module horizontal_sl_advective_alg_mod
                                                      dep_dist_xy,              &
                                                      panel_id,                 &
                                                      panel_edge_dist ) )
-
-      ! TODO: to remove
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_xp', field_xp)
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_yp', field_yp)
 
     else if (ffsl_splitting == ffsl_splitting_swift .and. .not. do_peregrin) then
       ! Cubic SL with no treatment of cubed-sphere
@@ -386,16 +366,10 @@ module horizontal_sl_advective_alg_mod
       ! is at a panel corner)
       call field_n_rx_corner%initialise(field_fs, halo_depth=mesh%get_halo_depth())
       call field_n_ry_corner%initialise(field_fs, halo_depth=mesh%get_halo_depth())
-      ! TODO: are these corner values the wrong way around? We get bad values when they are swapped
       call panel_corner_remap_alg(                                             &
-          field_n_ry_corner, field_n_rx_corner, field_n_rx, field_n_ry,        &
+          field_n_ry_corner, field_n_rx_corner, field_n_big,                   &
           stencil_extent, monotone_remap, enforce_minvalue, min_val            &
       )
-
-      ! TODO: debugging
-      write(log_scratch_space, *) 'SL: Peregrin eave transport: STENCIL SIZES', &
-        stencil_extent
-      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
       call invoke( peregrin_eave_sl_kernel_type( field_px,                     &
                                                  field_py,                     &
@@ -407,9 +381,9 @@ module horizontal_sl_advective_alg_mod
                                                  stencil_extent,               &
                                                  field_n_ry_corner,            &
                                                  stencil_extent,               &
-                                      ! TODO: which way around should these fields be?
-                                                 dep_dist_peregrin_x,          &
-                                                 dep_dist_peregrin_y,          &
+                                                 dep_dist_peregrin_1,          &
+                                                 dep_dist_peregrin_2,          &
+                                                 dep_dist_peregrin_3,          &
                                                  panel_id,                     &
                                                  panel_edge_dist ) )
 
@@ -423,10 +397,6 @@ module horizontal_sl_advective_alg_mod
                      X_minus_bY(field_py, field_n_rx,                          &
                                 half_dt, half_increment_y) )
       end if
-
-      ! TODO: to remove
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_px', field_px)
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_py', field_py)
     end if
 
     ! ======================================================================== !
@@ -478,10 +448,6 @@ module horizontal_sl_advective_alg_mod
     ! the inner-step eave fields field_px/field_py for panel-edge crossing
     ! points, via peregrin_cubic_sl_kernel_mod.
     if (do_peregrin) then
-      ! TODO: to remove
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_x_big', field_x_big)
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_y_big', field_y_big)
-
       call invoke( peregrin_cubic_sl_kernel_type(                              &
                                                 increment_x,                   &
                                                 increment_y,                   &
@@ -560,9 +526,6 @@ module horizontal_sl_advective_alg_mod
                    inc_X_plus_Y(field_np1, increment_x),                       &
                    inc_a_times_X(0.5_r_tran, field_np1) )
     end if
-
-    ! TODO: to remove
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'SL: field_np1', field_np1)
 
     ! End of step: if necessary enforce min val and overwrite in blending zone
     call end_of_advective_step_alg(                                            &

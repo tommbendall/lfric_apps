@@ -171,20 +171,20 @@ subroutine panel_corner_coords_code( nlayers,                                  &
     ! W/E-neighbour edge unrotated, S/N-neighbour edge unrotated
     case (125, 216, 364, 453, 541, 632)
       do df = 1, ndf_wx_2d
-        alpha_anti(map_wx_2d(df)) = -beta_y(map_wx_2d(df))
-        beta_anti(map_wx_2d(df)) = alpha_x(map_wx_2d(df))
-        alpha_clock(map_wx_2d(df)) = beta_y(map_wx_2d(df))
-        beta_clock(map_wx_2d(df)) = -alpha_x(map_wx_2d(df))
+        alpha_anti(map_wx_2d(df)) = beta_y(map_wx_2d(df))
+        beta_anti(map_wx_2d(df)) = -alpha_x(map_wx_2d(df))
+        alpha_clock(map_wx_2d(df)) = -beta_y(map_wx_2d(df))
+        beta_clock(map_wx_2d(df)) = alpha_x(map_wx_2d(df))
       end do
 
     ! ------------------------------------------------------------------------
     ! W/E-neighbour edge unrotated, S/N-neighbour edge rotated
     case (126, 215, 362, 451, 543, 634)
       do df = 1, ndf_wx_2d
-        alpha_anti(map_wx_2d(df)) = alpha_x(map_wx_2d(df))
-        beta_anti(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
-        alpha_clock(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
-        beta_clock(map_wx_2d(df)) = -alpha_x(map_wx_2d(df))
+        alpha_anti(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
+        beta_anti(map_wx_2d(df)) = alpha_x(map_wx_2d(df))
+        alpha_clock(map_wx_2d(df)) = alpha_x(map_wx_2d(df))
+        beta_clock(map_wx_2d(df)) = -alpha_y(map_wx_2d(df))
       end do
 
     ! ------------------------------------------------------------------------
@@ -201,10 +201,10 @@ subroutine panel_corner_coords_code( nlayers,                                  &
     ! W/E-neighbour edge rotated, S/N-neighbour edge rotated
     case (146, 235, 352, 461, 523, 614)
       do df = 1, ndf_wx_2d
-        alpha_anti(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
-        beta_anti(map_wx_2d(df)) = beta_x(map_wx_2d(df))
-        alpha_clock(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
-        beta_clock(map_wx_2d(df)) = beta_x(map_wx_2d(df))
+        alpha_anti(map_wx_2d(df)) = beta_x(map_wx_2d(df))
+        beta_anti(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
+        alpha_clock(map_wx_2d(df)) = beta_x(map_wx_2d(df))
+        beta_clock(map_wx_2d(df)) = alpha_y(map_wx_2d(df))
       end do
     end select
 

@@ -40,9 +40,6 @@ module horizontal_linear_sl_panel_remap_kernel_mod
   use kernel_mod,            only: kernel_type
   use reference_element_mod, only: W, E, S, N
 
-  ! TODO: to remove
-  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
-
   implicit none
 
   private
@@ -523,12 +520,6 @@ contains
           end if
         end if
 
-        ! TODO: to remove
-        if (field_local(k,j) < -100.0_r_tran) then
-          write(log_scratch_space, *) 'LINEAR REMAP BAD VALUE: ', field_local(k,j), map_wf(1), &
-            edge_dist_l, edge_dist_r, swapped, rel_idx(k)
-          call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-        end if
       end do
     end do
 
@@ -543,13 +534,6 @@ contains
     field_out(map_wf(1) : map_wf(1)+nl-1) = (                                  &
       -(xx(:)-1.0_r_tran) * field_local(:,1) + xx(:) * field_local(:,2)        &
     )
-
-    select case (map_wf(1))
-    case (862, 863, 864)
-      write(log_scratch_space, *) 'SL LINEAR REMAP:', map_wf(1), direction, &
-        field(map_wf(1)), field_out(map_wf(1)), displacement(1)
-      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-    end select
 
   end subroutine horizontal_linear_sl_panel_remap_1d
 

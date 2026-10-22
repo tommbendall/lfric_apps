@@ -28,9 +28,6 @@ module panel_edge_remap_alg_mod
   use psykal_lite_transport_mod,     only: invoke_panel_edge_remap_kernel_type
   use sci_psykal_light_mod,          only: invoke_rtran_halo_exchange
 
-  ! TODO: to remove
-  use log_mod, only: log_event, LOG_LEVEL_DEBUG, log_scratch_space
-
   implicit none
 
   private
@@ -138,11 +135,6 @@ contains
     ! edge method, and cannot be easily supported by PSyclone
     call invoke_rtran_halo_exchange(field_for_x, depth=field_read_depth)
     call invoke_rtran_halo_exchange(field_for_y, depth=field_read_depth)
-
-    ! TODO: outputting to remove
-    write(log_scratch_space, *) 'PANEL EDGE STENCIL SIZES', &
-      cross_depth, remap_depth, field_read_depth, max_halo_depth
-    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
     ! Psykal lite implementation necessary for a kernel that loops over halo
     ! cells and also uses a stencil

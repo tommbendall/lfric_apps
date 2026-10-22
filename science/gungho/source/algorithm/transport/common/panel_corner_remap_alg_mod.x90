@@ -15,16 +15,12 @@ module panel_corner_remap_alg_mod
   use mesh_mod,                      only: mesh_type
   use timing_mod,                    only: start_timing, stop_timing, tik, LPROF
   use function_space_mod,            only: function_space_type
-  use transport_config_mod,          only: ffsl_inner_order, ffsl_outer_order, &
-                                           panel_edge_high_order
   use transport_constants_mod,       only: get_panel_corner_weights_x,           &
                                            get_panel_corner_weights_y,           &
                                            get_panel_corner_indices_x,           &
                                            get_panel_corner_indices_y,           &
                                            get_panel_edge_dist
   use panel_corner_remap_kernel_mod, only: panel_corner_remap_kernel_type
-
-  use log_mod, only: log_event, LOG_LEVEL_DEBUG, log_scratch_space
 
   implicit none
 
@@ -35,10 +31,9 @@ module panel_corner_remap_alg_mod
 contains
 
   !> @brief Remap a field near the panel corners of the cubed-sphere
-  !> @param[in,out] remapped_in_x     Field remapped in local x direction
-  !> @param[in,out] remapped_in_y     Field remapped in local y direction
-  !> @param[in]     field_for_x       Original field to be remapped in x
-  !> @param[in]     field_for_y       Original field to be remapped in y
+  !> @param[in,out] remapped_in_x     Field remapped with the x corner weights
+  !> @param[in,out] remapped_in_y     Field remapped with the y corner weights
+  !> @param[in]     field             Original field to be remapped
   !> @param[in]     ffsl_depth        Depth to which FFSL flux calculations will
   !!                                  be performed
   !> @param[in]     monotone          Whether to enforce monotonicity when
@@ -47,16 +42,15 @@ contains
   !!                                  when remapping
   !> @param[in]     minvalue          The minimum value to use when enforcing
   !!                                  a minimum value
-  subroutine panel_corner_remap_alg(remapped_in_x, remapped_in_y,              &
-                                  field_for_x, field_for_y, ffsl_depth,      &
-                                  monotone, enforce_minvalue, minvalue)
+  subroutine panel_corner_remap_alg(remapped_in_x, remapped_in_y, field,       &
+                                    ffsl_depth, monotone, enforce_minvalue,    &
+                                    minvalue)
 
     implicit none
 
     type(r_tran_field_type), intent(inout) :: remapped_in_x
     type(r_tran_field_type), intent(inout) :: remapped_in_y
-    type(r_tran_field_type), intent(inout) :: field_for_x
-    type(r_tran_field_type), intent(inout) :: field_for_y
+    type(r_tran_field_type), intent(inout) :: field
     integer(kind=i_def),     intent(in)    :: ffsl_depth
     logical(kind=l_def),     intent(in)    :: monotone
     logical(kind=l_def),     intent(in)    :: enforce_minvalue
@@ -70,14 +64,12 @@ contains
     type(integer_field_type),  pointer :: panel_corner_indices_y
     type(integer_field_type),  pointer :: panel_edge_dist(:)
 
-    integer(kind=i_def) :: mesh_id, ndata
-    integer(kind=i_def) :: max_halo_depth, cross_depth
-    integer(kind=i_def) :: field_read_depth
+    integer(kind=i_def) :: mesh_id, region_depth
     integer(kind=tik)   :: id
 
     if ( LPROF ) call start_timing( id, 'transport.panel_corner_remap' )
 
-    mesh => field_for_x%get_mesh()
+    mesh => field%get_mesh()
     mesh_id = mesh%get_id()
     panel_corner_weights_x => get_panel_corner_weights_x(mesh_id)
     panel_corner_weights_y => get_panel_corner_weights_y(mesh_id)
@@ -85,36 +77,23 @@ contains
     panel_corner_indices_y => get_panel_corner_indices_y(mesh_id)
     panel_edge_dist => get_panel_edge_dist(mesh_id)
 
-    fs => field_for_x%get_function_space()
-    max_halo_depth = mesh%get_halo_depth()
-    if (panel_edge_high_order) then
-      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
-      ndata = 4
-    else
-      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order)
-      ndata = 2
-    end if
+    fs => field%get_function_space()
 
-    field_read_depth = MIN(MAX(cross_depth + ffsl_depth, ffsl_depth), max_halo_depth)
+    ! The weights index into the region stencil, so this depth must match the
+    ! one used when computing them
+    region_depth = mesh%get_halo_depth()
 
-    call remapped_in_x%initialise(fs, halo_depth=field_for_x%get_field_halo_depth())
-    call remapped_in_y%initialise(fs, halo_depth=field_for_y%get_field_halo_depth())
-
-    ! TODO: debugging statement
-    write(log_scratch_space, *) 'PANEL CORNER STENCIL SIZES', &
-      cross_depth, field_read_depth, max_halo_depth
-    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
+    call remapped_in_x%initialise(fs, halo_depth=field%get_field_halo_depth())
+    call remapped_in_y%initialise(fs, halo_depth=field%get_field_halo_depth())
 
     call invoke( panel_corner_remap_kernel_type( remapped_in_x, remapped_in_y, &
-                                               field_for_x, cross_depth,       &
-                                               field_for_y, cross_depth,       &
+                                               field, region_depth,            &
                                                panel_corner_weights_x,         &
                                                panel_corner_weights_y,         &
                                                panel_corner_indices_x,         &
                                                panel_corner_indices_y,         &
                                                panel_edge_dist,                &
                                                ffsl_depth,                     &
-                                               ndata,                          &
                                                monotone,                       &
                                                enforce_minvalue,               &
                                                minvalue ) )

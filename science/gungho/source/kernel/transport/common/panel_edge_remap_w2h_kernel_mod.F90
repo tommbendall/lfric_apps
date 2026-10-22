@@ -44,10 +44,7 @@ use fs_continuity_mod,      only: W2h, W2
 use constants_mod,          only: r_def, r_tran, i_def, l_def
 use reference_element_mod,  only: W, S, N, E
 use sci_face_selector_support_mod, only: face_from_face_selector
-! Diagnostic logging retained deliberately for this phase of the rewrite (see
-! the instructions doc, Step 4.2) - gate or remove once the rewrite is fully
-! validated.
-use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
+use panel_edge_support_mod, only: panel_neighbour, panel_axis_label
 
 implicit none
 
@@ -60,28 +57,30 @@ private
 type, public, extends(kernel_type) :: panel_edge_remap_w2h_kernel_type
   private
   type(arg_type) :: meta_args(22) = (/                                        &
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! remapped_flux_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! remapped_flux_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! parl_w2_at_w2_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! parl_w2_at_w2_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! perp_w2_at_w2_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                       & ! perp_w2_at_w2_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! parl_w2_rot_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! perp_w2_rot_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! parl_w2_rot_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6), & ! perp_w2_rot_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! eave_lon_x (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! eave_lat_x (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! correct_flux_x (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! eave_lon_y (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! eave_lat_y (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5), & ! correct_flux_y (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2),                       & ! dA_at_w2_eave
-       arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! panel_edge_dist_W/E/S/N
-       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face_selector_ew
-       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face_selector_ns
-       arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             & ! remap_depth
-       arg_type(GH_SCALAR,  GH_LOGICAL, GH_READ)                              & ! include_perp_p
+       arg_type(GH_FIELD*3, GH_REAL, GH_WRITE,                                 &
+                ANY_DISCONTINUOUS_SPACE_1),                                    &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                        &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                        &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                        &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h),                        &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_6),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),  &
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2),                         &
+       arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3),  &
+       arg_type(GH_FIELD, GH_REAL, GH_READ,                                    &
+                ANY_DISCONTINUOUS_SPACE_3),                                    &
+       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3),  &
+       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3),  &
+       arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                              &
+       arg_type(GH_SCALAR,  GH_LOGICAL, GH_READ)                               &
   /)
   integer :: operates_on = CELL_COLUMN
 contains
@@ -97,8 +96,12 @@ contains
 
 !> @brief Remap a W2H flux/wind field at the edges of cubed-sphere panels.
 !> @param[in]     nlayers               Number of layers
-!> @param[in,out] remapped_flux_x       Field remapped for the x (S/N) correction
-!> @param[in,out] remapped_flux_y       Field remapped for the y (W/E) correction
+!> @param[in,out] remapped_flux_1      Remapped field for eaves
+!!                                      whose neighbouring panels are 1 or 3
+!> @param[in,out] remapped_flux_2      As remapped_flux_1, for panels
+!!                                      2 or 4
+!> @param[in,out] remapped_flux_3      As remapped_flux_1, for panels
+!!                                      5 or 6
 !> @param[in]     parl_w2_at_w2_x       "parl_w2" staged value for the x remap
 !> @param[in]     parl_w2_at_w2_y       "parl_w2" staged value for the y remap
 !> @param[in]     perp_w2_at_w2_x       "perp_w2" staged value for the x remap
@@ -146,8 +149,9 @@ contains
 !> @param[in]     undf_pid              Num DoFs for this partition for panel ID
 !> @param[in]     map_pid               DoF map for panel ID field
 subroutine panel_edge_remap_w2h_code( nlayers,                                 &
-                                      remapped_flux_x,                        &
-                                      remapped_flux_y,                        &
+                                      remapped_flux_1,                         &
+                                      remapped_flux_2,                         &
+                                      remapped_flux_3,                         &
                                       parl_w2_at_w2_x,                        &
                                       parl_w2_at_w2_y,                        &
                                       perp_w2_at_w2_x,                        &
@@ -161,6 +165,7 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
                                       dA_at_w2_eave,                         &
                                       panel_edge_dist_W, panel_edge_dist_E,  &
                                       panel_edge_dist_S, panel_edge_dist_N,  &
+                                      panel_id,                                &
                                       face_selector_ew,                      &
                                       face_selector_ns,                      &
                                       remap_depth, include_perp_p,           &
@@ -193,8 +198,9 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
   integer(kind=i_def), intent(in)    :: remap_depth
   logical(kind=l_def), intent(in)    :: include_perp_p
 
-  real(kind=r_tran),   intent(inout) :: remapped_flux_x(undf_wr)
-  real(kind=r_tran),   intent(inout) :: remapped_flux_y(undf_wr)
+  real(kind=r_tran),   intent(inout) :: remapped_flux_1(undf_wr)
+  real(kind=r_tran),   intent(inout) :: remapped_flux_2(undf_wr)
+  real(kind=r_tran),   intent(inout) :: remapped_flux_3(undf_wr)
   real(kind=r_tran),   intent(in)    :: parl_w2_at_w2_x(undf_w2h)
   real(kind=r_tran),   intent(in)    :: parl_w2_at_w2_y(undf_w2h)
   real(kind=r_tran),   intent(in)    :: perp_w2_at_w2_x(undf_w2h)
@@ -210,6 +216,7 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
   real(kind=r_tran),   intent(in)    :: eave_lat_y(undf_ww)
   real(kind=r_tran),   intent(in)    :: correct_flux_y(undf_ww)
   real(kind=r_def),    intent(in)    :: dA_at_w2_eave(undf_w2)
+  real(kind=r_def),    intent(in)    :: panel_id(undf_pid)
   integer(kind=i_def), intent(in)    :: face_selector_ew(undf_pid)
   integer(kind=i_def), intent(in)    :: face_selector_ns(undf_pid)
   integer(kind=i_def), intent(in)    :: panel_edge_dist_W(undf_pid)
@@ -221,10 +228,16 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
   logical(kind=l_def) :: near_panel_edge_x, near_panel_edge_y, near_panel_edge
   integer(kind=i_def) :: face, pid_idx
   integer(kind=i_def) :: ew_sel, ns_sel, j
-  integer(kind=i_def) :: w_idx, wr_idx
-  real(kind=r_tran)   :: diff, pct_diff
+  integer(kind=i_def) :: owned_panel, label_x, label_y
+  real(kind=r_tran)   :: remapped_value(nlayers)
 
   pid_idx = map_pid(1)
+
+  ! The remapped fields are labelled by the axis of the neighbouring panels
+  ! across the eaves, which share an axis for both W/E (x) and S/N (y) edges
+  owned_panel = int(panel_id(pid_idx), i_def)
+  label_x = panel_axis_label(panel_neighbour(owned_panel, W))
+  label_y = panel_axis_label(panel_neighbour(owned_panel, S))
 
   ew_sel = face_selector_ew(pid_idx)
   ns_sel = face_selector_ns(pid_idx)
@@ -251,7 +264,7 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
       case (W, E)
         if (near_panel_edge_y .or. (near_panel_edge_x .and. include_perp_p)) then
           call panel_edge_remap_w2h_1d(                                        &
-                  nlayers, remapped_flux_y,                                    &
+                  nlayers, remapped_value,                                     &
                   parl_w2_at_w2_y, perp_w2_at_w2_y,                            &
                   parl_w2_rot_y, perp_w2_rot_y,                                &
                   dA_at_w2_eave, face,                                         &
@@ -260,14 +273,13 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
                   ndf_wrot, undf_wrot, map_wrot,                               &
                   ndf_w2, undf_w2, map_w2                                      &
           )
-
-
+          call store_remapped(label_y, map_wr(face), remapped_value)
         end if
 
       case (S, N)
         if (near_panel_edge_x .or. (near_panel_edge_y .and. include_perp_p)) then
           call panel_edge_remap_w2h_1d(                                        &
-                  nlayers, remapped_flux_x,                                    &
+                  nlayers, remapped_value,                                     &
                   parl_w2_at_w2_x, perp_w2_at_w2_x,                            &
                   parl_w2_rot_x, perp_w2_rot_x,                                &
                   dA_at_w2_eave, face,                                         &
@@ -276,84 +288,41 @@ subroutine panel_edge_remap_w2h_code( nlayers,                                 &
                   ndf_wrot, undf_wrot, map_wrot,                               &
                   ndf_w2, undf_w2, map_w2                                      &
           )
+          call store_remapped(label_x, map_wr(face), remapped_value)
         end if
 
       end select
 
-      ! ====================================================================== !
-      ! Diagnostic, to remove
-      ! ====================================================================== !
-      if ((face == W .or. face == E) .and.                                     &
-           (near_panel_edge_y .or. (near_panel_edge_x .and. include_perp_p))   &
-           .or.                                                                &
-           ((face == N .or. face == S) .and.                                   &
-            (near_panel_edge_x .or. (near_panel_edge_y .and. include_perp_p)))) then
-
-        write(log_scratch_space, '(A,I0,A,I0,A,E20.12,A,E20.12)')                  &
-          'PEREGRIN W2H PRE  col=', pid_idx, ' face=', face,                      &
-          ' parl_w2_at_w2_x=', parl_w2_at_w2_x(map_w2h(face)),                    &
-          ' parl_w2_at_w2_y=', parl_w2_at_w2_y(map_w2h(face))
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-
-        wr_idx = map_wr(face)
-        ! TEMP DEBUG T4: to remove
-        write(log_scratch_space, *) 'T4 KR col=', pid_idx, ' face=', face,    &
-          ' dist_WESN=', panel_edge_dist_W(pid_idx), panel_edge_dist_E(pid_idx),&
-          panel_edge_dist_S(pid_idx), panel_edge_dist_N(pid_idx),              &
-          ' remap_depth=', remap_depth,                                        &
-          ' parl_rot_x=', parl_w2_rot_x(map_wrot(face)),                       &
-          ' perp_rot_x=', perp_w2_rot_x(map_wrot(face)),                       &
-          ' perp_at_x=', perp_w2_at_w2_x(map_w2h(face)),                       &
-          ' parl_rot_y=', parl_w2_rot_y(map_wrot(face)),                       &
-          ' perp_rot_y=', perp_w2_rot_y(map_wrot(face)),                       &
-          ' perp_at_y=', perp_w2_at_w2_y(map_w2h(face)),                       &
-          ' dA_eave=', dA_at_w2_eave(map_w2(face))
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-        write(log_scratch_space, '(A,I0,A,I0,A,E20.12,A,E20.12)')                  &
-          'PEREGRIN W2H POST col=', pid_idx, ' face=', face,                      &
-          ' remapped_flux_x=', remapped_flux_x(wr_idx),                          &
-          ' remapped_flux_y=', remapped_flux_y(wr_idx)
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-
-        ! Diagnostic: compare against the analytic solid-body-rotation "correct"
-        ! flux at this eave, for both directions independently - each is only
-        ! ever non-identity near its own relevant panel edge (near_panel_edge_x
-        ! gates the x remap, near_panel_edge_y the y remap)
-        w_idx = map_ww(face)
-
-        diff = remapped_flux_x(wr_idx) - correct_flux_x(w_idx)
-        if (ABS(correct_flux_x(w_idx)) > EPSILON(0.0_r_tran)) then
-          pct_diff = 100.0_r_tran * diff / correct_flux_x(w_idx)
-        else
-          pct_diff = 0.0_r_tran
-        end if
-        write(log_scratch_space,                                                   &
-          '(A,I0,A,I0,A,E16.8,A,E16.8,A,E16.8,A,E16.8,A,E16.8)')                  &
-          'PEREGRIN W2H DIAG col=', pid_idx, ' face=', face,                       &
-          ' eave_lon_x=', eave_lon_x(w_idx), ' eave_lat_x=', eave_lat_x(w_idx),   &
-          ' correct_x=', correct_flux_x(w_idx), ' diff_x=', diff,                 &
-          ' pct_diff_x=', pct_diff
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-
-        diff = remapped_flux_y(wr_idx) - correct_flux_y(w_idx)
-        if (ABS(correct_flux_y(w_idx)) > EPSILON(0.0_r_tran)) then
-          pct_diff = 100.0_r_tran * diff / correct_flux_y(w_idx)
-        else
-          pct_diff = 0.0_r_tran
-        end if
-        write(log_scratch_space,                                                   &
-          '(A,I0,A,I0,A,E16.8,A,E16.8,A,E16.8,A,E16.8,A,E16.8)')                  &
-          'PEREGRIN W2H DIAG col=', pid_idx, ' face=', face,                       &
-          ' eave_lon_y=', eave_lon_y(w_idx), ' eave_lat_y=', eave_lat_y(w_idx),   &
-          ' correct_y=', correct_flux_y(w_idx), ' diff_y=', diff,                 &
-          ' pct_diff_y=', pct_diff
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-      end if
+      ! The remap is applied only on the relevant panel edge and the
+      ! identity branch is handled by the default values elsewhere.
 
     else
-      remapped_flux_x(map_w2h(face)) = -1900.0_r_tran  ! Missing data value
+      ! Missing data value
+      remapped_flux_1(map_wr(face)) = -1900.0_r_tran
+      remapped_flux_2(map_wr(face)) = -1900.0_r_tran
+      remapped_flux_3(map_wr(face)) = -1900.0_r_tran
     end if
   end do
+
+contains
+
+  !> @brief Store the first nlayers values of the remapped field with axis
+  !!        label "label", starting at index "r_idx"
+  subroutine store_remapped(label, r_idx, values)
+    implicit none
+    integer(kind=i_def), intent(in) :: label, r_idx
+    real(kind=r_tran),   intent(in) :: values(nlayers)
+
+    select case (label)
+    case (1)
+      remapped_flux_1(r_idx : r_idx + nlayers - 1) = values
+    case (2)
+      remapped_flux_2(r_idx : r_idx + nlayers - 1) = values
+    case (3)
+      remapped_flux_3(r_idx : r_idx + nlayers - 1) = values
+    end select
+
+  end subroutine store_remapped
 
 end subroutine panel_edge_remap_w2h_code
 
@@ -363,7 +332,7 @@ end subroutine panel_edge_remap_w2h_code
 !!        handling here - that is done by panel_edge_interpolate_w2h_kernel_mod
 !!        and (in later phases) panel_edge_w2h_average_kernel_mod.
 subroutine panel_edge_remap_w2h_1d( nlayers,                                   &
-                                    remapped_field,                           &
+                                    remapped_value,                            &
                                     parl_w2_at_w2, perp_w2_at_w2,              &
                                     parl_w2_rot, perp_w2_rot,                  &
                                     dA_at_w2_eave, face,                       &
@@ -388,7 +357,7 @@ subroutine panel_edge_remap_w2h_1d( nlayers,                                   &
   integer(kind=i_def), intent(in)    :: map_wrot(ndf_wrot)
   integer(kind=i_def), intent(in)    :: map_w2(ndf_w2)
 
-  real(kind=r_tran),   intent(inout) :: remapped_field(undf_wr)
+  real(kind=r_tran),   intent(inout) :: remapped_value(nlayers)
   real(kind=r_tran),   intent(in)    :: parl_w2_at_w2(undf_w2h)
   real(kind=r_tran),   intent(in)    :: perp_w2_at_w2(undf_w2h)
   real(kind=r_tran),   intent(in)    :: parl_w2_rot(undf_wrot)
@@ -406,10 +375,10 @@ subroutine panel_edge_remap_w2h_1d( nlayers,                                   &
 
   ! The rotation factors are 2D (one value per column), so are not indexed
   ! over the vertical
-  remapped_field(r_idx : r_idx+nvert) =                                        &
-      ( parl_w2_rot(rot_idx) * parl_w2_at_w2(w2h_idx : w2h_idx+nvert)          &
-      + perp_w2_rot(rot_idx) * perp_w2_at_w2(w2h_idx : w2h_idx+nvert) )        &
-      * dA_at_w2_eave(w2_idx : w2_idx+nvert)
+  remapped_value = (                                                           &
+      parl_w2_rot(rot_idx) * parl_w2_at_w2(w2h_idx : w2h_idx + nvert) +        &
+      perp_w2_rot(rot_idx) * perp_w2_at_w2(w2h_idx : w2h_idx + nvert) ) *      &
+      dA_at_w2_eave(w2_idx : w2_idx + nvert)
 
 end subroutine panel_edge_remap_w2h_1d
 

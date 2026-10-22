@@ -28,7 +28,6 @@ module transport_constants_mod
                                                 get_dz_w3,                     &
                                                 get_face_selector_ew,          &
                                                 get_face_selector_ns,          &
-                                                get_vert_edge_selector,        &
                                                 get_dA_at_w2
   use field_mod,                          only: field_type
   use fs_continuity_mod,                  only: W2, W2H, W2V, W3, Wtheta, W1V
@@ -40,7 +39,6 @@ module transport_constants_mod
   use local_mesh_mod,                     only: local_mesh_type
   use log_mod,                            only: log_event, log_scratch_space,  &
                                                 LOG_LEVEL_ERROR,               &
-                                                LOG_LEVEL_INFO,                &
                                                 LOG_LEVEL_WARNING
   use mesh_collection_mod,                only: mesh_collection
   use mesh_mod,                           only: mesh_type
@@ -126,8 +124,10 @@ module transport_constants_mod
   ! Weights/indices for remapping a W2H flux/wind field near panel edges.
   ! "interp_w2h" is the pure Lagrange "parl_w2" donor interpolation (set 1);
   ! "parl_w2_rot"/"perp_w2_rot" are the native/eave-frame rotation factors;
-  ! "interp_w1v"/"interp_w3" are the (currently identity/zero placeholder)
-  ! staging interpolations for sets 2 and 3 (see W2H_REMAP_REWRITE_INSTRUCTIONS.md)
+  ! "interp_perp" is the "perp_w2" donor interpolation to the two vertices of
+  ! each parl_p face (two sets of ndata entries per face);
+  ! "interp_w3" is the (currently identity/zero placeholder)
+  ! staging interpolation for set 3 (see W2H_REMAP_REWRITE_INSTRUCTIONS.md)
   type(inventory_by_local_mesh_type), target :: interp_w2h_weights_x_inventory
   type(inventory_by_local_mesh_type), target :: interp_w2h_indices_x_inventory
   type(inventory_by_local_mesh_type), target :: interp_w2h_weights_y_inventory
@@ -136,10 +136,10 @@ module transport_constants_mod
   type(inventory_by_local_mesh_type), target :: perp_w2_rot_x_inventory
   type(inventory_by_local_mesh_type), target :: parl_w2_rot_y_inventory
   type(inventory_by_local_mesh_type), target :: perp_w2_rot_y_inventory
-  type(inventory_by_local_mesh_type), target :: interp_w1v_weights_x_inventory
-  type(inventory_by_local_mesh_type), target :: interp_w1v_indices_x_inventory
-  type(inventory_by_local_mesh_type), target :: interp_w1v_weights_y_inventory
-  type(inventory_by_local_mesh_type), target :: interp_w1v_indices_y_inventory
+  type(inventory_by_local_mesh_type), target :: interp_perp_weights_x_inventory
+  type(inventory_by_local_mesh_type), target :: interp_perp_indices_x_inventory
+  type(inventory_by_local_mesh_type), target :: interp_perp_weights_y_inventory
+  type(inventory_by_local_mesh_type), target :: interp_perp_indices_y_inventory
   type(inventory_by_local_mesh_type), target :: interp_w3_weights_x_inventory
   type(inventory_by_local_mesh_type), target :: interp_w3_indices_x_inventory
   type(inventory_by_local_mesh_type), target :: interp_w3_weights_y_inventory
@@ -205,10 +205,10 @@ module transport_constants_mod
   public :: get_perp_w2_rot_x
   public :: get_parl_w2_rot_y
   public :: get_perp_w2_rot_y
-  public :: get_interp_w1v_weights_x
-  public :: get_interp_w1v_indices_x
-  public :: get_interp_w1v_weights_y
-  public :: get_interp_w1v_indices_y
+  public :: get_interp_perp_weights_x
+  public :: get_interp_perp_indices_x
+  public :: get_interp_perp_weights_y
+  public :: get_interp_perp_indices_y
   public :: get_interp_w3_weights_x
   public :: get_interp_w3_indices_x
   public :: get_interp_w3_weights_y
@@ -418,8 +418,6 @@ contains
     type(field_type),             pointer :: chi(:)
     type(field_type),             pointer :: panel_id
     integer(kind=tik)                     :: id
-    ! TODO: to remove 
-    type(field_type),            pointer :: panel_corner_coords(:)
 
     panel_edge_dist => get_panel_edge_dist(mesh%get_id())
 
@@ -455,9 +453,6 @@ contains
                                                chi, panel_id,                  &
                                                panel_edge_dist,                &
                                                depth, field_depth) )
-
-    ! TODO: to remove:
-    panel_corner_coords => get_panel_anticlockwise_corner_coords(mesh%get_id())
 
     if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
 
@@ -654,9 +649,6 @@ contains
   !> @param[in] mesh_id  ID of mesh to compute weights and indices on
   subroutine compute_panel_corner_weights(mesh_id)
 
-    use transport_config_mod,          only: ffsl_inner_order,                 &
-                                             ffsl_outer_order,                 &
-                                             panel_edge_high_order
     use panel_corner_weights_kernel_mod, only: panel_corner_weights_kernel_type
 
     implicit none
@@ -677,7 +669,8 @@ contains
     type(field_type),          pointer :: panel_clockwise_corner_coords(:)
     type(function_space_type), pointer :: w3_fs
 
-    integer(kind=i_def) :: ndata, max_halo_depth, remap_depth, cross_depth
+    integer(kind=i_def), parameter :: ndata = 4
+    integer(kind=i_def) :: max_halo_depth, remap_depth, region_depth
     integer(kind=tik)   :: id
 
     if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
@@ -692,15 +685,10 @@ contains
     panel_anticlockwise_corner_coords => get_panel_anticlockwise_corner_coords(mesh_id)
     panel_clockwise_corner_coords => get_panel_clockwise_corner_coords(mesh_id)
 
+    ! The region stencil depth must match the one used in panel_corner_remap_alg
     max_halo_depth = mesh%get_halo_depth()
     remap_depth = max_halo_depth
-    if (panel_edge_high_order) then
-      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
-      ndata = 4
-    else
-      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order)
-      ndata = 2
-    end if
+    region_depth = max_halo_depth
 
     w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3, ndata)
 
@@ -733,10 +721,10 @@ contains
     call invoke( panel_corner_weights_kernel_type(                             &
                       panel_corner_weights_x, panel_corner_weights_y,         &
                       panel_corner_indices_x, panel_corner_indices_y,         &
-                      chi, cross_depth,                                       &
+                      chi, region_depth,                                      &
                       panel_anticlockwise_corner_coords, panel_clockwise_corner_coords, &
-                      panel_id, cross_depth,                                  &
-                      panel_edge_dist, panel_edge_high_order, remap_depth ) )
+                      panel_id, region_depth,                                 &
+                      panel_edge_dist, remap_depth ) )
 
     if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
 
@@ -765,6 +753,7 @@ contains
     type(function_space_type), pointer :: w2h_fs
     type(function_space_type), pointer :: w2h_fs_rot
     type(function_space_type), pointer :: w1v_fs
+    type(function_space_type), pointer :: wp_fs
     type(function_space_type), pointer :: w3_fs
     type(r_tran_field_type),  pointer :: interp_w2h_weights_x
     type(integer_field_type), pointer :: interp_w2h_indices_x
@@ -774,10 +763,11 @@ contains
     type(r_tran_field_type),  pointer :: perp_w2_rot_x
     type(r_tran_field_type),  pointer :: parl_w2_rot_y
     type(r_tran_field_type),  pointer :: perp_w2_rot_y
-    type(r_tran_field_type),  pointer :: interp_w1v_weights_x
-    type(integer_field_type), pointer :: interp_w1v_indices_x
-    type(r_tran_field_type),  pointer :: interp_w1v_weights_y
-    type(integer_field_type), pointer :: interp_w1v_indices_y
+    type(r_tran_field_type),  pointer :: interp_perp_weights_x
+    type(integer_field_type), pointer :: interp_perp_indices_x
+    type(r_tran_field_type),  pointer :: interp_perp_weights_y
+    type(integer_field_type), pointer :: interp_perp_indices_y
+    type(r_tran_field_type)           :: w1v_nodes
     type(r_tran_field_type),  pointer :: interp_w3_weights_x
     type(integer_field_type), pointer :: interp_w3_indices_x
     type(r_tran_field_type),  pointer :: interp_w3_weights_y
@@ -796,7 +786,6 @@ contains
     type(integer_field_type), pointer :: panel_edge_dist(:)
     type(integer_field_type), pointer :: face_selector_ew
     type(integer_field_type), pointer :: face_selector_ns
-    type(integer_field_type), pointer :: vert_edge_selector
 
     integer(kind=i_def) :: ndata
     integer(kind=i_def) :: max_halo_depth, cross_depth, remap_depth
@@ -829,13 +818,9 @@ contains
 
     w2h_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W2H, ndata)
     w2h_fs_rot => function_space_collection%get_fs(twod_mesh, 0, 0, W2H)
-    w1v_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W1V, ndata)
+    w1v_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W1V)
+    wp_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W2H, 2*ndata)
     w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3, ndata)
-
-    ! TEMP DEBUG T4: to remove
-    write(log_scratch_space, *) 'T4 DEPTHS TC remap_depth=', remap_depth,      &
-      ' cross_depth=', cross_depth, ' max_halo_depth=', max_halo_depth
-    call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
     if (.not. interp_w2h_weights_x_inventory%is_initialised()) then
       call interp_w2h_weights_x_inventory%initialise(name="interp_w2h_weights_x")
@@ -861,17 +846,17 @@ contains
     if (.not. perp_w2_rot_y_inventory%is_initialised()) then
       call perp_w2_rot_y_inventory%initialise(name="perp_w2_rot_y")
     end if
-    if (.not. interp_w1v_weights_x_inventory%is_initialised()) then
-      call interp_w1v_weights_x_inventory%initialise(name="interp_w1v_weights_x")
+    if (.not. interp_perp_weights_x_inventory%is_initialised()) then
+      call interp_perp_weights_x_inventory%initialise(name="interp_perp_weights_x")
     end if
-    if (.not. interp_w1v_indices_x_inventory%is_initialised()) then
-      call interp_w1v_indices_x_inventory%initialise(name="interp_w1v_indices_x")
+    if (.not. interp_perp_indices_x_inventory%is_initialised()) then
+      call interp_perp_indices_x_inventory%initialise(name="interp_perp_indices_x")
     end if
-    if (.not. interp_w1v_weights_y_inventory%is_initialised()) then
-      call interp_w1v_weights_y_inventory%initialise(name="interp_w1v_weights_y")
+    if (.not. interp_perp_weights_y_inventory%is_initialised()) then
+      call interp_perp_weights_y_inventory%initialise(name="interp_perp_weights_y")
     end if
-    if (.not. interp_w1v_indices_y_inventory%is_initialised()) then
-      call interp_w1v_indices_y_inventory%initialise(name="interp_w1v_indices_y")
+    if (.not. interp_perp_indices_y_inventory%is_initialised()) then
+      call interp_perp_indices_y_inventory%initialise(name="interp_perp_indices_y")
     end if
     if (.not. interp_w3_weights_x_inventory%is_initialised()) then
       call interp_w3_weights_x_inventory%initialise(name="interp_w3_weights_x")
@@ -941,17 +926,17 @@ contains
     call perp_w2_rot_y_inventory%add_field(                                   &
             perp_w2_rot_y, w2h_fs_rot, local_mesh, halo_depth=max_halo_depth   &
     )
-    call interp_w1v_weights_x_inventory%add_field(                            &
-            interp_w1v_weights_x, w1v_fs, local_mesh, halo_depth=max_halo_depth &
+    call interp_perp_weights_x_inventory%add_field(                           &
+            interp_perp_weights_x, wp_fs, local_mesh, halo_depth=max_halo_depth &
     )
-    call interp_w1v_indices_x_inventory%add_field(                            &
-            interp_w1v_indices_x, w1v_fs, local_mesh, halo_depth=max_halo_depth &
+    call interp_perp_indices_x_inventory%add_field(                           &
+            interp_perp_indices_x, wp_fs, local_mesh, halo_depth=max_halo_depth &
     )
-    call interp_w1v_weights_y_inventory%add_field(                            &
-            interp_w1v_weights_y, w1v_fs, local_mesh, halo_depth=max_halo_depth &
+    call interp_perp_weights_y_inventory%add_field(                           &
+            interp_perp_weights_y, wp_fs, local_mesh, halo_depth=max_halo_depth &
     )
-    call interp_w1v_indices_y_inventory%add_field(                            &
-            interp_w1v_indices_y, w1v_fs, local_mesh, halo_depth=max_halo_depth &
+    call interp_perp_indices_y_inventory%add_field(                           &
+            interp_perp_indices_y, wp_fs, local_mesh, halo_depth=max_halo_depth &
     )
     call interp_w3_weights_x_inventory%add_field(                             &
             interp_w3_weights_x, w3_fs, local_mesh, halo_depth=max_halo_depth  &
@@ -996,7 +981,11 @@ contains
     dA_at_w2 => get_dA_at_w2(mesh)
     face_selector_ew => get_face_selector_ew(mesh)
     face_selector_ns => get_face_selector_ns(mesh)
-    vert_edge_selector => get_vert_edge_selector(mesh)
+
+    ! Dummy W1V field: only provides the W1V nodes for basis evaluation in
+    ! the weights kernel, its values are never read
+    call w1v_nodes%initialise(w1v_fs, name='w1v_nodes')
+    call invoke( setval_c(w1v_nodes, 0.0_r_tran) )
 
     ! Away from panel edges (or on non-spherical/non-periodic meshes, where
     ! panel_edge_dist is set to a large negative number), the kernel falls
@@ -1007,8 +996,9 @@ contains
                     interp_w2h_weights_y, interp_w2h_indices_y,               &
                     parl_w2_rot_x, perp_w2_rot_x,                             &
                     parl_w2_rot_y, perp_w2_rot_y,                             &
-                    interp_w1v_weights_x, interp_w1v_indices_x,               &
-                    interp_w1v_weights_y, interp_w1v_indices_y,               &
+                    interp_perp_weights_x, interp_perp_indices_x,             &
+                    interp_perp_weights_y, interp_perp_indices_y,             &
+                    w1v_nodes,                                                &
                     interp_w3_weights_x, interp_w3_indices_x,                 &
                     interp_w3_weights_y, interp_w3_indices_y,                 &
                     eave_lon_x, eave_lat_x, correct_flux_x,                   &
@@ -1019,7 +1009,6 @@ contains
                     panel_id, cross_depth,                                    &
                     panel_edge_dist,                                          &
                     face_selector_ew, face_selector_ns,                       &
-                    vert_edge_selector,                                      &
                     high_order,                                               &
                     remap_depth,                                              &
                     geometry, topology, coord_system,                        &
@@ -2531,11 +2520,10 @@ contains
 
   end function get_perp_w2_rot_y
 
-  !> @brief Returns a pointer to the (currently identity/zero placeholder)
-  !!        "perp_p -> W1V" staging donor weights for the x remap
+  !> @brief Returns a pointer to the "perp_w2" donor weights for the x remap
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @return "perp_p -> W1V" staging donor weights for the x remap
-  function get_interp_w1v_weights_x(mesh_id) result(weights)
+  !> @return "perp_w2" donor weights for the x remap
+  function get_interp_perp_weights_x(mesh_id) result(weights)
 
     implicit none
 
@@ -2548,26 +2536,25 @@ contains
     mesh => mesh_collection%get_mesh(mesh_id)
     local_mesh => mesh%get_local_mesh()
 
-    if (.not. interp_w1v_weights_x_inventory%is_initialised()) then
-      call interp_w1v_weights_x_inventory%initialise(name="interp_w1v_weights_x")
+    if (.not. interp_perp_weights_x_inventory%is_initialised()) then
+      call interp_perp_weights_x_inventory%initialise(name="interp_perp_weights_x")
     end if
 
     constant_exists =                                                          &
-      interp_w1v_weights_x_inventory%paired_object_exists(local_mesh%get_id())
+      interp_perp_weights_x_inventory%paired_object_exists(local_mesh%get_id())
 
     if (.not. constant_exists) then
       call compute_panel_edge_remap_w2h_weights(mesh_id)
     end if
 
-    call interp_w1v_weights_x_inventory%get_field(local_mesh, weights)
+    call interp_perp_weights_x_inventory%get_field(local_mesh, weights)
 
-  end function get_interp_w1v_weights_x
+  end function get_interp_perp_weights_x
 
-  !> @brief Returns a pointer to the (currently identity/zero placeholder)
-  !!        "perp_p -> W1V" staging donor indices for the x remap
+  !> @brief Returns a pointer to the "perp_w2" donor indices for the x remap
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @return "perp_p -> W1V" staging donor indices for the x remap
-  function get_interp_w1v_indices_x(mesh_id) result(indices)
+  !> @return "perp_w2" donor indices for the x remap
+  function get_interp_perp_indices_x(mesh_id) result(indices)
 
     implicit none
 
@@ -2580,26 +2567,25 @@ contains
     mesh => mesh_collection%get_mesh(mesh_id)
     local_mesh => mesh%get_local_mesh()
 
-    if (.not. interp_w1v_indices_x_inventory%is_initialised()) then
-      call interp_w1v_indices_x_inventory%initialise(name="interp_w1v_indices_x")
+    if (.not. interp_perp_indices_x_inventory%is_initialised()) then
+      call interp_perp_indices_x_inventory%initialise(name="interp_perp_indices_x")
     end if
 
     constant_exists =                                                          &
-      interp_w1v_indices_x_inventory%paired_object_exists(local_mesh%get_id())
+      interp_perp_indices_x_inventory%paired_object_exists(local_mesh%get_id())
 
     if (.not. constant_exists) then
       call compute_panel_edge_remap_w2h_weights(mesh_id)
     end if
 
-    call interp_w1v_indices_x_inventory%get_field(local_mesh, indices)
+    call interp_perp_indices_x_inventory%get_field(local_mesh, indices)
 
-  end function get_interp_w1v_indices_x
+  end function get_interp_perp_indices_x
 
-  !> @brief Returns a pointer to the (currently identity/zero placeholder)
-  !!        "perp_p -> W1V" staging donor weights for the y remap
+  !> @brief Returns a pointer to the "perp_w2" donor weights for the y remap
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @return "perp_p -> W1V" staging donor weights for the y remap
-  function get_interp_w1v_weights_y(mesh_id) result(weights)
+  !> @return "perp_w2" donor weights for the y remap
+  function get_interp_perp_weights_y(mesh_id) result(weights)
 
     implicit none
 
@@ -2612,26 +2598,25 @@ contains
     mesh => mesh_collection%get_mesh(mesh_id)
     local_mesh => mesh%get_local_mesh()
 
-    if (.not. interp_w1v_weights_y_inventory%is_initialised()) then
-      call interp_w1v_weights_y_inventory%initialise(name="interp_w1v_weights_y")
+    if (.not. interp_perp_weights_y_inventory%is_initialised()) then
+      call interp_perp_weights_y_inventory%initialise(name="interp_perp_weights_y")
     end if
 
     constant_exists =                                                          &
-      interp_w1v_weights_y_inventory%paired_object_exists(local_mesh%get_id())
+      interp_perp_weights_y_inventory%paired_object_exists(local_mesh%get_id())
 
     if (.not. constant_exists) then
       call compute_panel_edge_remap_w2h_weights(mesh_id)
     end if
 
-    call interp_w1v_weights_y_inventory%get_field(local_mesh, weights)
+    call interp_perp_weights_y_inventory%get_field(local_mesh, weights)
 
-  end function get_interp_w1v_weights_y
+  end function get_interp_perp_weights_y
 
-  !> @brief Returns a pointer to the (currently identity/zero placeholder)
-  !!        "perp_p -> W1V" staging donor indices for the y remap
+  !> @brief Returns a pointer to the "perp_w2" donor indices for the y remap
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @return "perp_p -> W1V" staging donor indices for the y remap
-  function get_interp_w1v_indices_y(mesh_id) result(indices)
+  !> @return "perp_w2" donor indices for the y remap
+  function get_interp_perp_indices_y(mesh_id) result(indices)
 
     implicit none
 
@@ -2644,20 +2629,20 @@ contains
     mesh => mesh_collection%get_mesh(mesh_id)
     local_mesh => mesh%get_local_mesh()
 
-    if (.not. interp_w1v_indices_y_inventory%is_initialised()) then
-      call interp_w1v_indices_y_inventory%initialise(name="interp_w1v_indices_y")
+    if (.not. interp_perp_indices_y_inventory%is_initialised()) then
+      call interp_perp_indices_y_inventory%initialise(name="interp_perp_indices_y")
     end if
 
     constant_exists =                                                          &
-      interp_w1v_indices_y_inventory%paired_object_exists(local_mesh%get_id())
+      interp_perp_indices_y_inventory%paired_object_exists(local_mesh%get_id())
 
     if (.not. constant_exists) then
       call compute_panel_edge_remap_w2h_weights(mesh_id)
     end if
 
-    call interp_w1v_indices_y_inventory%get_field(local_mesh, indices)
+    call interp_perp_indices_y_inventory%get_field(local_mesh, indices)
 
-  end function get_interp_w1v_indices_y
+  end function get_interp_perp_indices_y
 
   !> @brief Returns a pointer to the (currently identity/zero placeholder)
   !!        "parl_p -> W3" staging donor weights for the x remap

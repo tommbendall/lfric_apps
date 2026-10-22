@@ -44,15 +44,13 @@
 !!          perp_w2_rot, which is correct but has no effect until a later
 !!          phase supplies a non-zero perp_w2 staged value.
 !!
-!!          interp_w1v_weights_{x,y} / interp_w1v_indices_{x,y} are the
-!!          weights/indices for the "perp_p donors -> W1V vertex targets"
-!!          staging interpolation (see the instructions doc, Phase 2). They
-!!          are now computed for real: for each corner this column owns (per
-!!          vert_edge_selector), the x-direction source DoF is W for the
-!!          SW/NW corners and E for the SE/NE corners; the y-direction
-!!          source DoF is S for the SW/SE corners and N for the NW/NE
-!!          corners. The target point is the eave vertex position, evaluated
-!!          via the gh_evaluator_targets(2) ("wv") basis arrays.
+!!          interp_perp_weights_{x,y} / interp_perp_indices_{x,y} are the
+!!          weights/indices for the "perp_w2" interpolation. Each parl_p face
+!!          slot (S/N for x, W/E for y) holds two sets of ndata entries, one
+!!          per face vertex. For x the donors are the W DoFs (west vertex) and
+!!          E DoFs (east vertex); for y the S DoFs (south vertex) and N DoFs
+!!          (north vertex). The target points are the eave vertex positions,
+!!          evaluated via the gh_evaluator_targets(2) ("wv") basis arrays.
 !!
 !!          interp_w3_weights_{x,y} / interp_w3_indices_{x,y} are the
 !!          weights/indices for the "parl_p donors -> W3 centre targets"
@@ -83,6 +81,7 @@ use argument_mod,           only: arg_type, func_type,                         &
                                   ANY_DISCONTINUOUS_SPACE_5,                   &
                                   ANY_DISCONTINUOUS_SPACE_7,                   &
                                   ANY_DISCONTINUOUS_SPACE_9,                   &
+                                  ANY_DISCONTINUOUS_SPACE_10,                  &
                                   ANY_SPACE_9,                                 &
                                   CELL_COLUMN, STENCIL, CROSS2D
 use fs_continuity_mod,       only: W2h, W2, W3
@@ -91,11 +90,7 @@ use constants_mod,           only: r_tran, r_def, i_def, l_def,               &
 use reference_element_mod,   only: W, S, N, E, SW, SE, NE, NW
 use panel_edge_support_mod,  only: panel_neighbour
 use sci_face_selector_support_mod, only: face_from_face_selector
-use sci_vert_edge_selector_support_mod, only: num_vert_edges_to_do,           &
-                                             decode_vert_edge_selector
 use coord_transform_mod,     only: PANEL_ROT_MATRIX
-! TEMP DEBUG T4: to remove
-use log_mod,                 only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
 
 implicit none
 
@@ -117,14 +112,19 @@ type, public, extends(kernel_type) :: panel_edge_remap_w2h_weights_kernel_type
        arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! perp_w2_rot_x
        arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! parl_w2_rot_y
        arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! perp_w2_rot_y
+       ! The perp weights/indices hold, per W2H face slot, two consecutive
+       ! sets of ndata entries: one for each of the two vertices (corners)
+       ! of the face, tangential to the panel edge
+       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_weights_x
+       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_indices_x
+       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_weights_y
+       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_indices_y
        ! NOTE: W1V is not yet a valid function space for GH_FIELD kernel
-       ! metadata in PSyclone's LFRic API, so these weights/indices use
-       ! ANY_DISCONTINUOUS_SPACE_7 instead (selector/weights-style data,
-       ! same convention as interp_w2h_weights/indices above)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_7), & ! interp_w1v_weights_x
-       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_7), & ! interp_w1v_indices_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_7), & ! interp_w1v_weights_y
-       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_7), & ! interp_w1v_indices_y
+       ! metadata in PSyclone's LFRic API, so ANY_DISCONTINUOUS_SPACE_7 is
+       ! used for this W1V field. It is never read: its only purpose is to
+       ! provide the W1V nodes at which the vertex basis functions are
+       ! evaluated
+       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_7), & ! w1v_nodes (dummy)
        arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W3),                        & ! interp_w3_weights_x (placeholder)
        arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, W3),                        & ! interp_w3_indices_x (placeholder)
        arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W3),                        & ! interp_w3_weights_y (placeholder)
@@ -145,7 +145,6 @@ type, public, extends(kernel_type) :: panel_edge_remap_w2h_weights_kernel_type
        arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! panel_edge_dist_W/E/S/N
        arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face_selector_ew
        arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face_selector_ns
-       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! vert_edge_selector
        arg_type(GH_SCALAR,  GH_LOGICAL, GH_READ),                             & ! cubic_remap
        arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             & ! remap_depth
        arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             & ! geometry
@@ -162,10 +161,11 @@ type, public, extends(kernel_type) :: panel_edge_remap_w2h_weights_kernel_type
   integer :: operates_on = CELL_COLUMN
   integer :: gh_shape = GH_EVALUATOR
   ! Three evaluator targets: ANY_DISCONTINUOUS_SPACE_5 ("ww", W2H-shaped face
-  ! storage, set 1), ANY_DISCONTINUOUS_SPACE_7 ("wv", W1V-shaped vertex
-  ! storage, set 2) and W3 ("w3", W3 cell-centre storage, set 3). PSyclone
-  ! generates one basis array per (meta_funcs, gh_evaluator_targets) pair -
-  ! see sci_w3_to_w2_displacement_kernel_mod.F90
+  ! storage, set 1), ANY_DISCONTINUOUS_SPACE_7 ("wv", the W1V nodes of the
+  ! dummy W1V field, at which the face-vertex positions are evaluated) and W3
+  ! ("w3", W3 cell-centre storage, set 3). PSyclone generates one basis array
+  ! per (meta_funcs, gh_evaluator_targets) pair - see
+  ! sci_w3_to_w2_displacement_kernel_mod.F90
   integer :: gh_evaluator_targets(3) = (/ ANY_DISCONTINUOUS_SPACE_5,          &
                                            ANY_DISCONTINUOUS_SPACE_7,         &
                                            W3 /)
@@ -193,12 +193,15 @@ contains
 !> @param[in,out] perp_w2_rot_x         "perp_w2" rotation factor for the x remap
 !> @param[in,out] parl_w2_rot_y         "parl_w2" rotation factor for the y remap
 !> @param[in,out] perp_w2_rot_y         "perp_w2" rotation factor for the y remap
-!> @param[in,out] interp_w1v_weights_x  Placeholder (identity/zero) for the
-!!                                      "perp_p -> W1V" staging weights (x)
-!> @param[in,out] interp_w1v_indices_x  Placeholder donor indices (x)
-!> @param[in,out] interp_w1v_weights_y  Placeholder (identity/zero) for the
-!!                                      "perp_p -> W1V" staging weights (y)
-!> @param[in,out] interp_w1v_indices_y  Placeholder donor indices (y)
+!> @param[in,out] interp_perp_weights_x Lagrange donor weights for the "perp_w2"
+!!                                      interpolation to the two vertices of
+!!                                      each parl_p face (x remap); ndata
+!!                                      entries per vertex
+!> @param[in,out] interp_perp_indices_x Donor cell indices for the x remap
+!> @param[in,out] interp_perp_weights_y As interp_perp_weights_x, for the y remap
+!> @param[in,out] interp_perp_indices_y Donor cell indices for the y remap
+!> @param[in]     w1v_nodes             Dummy W1V field, only used to evaluate
+!!                                      basis functions at the W1V nodes
 !> @param[in,out] interp_w3_weights_x   Placeholder (identity/zero) for the
 !!                                      "parl_p -> W3" staging weights (x)
 !> @param[in,out] interp_w3_indices_x   Placeholder donor indices (x)
@@ -235,10 +238,6 @@ contains
 !!                                      one of its two neighbouring columns
 !> @param[in]     face_selector_ns      North-South face selector, as
 !!                                      face_selector_ew for S/N faces
-!> @param[in]     vert_edge_selector    Vertical-edge (corner) selector, used
-!!                                      to ensure each SW/SE/NE/NW vertex is
-!!                                      only ever written by one of its (up
-!!                                      to four) neighbouring columns
 !> @param[in]     cubic_remap           Whether to use cubic (else linear) remapping
 !> @param[in]     remap_depth           Depth (in columns) to which remapping applies
 !> @param[in]     geometry              Mesh geometry identifier
@@ -259,13 +258,16 @@ contains
 !> @param[in]     undf_wr               Num DoFs for this partition for the
 !!                                      rotation factors
 !> @param[in]     map_wr                DoF map for the rotation factors
-!> @param[in]     ndf_wv                Num DoFs per cell for the W1V vertex
-!!                                      (corner) interpolation weights/indices
-!> @param[in]     undf_wv               Num DoFs for this partition for the
-!!                                      W1V vertex (corner) interpolation
-!!                                      weights/indices
-!> @param[in]     map_wv                DoF map for the W1V vertex (corner)
+!> @param[in]     ndf_wp                Num DoFs per cell for the perp
 !!                                      interpolation weights/indices
+!> @param[in]     undf_wp               Num DoFs for this partition for the
+!!                                      perp interpolation weights/indices
+!> @param[in]     map_wp                DoF map for the perp interpolation
+!!                                      weights/indices
+!> @param[in]     ndf_wv                Num DoFs per cell for the dummy W1V field
+!> @param[in]     undf_wv               Num DoFs for this partition for the
+!!                                      dummy W1V field
+!> @param[in]     map_wv                DoF map for the dummy W1V field
 !> @param[in]     ndf_w3                Num DoFs per cell for the W3 staging
 !!                                      placeholders
 !> @param[in]     undf_w3               Num DoFs for this partition for the
@@ -301,8 +303,9 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
     interp_w2h_weights_x, interp_w2h_indices_x,                                &
     interp_w2h_weights_y, interp_w2h_indices_y,                                &
     parl_w2_rot_x, perp_w2_rot_x, parl_w2_rot_y, perp_w2_rot_y,                &
-    interp_w1v_weights_x, interp_w1v_indices_x,                                &
-    interp_w1v_weights_y, interp_w1v_indices_y,                                &
+    interp_perp_weights_x, interp_perp_indices_x,                              &
+    interp_perp_weights_y, interp_perp_indices_y,                              &
+    w1v_nodes,                                                                 &
     interp_w3_weights_x, interp_w3_indices_x,                                  &
     interp_w3_weights_y, interp_w3_indices_y,                                  &
     eave_lon_x, eave_lat_x, correct_flux_x,                                    &
@@ -315,12 +318,13 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
     pid_stencil_size, pid_max_length, pid_stencil_map,                         &
     panel_edge_dist_W, panel_edge_dist_E,                                      &
     panel_edge_dist_S, panel_edge_dist_N,                                      &
-    face_selector_ew, face_selector_ns, vert_edge_selector,                    &
+    face_selector_ew, face_selector_ns,                                        &
     cubic_remap, remap_depth,                                                  &
     geometry, topology, coord_system, scaled_radius,                           &
     u0, dt,                                                                    &
     ndf_ww, undf_ww, map_ww,                                                   &
     ndf_wr, undf_wr, map_wr,                                                   &
+    ndf_wp, undf_wp, map_wp,                                                   &
     ndf_wv, undf_wv, map_wv,                                                   &
     ndf_w3, undf_w3, map_w3,                                                   &
     ndf_wx, undf_wx, map_wx, basis_wx_ww, basis_wx_wv, basis_wx_w3,           &
@@ -347,6 +351,7 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   integer(kind=i_def), intent(in)    :: pid_max_length
   integer(kind=i_def), intent(in)    :: ndf_ww, undf_ww
   integer(kind=i_def), intent(in)    :: ndf_wr, undf_wr
+  integer(kind=i_def), intent(in)    :: ndf_wp, undf_wp
   integer(kind=i_def), intent(in)    :: ndf_wv, undf_wv
   integer(kind=i_def), intent(in)    :: ndf_w3, undf_w3
   integer(kind=i_def), intent(in)    :: ndf_wx, undf_wx
@@ -364,6 +369,7 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
 
   integer(kind=i_def), intent(in)    :: map_ww(ndf_ww)
   integer(kind=i_def), intent(in)    :: map_wr(ndf_wr)
+  integer(kind=i_def), intent(in)    :: map_wp(ndf_wp)
   integer(kind=i_def), intent(in)    :: map_wv(ndf_wv)
   integer(kind=i_def), intent(in)    :: map_w3(ndf_w3)
   integer(kind=i_def), intent(in)    :: map_wx(ndf_wx)
@@ -394,10 +400,11 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   real(kind=r_tran),   intent(inout) :: perp_w2_rot_x(undf_wr)
   real(kind=r_tran),   intent(inout) :: parl_w2_rot_y(undf_wr)
   real(kind=r_tran),   intent(inout) :: perp_w2_rot_y(undf_wr)
-  real(kind=r_tran),   intent(inout) :: interp_w1v_weights_x(undf_wv)
-  integer(kind=i_def), intent(inout) :: interp_w1v_indices_x(undf_wv)
-  real(kind=r_tran),   intent(inout) :: interp_w1v_weights_y(undf_wv)
-  integer(kind=i_def), intent(inout) :: interp_w1v_indices_y(undf_wv)
+  real(kind=r_tran),   intent(inout) :: interp_perp_weights_x(undf_wp)
+  integer(kind=i_def), intent(inout) :: interp_perp_indices_x(undf_wp)
+  real(kind=r_tran),   intent(inout) :: interp_perp_weights_y(undf_wp)
+  integer(kind=i_def), intent(inout) :: interp_perp_indices_y(undf_wp)
+  real(kind=r_tran),   intent(in)    :: w1v_nodes(undf_wv)
   real(kind=r_tran),   intent(inout) :: interp_w3_weights_x(undf_w3)
   integer(kind=i_def), intent(inout) :: interp_w3_indices_x(undf_w3)
   real(kind=r_tran),   intent(inout) :: interp_w3_weights_y(undf_w3)
@@ -424,20 +431,16 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   integer(kind=i_def), intent(in)    :: panel_edge_dist_N(undf_pid)
   integer(kind=i_def), intent(in)    :: face_selector_ew(undf_pid)
   integer(kind=i_def), intent(in)    :: face_selector_ns(undf_pid)
-  integer(kind=i_def), intent(in)    :: vert_edge_selector(undf_pid)
 
   ! Internal variables
   integer(kind=i_def), parameter   :: interp_dir_alpha = 1
   integer(kind=i_def), parameter   :: interp_dir_beta  = 2
   real(kind=r_def),    parameter   :: unit_radius = 1.0_r_def
 
-  integer(kind=i_def) :: df, dfc, i, w2h_idx, wr_idx, wv_idx, w3_idx, pid_idx
+  integer(kind=i_def) :: df, dfc, i, w2h_idx, wr_idx, wp_idx, w3_idx, pid_idx
   integer(kind=i_def) :: ew_sel, ns_sel, j
   integer(kind=i_def) :: ndata
   integer(kind=i_def) :: owned_panel, neighbour_panel
-  logical(kind=l_def) :: end_of_eave
-  integer(kind=i_def) :: corner, vert_dofs_to_do
-  integer(kind=i_def) :: source_df_x, source_df_y
   integer(kind=i_def) :: edge_direction_x, edge_direction_y
   logical(kind=l_def) :: near_panel_edge_x, near_panel_edge_y
   real(kind=r_def)    :: stretch_factor
@@ -448,6 +451,10 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   ! direction (x or y)
   real(kind=r_def)    :: lagrange_w(4)
   integer(kind=i_def) :: lagrange_id(4)
+
+  ! Perp interpolation results for the two vertices of a face
+  real(kind=r_def)    :: perp_w_a(4), perp_w_b(4)
+  integer(kind=i_def) :: perp_id_a(4), perp_id_b(4)
 
   ! Rotation-factor results, for the currently active direction (x or y)
   real(kind=r_def)    :: rotation_parallel, rotation_perp
@@ -551,19 +558,7 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
 
     w2h_idx = map_ww(df)
     wr_idx = map_wr(df)
-
-    ! Is DoF at the end of an eave? At such DoFs the eave value is shared
-    ! between neighbouring eaves and is not used, for either direction
-    select case (df)
-    case (S)
-      end_of_eave = panel_edge_dist_S(pid_idx) == 1
-    case (N)
-      end_of_eave = panel_edge_dist_N(pid_idx) == 1
-    case (W)
-      end_of_eave = panel_edge_dist_W(pid_idx) == 1
-    case (E)
-      end_of_eave = panel_edge_dist_E(pid_idx) == 1
-    end select
+    wp_idx = map_wp(df)
 
     near_panel_edge_x = (                                                     &
         ABS(panel_edge_dist_W(pid_idx)) <= remap_depth                       &
@@ -586,7 +581,7 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
     end if
 
     ! ---- x direction (triggered by a W or E panel edge) ----
-    if (near_panel_edge_x .and. .not. end_of_eave) then
+    if (near_panel_edge_x) then
       neighbour_panel = panel_neighbour(owned_panel, edge_direction_x)
 
       call compute_lagrange_weights(df, df, .true., neighbour_panel,          &
@@ -602,6 +597,7 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
       end do
       parl_w2_rot_x(wr_idx) = REAL(rotation_parallel, r_tran)
       perp_w2_rot_x(wr_idx) = REAL(rotation_perp, r_tran)
+      call store_perp_weights(.true., df, neighbour_panel, .true.)
 
       eave_lon_x(w2h_idx) = REAL(eave_lon_val, r_tran)
       eave_lat_x(w2h_idx) = REAL(eave_lat_val, r_tran)
@@ -618,10 +614,11 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
       eave_lon_x(w2h_idx) = 0.0_r_tran
       eave_lat_x(w2h_idx) = 0.0_r_tran
       correct_flux_x(w2h_idx) = 0.0_r_tran
+      call store_perp_weights(.true., df, owned_panel, .false.)
     end if
 
     ! ---- y direction (triggered by a S or N panel edge) ----
-    if (near_panel_edge_y .and. .not. end_of_eave) then
+    if (near_panel_edge_y) then
       neighbour_panel = panel_neighbour(owned_panel, edge_direction_y)
 
       call compute_lagrange_weights(df, df, .false., neighbour_panel,         &
@@ -637,6 +634,7 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
       end do
       parl_w2_rot_y(wr_idx) = REAL(rotation_parallel, r_tran)
       perp_w2_rot_y(wr_idx) = REAL(rotation_perp, r_tran)
+      call store_perp_weights(.false., df, neighbour_panel, .true.)
 
       eave_lon_y(w2h_idx) = REAL(eave_lon_val, r_tran)
       eave_lat_y(w2h_idx) = REAL(eave_lat_val, r_tran)
@@ -654,100 +652,90 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
       eave_lon_y(w2h_idx) = 0.0_r_tran
       eave_lat_y(w2h_idx) = 0.0_r_tran
       correct_flux_y(w2h_idx) = 0.0_r_tran
+      call store_perp_weights(.false., df, owned_panel, .false.)
     end if
 
   end do  ! faces
 
-  ! ======================================================================== !
-  ! Set 2: "perp_p donors -> W1V vertex targets" interpolation weights/
-  ! indices. Loop only over the vertical edges (corners) this column owns
-  ! (per vert_edge_selector), so that each shared W1V vertex is written by
-  ! exactly one of its (up to four) neighbouring columns. The ownership loop
-  ! and the SW/SE/NE/NW corner decoding are mirrored from
-  ! sci_split_w1_field_kernel_mod
-  vert_dofs_to_do = num_vert_edges_to_do(vert_edge_selector(pid_idx))
-
-  do j = 1, vert_dofs_to_do
-    corner = decode_vert_edge_selector(j, vert_edge_selector(pid_idx))
-    wv_idx = map_wv(corner - SW + 1)
-
-    ! x direction (W/E panel edge): the source DoF is W for the SW/NW
-    ! corners and E for the SE/NE corners
-    select case (corner)
-    case (SW, NW)
-      source_df_x = W
-    case (SE, NE)
-      source_df_x = E
-    end select
-
-    ! y direction (S/N panel edge): the source DoF is S for the SW/SE
-    ! corners and N for the NW/NE corners
-    select case (corner)
-    case (SW, SE)
-      source_df_y = S
-    case (NW, NE)
-      source_df_y = N
-    end select
-
-    near_panel_edge_x = (                                                     &
-        ABS(panel_edge_dist_W(pid_idx)) <= remap_depth                       &
-        .or. ABS(panel_edge_dist_E(pid_idx)) <= remap_depth                  &
-    )
-    if (ABS(panel_edge_dist_W(pid_idx)) < ABS(panel_edge_dist_E(pid_idx))) then
-      edge_direction_x = W
-    else
-      edge_direction_x = E
-    end if
-
-    near_panel_edge_y = (                                                     &
-        ABS(panel_edge_dist_S(pid_idx)) <= remap_depth                       &
-        .or. ABS(panel_edge_dist_N(pid_idx)) <= remap_depth                  &
-    )
-    if (ABS(panel_edge_dist_S(pid_idx)) < ABS(panel_edge_dist_N(pid_idx))) then
-      edge_direction_y = S
-    else
-      edge_direction_y = N
-    end if
-
-    if (near_panel_edge_x) then
-      neighbour_panel = panel_neighbour(owned_panel, edge_direction_x)
-      call compute_lagrange_weights(corner - SW + 1, source_df_x, .true.,     &
-                                     neighbour_panel, lagrange_w, lagrange_id, &
-                                     is_corner_target=.true.)
-      do i = 1, ndata
-        interp_w1v_weights_x(wv_idx+i-1) = REAL(lagrange_w(i), r_tran)
-        interp_w1v_indices_x(wv_idx+i-1) = lagrange_id(i)
-      end do
-    else
-      interp_w1v_weights_x(wv_idx) = 1.0_r_tran
-      interp_w1v_indices_x(wv_idx) = 1
-      do i = 2, ndata
-        interp_w1v_weights_x(wv_idx+i-1) = 0.0_r_tran
-        interp_w1v_indices_x(wv_idx+i-1) = 1
-      end do
-    end if
-
-    if (near_panel_edge_y) then
-      neighbour_panel = panel_neighbour(owned_panel, edge_direction_y)
-      call compute_lagrange_weights(corner - SW + 1, source_df_y, .false.,    &
-                                     neighbour_panel, lagrange_w, lagrange_id, &
-                                     is_corner_target=.true.)
-      do i = 1, ndata
-        interp_w1v_weights_y(wv_idx+i-1) = REAL(lagrange_w(i), r_tran)
-        interp_w1v_indices_y(wv_idx+i-1) = lagrange_id(i)
-      end do
-    else
-      interp_w1v_weights_y(wv_idx) = 1.0_r_tran
-      interp_w1v_indices_y(wv_idx) = 1
-      do i = 2, ndata
-        interp_w1v_weights_y(wv_idx+i-1) = 0.0_r_tran
-        interp_w1v_indices_y(wv_idx+i-1) = 1
-      end do
-    end if
-
-  end do  ! corners
-
 contains
+
+  !-----------------------------------------------------------------------------
+  !> @brief Compute and store the "perp_w2" interpolation weights/indices for a
+  !!        W2H face slot of the current column. A parl_p face (S/N for the x
+  !!        remap, W/E for the y remap) takes its perpendicular value as the
+  !!        average of two interpolations, one to each of the face's two
+  !!        vertices, tangential to the panel edge. For the x remap the
+  !!        donors are the W face DoFs (west vertex) and E face DoFs (east
+  !!        vertex); for the y remap the S face DoFs (south vertex) and N face
+  !!        DoFs (north vertex). If "active" is .false., or the face is not a
+  !!        parl_p face for this direction, zero weights are stored.
+  subroutine store_perp_weights(is_x_direction, target_df, swapped_panel, active)
+
+    implicit none
+
+    logical(kind=l_def), intent(in) :: is_x_direction
+    integer(kind=i_def), intent(in) :: target_df
+    integer(kind=i_def), intent(in) :: swapped_panel
+    logical(kind=l_def), intent(in) :: active
+
+    integer(kind=i_def) :: corner_a, corner_b, source_a, source_b, k
+    logical(kind=l_def) :: is_parl_p_face
+
+    perp_w_a = 0.0_r_def
+    perp_w_b = 0.0_r_def
+    perp_id_a = 1
+    perp_id_b = 1
+
+    if (is_x_direction) then
+      is_parl_p_face = (target_df == S .or. target_df == N)
+      source_a = W
+      source_b = E
+      if (target_df == S) then
+        corner_a = SW
+        corner_b = SE
+      else
+        corner_a = NW
+        corner_b = NE
+      end if
+    else
+      is_parl_p_face = (target_df == W .or. target_df == E)
+      source_a = S
+      source_b = N
+      if (target_df == W) then
+        corner_a = SW
+        corner_b = NW
+      else
+        corner_a = SE
+        corner_b = NE
+      end if
+    end if
+
+    if (active .and. is_parl_p_face) then
+      call compute_lagrange_weights(corner_a - SW + 1, source_a,               &
+                                     is_x_direction, swapped_panel,            &
+                                     perp_w_a, perp_id_a,                      &
+                                     is_corner_target=.true.)
+      call compute_lagrange_weights(corner_b - SW + 1, source_b,               &
+                                     is_x_direction, swapped_panel,            &
+                                     perp_w_b, perp_id_b,                      &
+                                     is_corner_target=.true.)
+    end if
+
+    do k = 1, ndata
+      if (is_x_direction) then
+        interp_perp_weights_x(wp_idx+k-1) = REAL(perp_w_a(k), r_tran)
+        interp_perp_indices_x(wp_idx+k-1) = perp_id_a(k)
+        interp_perp_weights_x(wp_idx+ndata+k-1) = REAL(perp_w_b(k), r_tran)
+        interp_perp_indices_x(wp_idx+ndata+k-1) = perp_id_b(k)
+      else
+        interp_perp_weights_y(wp_idx+k-1) = REAL(perp_w_a(k), r_tran)
+        interp_perp_indices_y(wp_idx+k-1) = perp_id_a(k)
+        interp_perp_weights_y(wp_idx+ndata+k-1) = REAL(perp_w_b(k), r_tran)
+        interp_perp_indices_y(wp_idx+ndata+k-1) = perp_id_b(k)
+      end if
+    end do
+
+  end subroutine store_perp_weights
 
   !-----------------------------------------------------------------------------
   !> @brief Compute the Lagrange donor-stencil interpolation weights/indices
@@ -966,19 +954,6 @@ contains
       id(2) = id2
     end if
 
-    ! TEMP DEBUG T4: to remove (set 1 face targets only)
-    if (.not. present(is_corner_target) .and. .not. present(is_w3_target)) then
-      write(log_scratch_space, *) 'T4 LAG col=', pid_idx, ' tdf=', target_df,  &
-        ' sdf=', source_df, ' x_dir=', is_x_direction, ' owned=', owned_panel, &
-        ' swapped=', swapped_panel, ' edge=', panel_edge,                      &
-        ' interp_dir=', interp_dir, ' ncells=', ncells_in_stencil
-      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-      write(log_scratch_space, *) 'T4 LAG2 col=', pid_idx, ' tdf=', target_df, &
-        ' x0=', x0, ' x1=', x1(1:ncells_in_stencil),                           &
-        ' id=', id(1:ndata), ' wgt=', wgt(1:ndata), ' wsum=', SUM(wgt(1:ndata))
-      call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-    end if
-
   end subroutine compute_lagrange_weights
 
   !-----------------------------------------------------------------------------
@@ -1060,10 +1035,8 @@ contains
     real(kind=r_def)    :: n_alpha_own(3), n_beta_own(3)
     real(kind=r_def)    :: n_alpha_nbr(3), n_beta_nbr(3)
     real(kind=r_def)    :: n_par(3), n_perp(3), n_q(3), normal_llr(3)
-    real(kind=r_def)    :: gram, rhs_par, rhs_perp, c_par, c_perp, s_par, s_q
+    real(kind=r_def)    :: gram, rhs_par, rhs_perp, c_par, c_perp, s_par, s_q, s_axis
     logical(kind=l_def) :: slot_is_ns, rotated_edge, q_is_alpha
-    ! TEMP DEBUG T4: to remove
-    real(kind=r_def)    :: lon_native, lat_native, xyz_native(3)
 
     chi_1_df = 0.0_r_def
     chi_2_df = 0.0_r_def
@@ -1167,46 +1140,19 @@ contains
     rhs_perp = DOT_PRODUCT(n_perp, n_q)
     c_par = (rhs_par - gram*rhs_perp) / (1.0_r_def - gram*gram)
     c_perp = (rhs_perp - gram*rhs_par) / (1.0_r_def - gram*gram)
-    parallel_factor = c_par * s_q * s_par
-    perp_factor = -c_perp * s_q * s_par
+    ! Re-express the stored value in the host slot's sign convention: the
+    ! consumers read it as positive along the host line, not the eave axis
+    s_axis = s_par * s_q * SIGN(1.0_r_def, c_par)
+    parallel_factor = s_axis * c_par * s_q * s_par
+    perp_factor = -s_axis * c_perp * s_q * s_par
 
     ! Diagnostic "correct" flux: the analytic solid-body-rotation wind
     ! (u0*cos(lat), v=0) through the eave face, in the stored sign convention.
     ! Mesh stretching is not accounted for in this vector projection (only in
     ! the position above)
     normal_llr = cart2sphere_vector(eave_xyz_true, n_q)
-    correct_flux_out = s_q * u0 * COS(eave_lat_out) * normal_llr(1) * dt       &
+    correct_flux_out = s_axis * s_q * u0 * COS(eave_lat_out) * normal_llr(1) * dt &
                         * dA_at_w2(map_w2(target_df))
-
-    ! TEMP DEBUG T4: to remove
-    xyz_native = (/ 0.0_r_def, 0.0_r_def, 0.0_r_def /)
-    call alphabetar2xyz(alpha_native, beta_native, 1.0_r_def, owned_panel,     &
-                        xyz_native(1), xyz_native(2), xyz_native(3))
-    call xyz2ll(xyz_native(1), xyz_native(2), xyz_native(3),                   &
-                lon_native, lat_native)
-    write(log_scratch_space, '(A,I0,A,I0,A,L1,A,I0,A,I0,6(A,E14.6))')         &
-      'T4 ROT1 col=', pid_idx, ' df=', target_df, ' x_dir=', is_x_direction,   &
-      ' owned=', owned_panel, ' nbr=', neighbour_panel_id,                     &
-      ' a_nat=', alpha_native, ' b_nat=', beta_native,                        &
-      ' a_eave_nbr=', alpha_eave, ' b_eave_nbr=', beta_eave,                  &
-      ' a_eave_own=', alpha_own, ' b_eave_own=', beta_own
-    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-    write(log_scratch_space, '(A,I0,A,I0,8(A,E14.6))')                         &
-      'T4 ROT2 col=', pid_idx, ' df=', target_df,                              &
-      ' lon_nat=', lon_native, ' lat_nat=', lat_native,                        &
-      ' lon_eave=', eave_lon_out, ' lat_eave=', eave_lat_out,                  &
-      ' parl=', parallel_factor, ' perp=', perp_factor,                        &
-      ' dA=', dA_at_w2(map_w2(target_df)),                                     &
-      ' correct=', correct_flux_out
-    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-    write(log_scratch_space, *) 'T4 ROT3 col=', pid_idx, ' df=', target_df,    &
-      ' rotated=', rotated_edge, ' q_alpha=', q_is_alpha,                      &
-      ' c_par=', c_par, ' c_perp=', c_perp, ' s_par=', s_par, ' s_q=', s_q
-    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-    write(log_scratch_space, *) 'T4 ROT4 col=', pid_idx, ' df=', target_df,    &
-      ' n_par=', n_par, ' n_perp=', n_perp, ' n_q=', n_q,                      &
-      ' normal_llr=', normal_llr
-    call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
   end subroutine compute_rotation_factors
 

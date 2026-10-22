@@ -45,8 +45,7 @@ module peregrin_eave_sl_kernel_mod
   use fs_continuity_mod,     only: W2H
   use kernel_mod,            only: kernel_type
   use reference_element_mod, only: W, E, S, N
-  ! TODO: to remove
-  use log_mod,               only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
+  use panel_edge_support_mod, only: panel_neighbour, panel_axis_label
 
   implicit none
 
@@ -59,7 +58,7 @@ module peregrin_eave_sl_kernel_mod
   !! PSy layer
   type, public, extends(kernel_type) :: peregrin_eave_sl_kernel_type
     private
-    type(arg_type) :: meta_args(10) = (/                                      &
+    type(arg_type) :: meta_args(11) = (/                                      &
         arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! field_px
         arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_1), & ! field_py
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_1,  &
@@ -70,8 +69,9 @@ module peregrin_eave_sl_kernel_mod
                                                             STENCIL(CROSS2D)), & ! corner_field_x (field_n corner-remapped in x)
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_1,  &
                                                             STENCIL(CROSS2D)), & ! corner_field_y (field_n corner-remapped in y)
-        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2H),                       & ! dep_dist_peregrin_x
-        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2H),                       & ! dep_dist_peregrin_y
+        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2H),                       & ! dep_dist_peregrin_1
+        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2H),                       & ! dep_dist_peregrin_2
+        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2H),                       & ! dep_dist_peregrin_3
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! panel_id
         arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3)  & ! panel_edge_dist
     /)
@@ -105,20 +105,19 @@ contains
   !!                                      when the y-direction transport of
   !!                                      field_rx itself crosses an S/N edge
   !!                                      (i.e. this column is at a corner)
-  !> @param[in]     dep_dist_peregrin_x   PEREGRIN horizontal departure
+  !> @param[in]     dep_dist_peregrin_1   PEREGRIN horizontal departure
   !!                                      distances at cell faces, calculated
-  !!                                      from remapped_flux_x. The corrected
-  !!                                      DoFs of remapped_flux_x are its S/N
-  !!                                      faces, which are read by the
-  !!                                      y-transport, so this is used for the
-  !!                                      y-transport calculation
-  !> @param[in]     dep_dist_peregrin_y   PEREGRIN horizontal departure
-  !!                                      distances at cell faces, calculated
-  !!                                      from remapped_flux_y. The corrected
-  !!                                      DoFs of remapped_flux_y are its W/E
-  !!                                      faces, which are read by the
-  !!                                      x-transport, so this is used for the
-  !!                                      x-transport calculation
+  !!                                      from the remapped flux whose eaves
+  !!                                      lie across panels 1 or 3. Each
+  !!                                      column reads the one matching its
+  !!                                      own panel: the x-transport reads the
+  !!                                      W/E faces corrected for the S/N
+  !!                                      edge, the y-transport the S/N faces
+  !!                                      corrected for the W/E edge
+  !> @param[in]     dep_dist_peregrin_2   As dep_dist_peregrin_1, for panels
+  !!                                      2 or 4
+  !> @param[in]     dep_dist_peregrin_3   As dep_dist_peregrin_1, for panels
+  !!                                      5 or 6
   !> @param[in]     panel_edge_dist_W     2D field containing the distance of
   !!                                      each column from the panel edge to
   !!                                      the West
@@ -161,8 +160,9 @@ contains
                                     stencil_sizes_cy,       &
                                     stencil_max_cy,         &
                                     stencil_map_cy,         &
-                                    dep_dist_peregrin_x,    &
-                                    dep_dist_peregrin_y,    &
+                                    dep_dist_peregrin_1,    &
+                                    dep_dist_peregrin_2,    &
+                                    dep_dist_peregrin_3,    &
                                     panel_id,               &
                                     panel_edge_dist_W,      &
                                     panel_edge_dist_E,      &
@@ -217,8 +217,9 @@ contains
     real(kind=r_tran),   intent(in)    :: field_ry(undf_wf)
     real(kind=r_tran),   intent(in)    :: corner_field_x(undf_wf)
     real(kind=r_tran),   intent(in)    :: corner_field_y(undf_wf)
-    real(kind=r_tran),   intent(in)    :: dep_dist_peregrin_x(undf_w2h)
-    real(kind=r_tran),   intent(in)    :: dep_dist_peregrin_y(undf_w2h)
+    real(kind=r_tran),   intent(in), target :: dep_dist_peregrin_1(undf_w2h)
+    real(kind=r_tran),   intent(in), target :: dep_dist_peregrin_2(undf_w2h)
+    real(kind=r_tran),   intent(in), target :: dep_dist_peregrin_3(undf_w2h)
     real(kind=r_def),    intent(in)    :: panel_id(undf_2d)
     integer(kind=i_def), intent(in)    :: panel_edge_dist_W(undf_2d)
     integer(kind=i_def), intent(in)    :: panel_edge_dist_E(undf_2d)
@@ -236,8 +237,35 @@ contains
     integer(kind=i_def) :: stencil_map_cy_1d(-stencil_max_cy:stencil_max_cy)
     logical(kind=l_def) :: do_peregrin, near_edge
     integer(kind=i_def) :: k, nl
+    integer(kind=i_def) :: axis_x_transport, axis_y_transport
+    real(kind=r_tran), pointer :: dep_dist_x_transport(:)
+    real(kind=r_tran), pointer :: dep_dist_y_transport(:)
 
     ipanel = INT(panel_id(map_2d(1)), i_def)
+
+    ! The x-transport reads W/E faces, remapped across the S/N panel edge; the
+    ! y-transport reads S/N faces, remapped across the W/E panel edge
+    axis_x_transport = panel_axis_label(panel_neighbour(ipanel, S))
+    axis_y_transport = panel_axis_label(panel_neighbour(ipanel, W))
+
+    select case (axis_x_transport)
+    case (1)
+      dep_dist_x_transport => dep_dist_peregrin_1
+    case (2)
+      dep_dist_x_transport => dep_dist_peregrin_2
+    case default
+      dep_dist_x_transport => dep_dist_peregrin_3
+    end select
+
+    select case (axis_y_transport)
+    case (1)
+      dep_dist_y_transport => dep_dist_peregrin_1
+    case (2)
+      dep_dist_y_transport => dep_dist_peregrin_2
+    case default
+      dep_dist_y_transport => dep_dist_peregrin_3
+    end select
+
     edge_dist_E = panel_edge_dist_E(map_2d(1))
     edge_dist_W = panel_edge_dist_W(map_2d(1))
     edge_dist_S = panel_edge_dist_S(map_2d(1))
@@ -306,9 +334,7 @@ contains
                                                   edge_dist_W,            &
                                                   edge_dist_E,            &
                                                   ipanel,                 &
-                                      ! The x-transport reads W/E DoFs, which
-                                      ! are the corrected ones in _peregrin_y
-                                                  dep_dist_peregrin_y,    &
+                                                  dep_dist_x_transport,   &
                                                   ndf_wf,                 &
                                                   undf_wf,                &
                                                   map_wf,                 &
@@ -324,9 +350,7 @@ contains
                                       stencil_extent_xr,   &
                                       stencil_max_ry,      &
                                       stencil_map_ry_1d,   &
-                                      ! The x-transport reads W/E DoFs, which
-                                      ! are the corrected ones in _peregrin_y
-                                      dep_dist_peregrin_y, &
+                                      dep_dist_x_transport, &
                                       ndf_wf,              &
                                       undf_wf,             &
                                       map_wf,              &
@@ -335,14 +359,6 @@ contains
                                       map_w2h )
       end if
 
-      ! TODO: to remove
-      select case (map_wf(1))
-      case (862, 863, 864)
-        write(log_scratch_space,*)                                              &
-            'PEREGRIN_EAVE_X_RESULT: cell=', map_wf(1),                         &
-            ' field_px(0)=', field_px(map_wf(1))
-        call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
-      end select
     else
       do k = 0, nl-1
         field_px(map_wf(1)+k) = -2900.0_r_tran
@@ -381,9 +397,7 @@ contains
                                                   edge_dist_S,            &
                                                   edge_dist_N,            &
                                                   ipanel,                 &
-                                      ! The y-transport reads S/N DoFs, which
-                                      ! are the corrected ones in _peregrin_x
-                                                  dep_dist_peregrin_x,    &
+                                                  dep_dist_y_transport,   &
                                                   ndf_wf,                 &
                                                   undf_wf,                &
                                                   map_wf,                 &
@@ -399,9 +413,7 @@ contains
                                       stencil_extent_yr,   &
                                       stencil_max_rx,      &
                                       stencil_map_rx_1d,   &
-                                      ! The y-transport reads S/N DoFs, which
-                                      ! are the corrected ones in _peregrin_x
-                                      dep_dist_peregrin_x, &
+                                      dep_dist_y_transport, &
                                       ndf_wf,              &
                                       undf_wf,             &
                                       map_wf,              &

@@ -141,17 +141,13 @@ module flux_precomputations_alg_mod
     logical(kind=l_def),      allocatable :: is_computed_stencil_extent(:,:)
     logical(kind=l_def),      allocatable :: is_computed_stencil_extent_outer(:,:)
 
-    ! PEREGRIN departure quantities, horizontal only. Separate x/y sets:
-    ! _x is calculated from remapped_flux_x (S/N-face corrected), _y is
-    ! calculated from remapped_flux_y (W/E-face corrected)
-    type(r_tran_field_type),  allocatable :: dep_dist_peregrin_x(:,:)
-    type(r_tran_field_type),  allocatable :: dep_dist_peregrin_y(:,:)
-    type(r_tran_field_type),  allocatable :: frac_flux_peregrin_x(:,:)
-    type(r_tran_field_type),  allocatable :: frac_flux_peregrin_y(:,:)
-    integer(kind=i_def),      allocatable :: dep_stencil_extent_peregrin_x(:,:)
-    integer(kind=i_def),      allocatable :: dep_stencil_extent_peregrin_y(:,:)
-    logical(kind=l_def),      allocatable :: is_computed_stencil_extent_peregrin_x(:,:)
-    logical(kind=l_def),      allocatable :: is_computed_stencil_extent_peregrin_y(:,:)
+    ! PEREGRIN departure quantities, horizontal only. The first index is the
+    ! axis label of the panels across the remapped eaves (see
+    ! panel_axis_label), each calculated from the matching remapped flux
+    type(r_tran_field_type),  allocatable :: dep_dist_peregrin(:,:,:)
+    type(r_tran_field_type),  allocatable :: frac_flux_peregrin(:,:,:)
+    integer(kind=i_def),      allocatable :: dep_stencil_extent_peregrin(:,:,:)
+    logical(kind=l_def),      allocatable :: is_computed_stencil_extent_peregrin(:,:,:)
 
     ! Settings for extended mesh remapping
     logical(kind=l_def)                   :: ref_monotone
@@ -182,12 +178,9 @@ module flux_precomputations_alg_mod
     procedure, public  :: get_dep_stencil_extent
     procedure, public  :: get_dep_lowest_k
     procedure, public  :: get_dep_highest_k
-    procedure, public  :: get_dep_dist_peregrin_x
-    procedure, public  :: get_dep_dist_peregrin_y
-    procedure, public  :: get_frac_flux_peregrin_x
-    procedure, public  :: get_frac_flux_peregrin_y
-    procedure, public  :: get_dep_stencil_extent_peregrin_x
-    procedure, public  :: get_dep_stencil_extent_peregrin_y
+    procedure, public  :: get_dep_dist_peregrin
+    procedure, public  :: get_frac_flux_peregrin
+    procedure, public  :: get_dep_stencil_extent_peregrin
     procedure, public  :: get_total_ref_flux
     procedure, public  :: set_total_ref_flux
     procedure, private :: get_max_stencil_extent
@@ -411,15 +404,11 @@ contains
     allocate( self%is_computed_stencil_extent( num_meshes, num_steps ) )
     allocate( self%is_computed_stencil_extent_outer( num_meshes, num_steps ) )
 
-    ! PEREGRIN departure quantities (horizontal only), separate x/y sets
-    allocate( self%dep_dist_peregrin_x( num_meshes, num_steps ) )
-    allocate( self%dep_dist_peregrin_y( num_meshes, num_steps ) )
-    allocate( self%frac_flux_peregrin_x( num_meshes, num_steps ) )
-    allocate( self%frac_flux_peregrin_y( num_meshes, num_steps ) )
-    allocate( self%dep_stencil_extent_peregrin_x( num_meshes, num_steps ) )
-    allocate( self%dep_stencil_extent_peregrin_y( num_meshes, num_steps ) )
-    allocate( self%is_computed_stencil_extent_peregrin_x( num_meshes, num_steps ) )
-    allocate( self%is_computed_stencil_extent_peregrin_y( num_meshes, num_steps ) )
+    ! PEREGRIN departure quantities (horizontal only), one set per axis label
+    allocate( self%dep_dist_peregrin( 3, num_meshes, num_steps ) )
+    allocate( self%frac_flux_peregrin( 3, num_meshes, num_steps ) )
+    allocate( self%dep_stencil_extent_peregrin( 3, num_meshes, num_steps ) )
+    allocate( self%is_computed_stencil_extent_peregrin( 3, num_meshes, num_steps ) )
 
     ! Set name used for logging properties, based on arguments
     if (present(ref_field)) then
@@ -434,12 +423,10 @@ contains
     if (share_stencil_extent .and. self%max_stencil_extent_computed) then
       self%dep_stencil_extent(:,:) = self%max_stencil_extent
       self%dep_stencil_extent_outer(:,:) = self%max_stencil_extent
-      self%dep_stencil_extent_peregrin_x(:,:) = self%max_stencil_extent
-      self%dep_stencil_extent_peregrin_y(:,:) = self%max_stencil_extent
+      self%dep_stencil_extent_peregrin(:,:,:) = self%max_stencil_extent
       self%is_computed_stencil_extent(:,:) = .true.
       self%is_computed_stencil_extent_outer(:,:) = .true.
-      self%is_computed_stencil_extent_peregrin_x(:,:) = .true.
-      self%is_computed_stencil_extent_peregrin_y(:,:) = .true.
+      self%is_computed_stencil_extent_peregrin(:,:,:) = .true.
     end if
 
     ! ------------------------------------------------------------------------ !
@@ -608,8 +595,7 @@ contains
     self%is_initialised_flag = .true.
     self%is_computed_stencil_extent(:,:) = .false.
     self%is_computed_stencil_extent_outer(:,:) = .false.
-    self%is_computed_stencil_extent_peregrin_x(:,:) = .false.
-    self%is_computed_stencil_extent_peregrin_y(:,:) = .false.
+    self%is_computed_stencil_extent_peregrin(:,:,:) = .false.
 
     ! Set transporting wind and dt, used for logging
     self%transporting_wind => wind
@@ -666,22 +652,14 @@ contains
                                              deallocate( self%is_computed_stencil_extent )
     if ( allocated( self%is_computed_stencil_extent_outer ) )                  &
                                              deallocate( self%is_computed_stencil_extent_outer )
-    if ( allocated( self%dep_dist_peregrin_x ) )                               &
-                                             deallocate( self%dep_dist_peregrin_x )
-    if ( allocated( self%dep_dist_peregrin_y ) )                               &
-                                             deallocate( self%dep_dist_peregrin_y )
-    if ( allocated( self%frac_flux_peregrin_x ) )                              &
-                                             deallocate( self%frac_flux_peregrin_x )
-    if ( allocated( self%frac_flux_peregrin_y ) )                              &
-                                             deallocate( self%frac_flux_peregrin_y )
-    if ( allocated( self%dep_stencil_extent_peregrin_x ) )                     &
-                                             deallocate( self%dep_stencil_extent_peregrin_x )
-    if ( allocated( self%dep_stencil_extent_peregrin_y ) )                     &
-                                             deallocate( self%dep_stencil_extent_peregrin_y )
-    if ( allocated( self%is_computed_stencil_extent_peregrin_x ) )             &
-                                             deallocate( self%is_computed_stencil_extent_peregrin_x )
-    if ( allocated( self%is_computed_stencil_extent_peregrin_y ) )             &
-                                             deallocate( self%is_computed_stencil_extent_peregrin_y )
+    if ( allocated( self%dep_dist_peregrin ) )                                 &
+                                             deallocate( self%dep_dist_peregrin )
+    if ( allocated( self%frac_flux_peregrin ) )                                &
+                                             deallocate( self%frac_flux_peregrin )
+    if ( allocated( self%dep_stencil_extent_peregrin ) )                       &
+                                             deallocate( self%dep_stencil_extent_peregrin )
+    if ( allocated( self%is_computed_stencil_extent_peregrin ) )               &
+                                             deallocate( self%is_computed_stencil_extent_peregrin )
 
   end subroutine finalise
 
@@ -1695,18 +1673,21 @@ contains
 
   end function get_dep_highest_k
 
-  !> @brief Returns the PEREGRIN departure distance, calculated from
-  !!        remapped_flux_x, for a particular horizontal transport step
+  !> @brief Returns the PEREGRIN departure distance, calculated from the
+  !!        remapped flux with a given axis label, for a particular horizontal
+  !!        transport step
   !> @param[in]  mesh_id  Identifier of the mesh to get the field for
   !> @param[in]  step     Index of the split step (of whole transport step)
-  !> @return The PEREGRIN x departure distance for the given mesh and step
-  function get_dep_dist_peregrin_x(self, mesh_id, step) result(dep_dist)
+  !> @param[in]  axis     Axis label (1 to 3) of the remapped flux
+  !> @return The PEREGRIN departure distance for the given mesh, step and axis
+  function get_dep_dist_peregrin(self, mesh_id, step, axis) result(dep_dist)
 
     implicit none
 
     class(flux_precomputations_type), target, intent(inout) :: self
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def),                      intent(in)    :: axis
 
     ! Internal variables
     integer(kind=i_def)              :: mesh_idx, step_idx
@@ -1716,55 +1697,29 @@ contains
     step_idx = MOD(step - 1, self%num_steps) + 1
     mesh_idx = self%idx_from_mesh_id(mesh_id)
 
-    if (.not. self%dep_dist_peregrin_x(mesh_idx, step_idx)%is_initialised()) then
+    if (.not. self%dep_dist_peregrin(axis, mesh_idx, step_idx)%is_initialised()) then
       call self%compute_dep_dist_inner_peregrin(mesh_id, step)
     end if
 
-    dep_dist => self%dep_dist_peregrin_x(mesh_idx, step_idx)
+    dep_dist => self%dep_dist_peregrin(axis, mesh_idx, step_idx)
 
-  end function get_dep_dist_peregrin_x
+  end function get_dep_dist_peregrin
 
-  !> @brief Returns the PEREGRIN departure distance, calculated from
-  !!        remapped_flux_y, for a particular horizontal transport step
+  !> @brief Returns the PEREGRIN fractional flux, calculated from the
+  !!        remapped flux with a given axis label, for a particular horizontal
+  !!        transport step
   !> @param[in]  mesh_id  Identifier of the mesh to get the field for
   !> @param[in]  step     Index of the split step (of whole transport step)
-  !> @return The PEREGRIN y departure distance for the given mesh and step
-  function get_dep_dist_peregrin_y(self, mesh_id, step) result(dep_dist)
+  !> @param[in]  axis     Axis label (1 to 3) of the remapped flux
+  !> @return The PEREGRIN fractional flux for the given mesh, step and axis
+  function get_frac_flux_peregrin(self, mesh_id, step, axis) result(frac_flux)
 
     implicit none
 
     class(flux_precomputations_type), target, intent(inout) :: self
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: step
-
-    ! Internal variables
-    integer(kind=i_def)              :: mesh_idx, step_idx
-    type(r_tran_field_type), pointer :: dep_dist
-
-    ! If substepping, step can exceed num_steps, so take that into account here
-    step_idx = MOD(step - 1, self%num_steps) + 1
-    mesh_idx = self%idx_from_mesh_id(mesh_id)
-
-    if (.not. self%dep_dist_peregrin_y(mesh_idx, step_idx)%is_initialised()) then
-      call self%compute_dep_dist_inner_peregrin(mesh_id, step)
-    end if
-
-    dep_dist => self%dep_dist_peregrin_y(mesh_idx, step_idx)
-
-  end function get_dep_dist_peregrin_y
-
-  !> @brief Returns the PEREGRIN fractional flux, calculated from
-  !!        remapped_flux_x, for a particular horizontal transport step
-  !> @param[in]  mesh_id  Identifier of the mesh to get the field for
-  !> @param[in]  step     Index of the split step (of whole transport step)
-  !> @return The PEREGRIN x fractional flux for the given mesh and step
-  function get_frac_flux_peregrin_x(self, mesh_id, step) result(frac_flux)
-
-    implicit none
-
-    class(flux_precomputations_type), target, intent(inout) :: self
-    integer(kind=i_def),                      intent(in)    :: mesh_id
-    integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def),                      intent(in)    :: axis
 
     ! Internal variables
     integer(kind=i_def)              :: mesh_idx, step_idx
@@ -1774,56 +1729,29 @@ contains
     step_idx = MOD(step - 1, self%num_steps) + 1
     mesh_idx = self%idx_from_mesh_id(mesh_id)
 
-    if (.not. self%frac_flux_peregrin_x(mesh_idx, step_idx)%is_initialised()) then
+    if (.not. self%frac_flux_peregrin(axis, mesh_idx, step_idx)%is_initialised()) then
       call self%compute_dep_dist_inner_peregrin(mesh_id, step)
     end if
 
-    frac_flux => self%frac_flux_peregrin_x(mesh_idx, step_idx)
+    frac_flux => self%frac_flux_peregrin(axis, mesh_idx, step_idx)
 
-  end function get_frac_flux_peregrin_x
+  end function get_frac_flux_peregrin
 
-  !> @brief Returns the PEREGRIN fractional flux, calculated from
-  !!        remapped_flux_y, for a particular horizontal transport step
-  !> @param[in]  mesh_id  Identifier of the mesh to get the field for
-  !> @param[in]  step     Index of the split step (of whole transport step)
-  !> @return The PEREGRIN y fractional flux for the given mesh and step
-  function get_frac_flux_peregrin_y(self, mesh_id, step) result(frac_flux)
-
-    implicit none
-
-    class(flux_precomputations_type), target, intent(inout) :: self
-    integer(kind=i_def),                      intent(in)    :: mesh_id
-    integer(kind=i_def),                      intent(in)    :: step
-
-    ! Internal variables
-    integer(kind=i_def)              :: mesh_idx, step_idx
-    type(r_tran_field_type), pointer :: frac_flux
-
-    ! If substepping, step can exceed num_steps, so take that into account here
-    step_idx = MOD(step - 1, self%num_steps) + 1
-    mesh_idx = self%idx_from_mesh_id(mesh_id)
-
-    if (.not. self%frac_flux_peregrin_y(mesh_idx, step_idx)%is_initialised()) then
-      call self%compute_dep_dist_inner_peregrin(mesh_id, step)
-    end if
-
-    frac_flux => self%frac_flux_peregrin_y(mesh_idx, step_idx)
-
-  end function get_frac_flux_peregrin_y
-
-  !> @brief Returns the stencil extent required for the PEREGRIN x (from
-  !!        remapped_flux_x) departure distances for a particular horizontal
+  !> @brief Returns the stencil extent required for the PEREGRIN departure
+  !!        distances of a given axis label, for a particular horizontal
   !!        transport step
   !> @param[in]  mesh_id  Identifier of the mesh to get the value for
   !> @param[in]  step     Index of the split step (of whole transport step)
-  !> @return The PEREGRIN x stencil extent for the given mesh and step
-  function get_dep_stencil_extent_peregrin_x(self, mesh_id, step) result(stencil_extent)
+  !> @param[in]  axis     Axis label (1 to 3) of the remapped flux
+  !> @return The PEREGRIN stencil extent for the given mesh, step and axis
+  function get_dep_stencil_extent_peregrin(self, mesh_id, step, axis) result(stencil_extent)
 
     implicit none
 
     class(flux_precomputations_type), target, intent(inout) :: self
     integer(kind=i_def),                      intent(in)    :: mesh_id
     integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def),                      intent(in)    :: axis
 
     ! Internal variables
     integer(kind=i_def)              :: mesh_idx, step_idx
@@ -1837,20 +1765,20 @@ contains
     step_idx = MOD(step - 1, self%num_steps) + 1
     mesh_idx = self%idx_from_mesh_id(mesh_id)
 
-    if (self%is_computed_stencil_extent_peregrin_x(mesh_idx, step_idx)) then
-      stencil_extent = self%dep_stencil_extent_peregrin_x(mesh_idx, step_idx)
+    if (self%is_computed_stencil_extent_peregrin(axis, mesh_idx, step_idx)) then
+      stencil_extent = self%dep_stencil_extent_peregrin(axis, mesh_idx, step_idx)
 
     else if (self%max_stencil_extent_computed .and. share_stencil_extent) then
       ! We have computed the max_stencil_extent, but not the stencil extent
       ! for this set of departure distances
       stencil_extent = self%max_stencil_extent
-      self%is_computed_stencil_extent_peregrin_x(mesh_idx, step_idx) = .true.
-      self%dep_stencil_extent_peregrin_x(mesh_idx, step_idx) = stencil_extent
+      self%is_computed_stencil_extent_peregrin(axis, mesh_idx, step_idx) = .true.
+      self%dep_stencil_extent_peregrin(axis, mesh_idx, step_idx) = stencil_extent
 
     else
       ! Not yet computed, so compute it here
       mesh => mesh_collection%get_mesh(mesh_id)
-      dep_dist => self%get_dep_dist_peregrin_x(mesh_id, step)
+      dep_dist => self%get_dep_dist_peregrin(mesh_id, step, axis)
 
       if ( LPROF ) call start_timing( id, 'transport.flux_precomp' )
 
@@ -1862,8 +1790,8 @@ contains
       ! Cap the stencil extent by dep_pt_stencil_extent
       stencil_extent = MAX(MIN(stencil_extent, dep_pt_stencil_extent), 1)
 
-      self%dep_stencil_extent_peregrin_x(mesh_idx, step_idx) = stencil_extent
-      self%is_computed_stencil_extent_peregrin_x(mesh_idx, step_idx) = .true.
+      self%dep_stencil_extent_peregrin(axis, mesh_idx, step_idx) = stencil_extent
+      self%is_computed_stencil_extent_peregrin(axis, mesh_idx, step_idx) = .true.
 
       if (.not. self%max_stencil_extent_computed .and. share_stencil_extent) then
         self%max_stencil_extent = stencil_extent
@@ -1873,71 +1801,7 @@ contains
       if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
     end if
 
-  end function get_dep_stencil_extent_peregrin_x
-
-  !> @brief Returns the stencil extent required for the PEREGRIN y (from
-  !!        remapped_flux_y) departure distances for a particular horizontal
-  !!        transport step
-  !> @param[in]  mesh_id  Identifier of the mesh to get the value for
-  !> @param[in]  step     Index of the split step (of whole transport step)
-  !> @return The PEREGRIN y stencil extent for the given mesh and step
-  function get_dep_stencil_extent_peregrin_y(self, mesh_id, step) result(stencil_extent)
-
-    implicit none
-
-    class(flux_precomputations_type), target, intent(inout) :: self
-    integer(kind=i_def),                      intent(in)    :: mesh_id
-    integer(kind=i_def),                      intent(in)    :: step
-
-    ! Internal variables
-    integer(kind=i_def)              :: mesh_idx, step_idx
-    integer(kind=i_def)              :: stencil_extent
-    real(kind=r_tran)                :: dep_min, dep_max
-    type(mesh_type),         pointer :: mesh
-    type(r_tran_field_type), pointer :: dep_dist
-    integer(tik)                     :: id
-
-    ! If substepping, step can exceed num_steps, so take that into account here
-    step_idx = MOD(step - 1, self%num_steps) + 1
-    mesh_idx = self%idx_from_mesh_id(mesh_id)
-
-    if (self%is_computed_stencil_extent_peregrin_y(mesh_idx, step_idx)) then
-      stencil_extent = self%dep_stencil_extent_peregrin_y(mesh_idx, step_idx)
-
-    else if (self%max_stencil_extent_computed .and. share_stencil_extent) then
-      ! We have computed the max_stencil_extent, but not the stencil extent
-      ! for this set of departure distances
-      stencil_extent = self%max_stencil_extent
-      self%is_computed_stencil_extent_peregrin_y(mesh_idx, step_idx) = .true.
-      self%dep_stencil_extent_peregrin_y(mesh_idx, step_idx) = stencil_extent
-
-    else
-      ! Not yet computed, so compute it here
-      mesh => mesh_collection%get_mesh(mesh_id)
-      dep_dist => self%get_dep_dist_peregrin_y(mesh_id, step)
-
-      if ( LPROF ) call start_timing( id, 'transport.flux_precomp' )
-
-      ! We can shorten the stencil extent to the Courant number
-      call get_field_minmax(dep_dist, dep_min, dep_max)
-      dep_max = MAX(ABS(dep_max), ABS(dep_min))
-      stencil_extent = CEILING(dep_max, i_def)
-
-      ! Cap the stencil extent by dep_pt_stencil_extent
-      stencil_extent = MAX(MIN(stencil_extent, dep_pt_stencil_extent), 1)
-
-      self%dep_stencil_extent_peregrin_y(mesh_idx, step_idx) = stencil_extent
-      self%is_computed_stencil_extent_peregrin_y(mesh_idx, step_idx) = .true.
-
-      if (.not. self%max_stencil_extent_computed .and. share_stencil_extent) then
-        self%max_stencil_extent = stencil_extent
-        self%max_stencil_extent_computed = .true.
-      end if
-
-      if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
-    end if
-
-  end function get_dep_stencil_extent_peregrin_y
+  end function get_dep_stencil_extent_peregrin
 
   !> @brief Returns the departure distance for a particular transport step
   !> @param[in]  mesh_id    Identifier of the mesh to get the value for
@@ -2334,18 +2198,16 @@ contains
     integer(kind=i_def)                :: direction
     integer(kind=i_def)                :: dep_stencil_extent
     integer(kind=i_def)                :: ndata
+    integer(kind=i_def)                :: axis
     type(mesh_type),           pointer :: mesh
     type(mesh_type),           pointer :: twod_mesh
     type(function_space_type), pointer :: w2_fs
     type(function_space_type), pointer :: depk_fs
     type(r_tran_field_type),   pointer :: ref_mass
     type(r_tran_field_type),   pointer :: ref_flux
-    type(r_tran_field_type)            :: remapped_flux_x
-    type(r_tran_field_type)            :: remapped_flux_y
-    type(integer_field_type)           :: dep_lowest_k_tmp_x
-    type(integer_field_type)           :: dep_highest_k_tmp_x
-    type(integer_field_type)           :: dep_lowest_k_tmp_y
-    type(integer_field_type)           :: dep_highest_k_tmp_y
+    type(r_tran_field_type)            :: remapped_flux(3)
+    type(integer_field_type)           :: dep_lowest_k_tmp
+    type(integer_field_type)           :: dep_highest_k_tmp
     character(len=str_def)             :: field_name
     integer(tik)                       :: id
 
@@ -2387,61 +2249,44 @@ contains
     dep_stencil_extent = self%get_max_stencil_extent()
 
     ! Remap the reference wind flux near panel edges, using the donor-stencil
-    ! W2H remap. remapped_flux_x has S/N faces corrected (W/E faces are the
-    ! identity, i.e. equal to ref_flux there); remapped_flux_y has W/E faces
-    ! corrected (S/N faces are the identity). Separate PEREGRIN departure
-    ! quantities are computed from each, rather than combining them into a
-    ! single field.
+    ! W2H remap. Each remapped flux holds the eaves whose neighbouring panels
+    ! share one axis label. Separate PEREGRIN departure quantities are
+    ! computed from each, rather than combining them into a single field.
     w2_fs => ref_flux%get_function_space()
-    call ref_flux%copy_field_properties(remapped_flux_x)
-    call ref_flux%copy_field_properties(remapped_flux_y)
+    do axis = 1, 3
+      call ref_flux%copy_field_properties(remapped_flux(axis))
+    end do
 
-    call panel_edge_remap_w2h_alg(remapped_flux_x, remapped_flux_y, ref_flux, &
-                                  dep_stencil_extent)
-
-    call self%dep_dist_peregrin_x(mesh_idx, step_idx)%initialise(w2_fs)
-    call self%frac_flux_peregrin_x(mesh_idx, step_idx)%initialise(w2_fs)
-    call self%dep_dist_peregrin_y(mesh_idx, step_idx)%initialise(w2_fs)
-    call self%frac_flux_peregrin_y(mesh_idx, step_idx)%initialise(w2_fs)
+    call panel_edge_remap_w2h_alg(remapped_flux, ref_flux, dep_stencil_extent)
 
     ndata = 2*dep_stencil_extent + 1
     twod_mesh => mesh_collection%get_mesh(ref_flux%get_mesh(), TWOD)
     depk_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W2H, ndata)
     ! dep_lowest_k_tmp/dep_highest_k_tmp are required by calc_ffsl_hori_dep_pts
     ! but are not needed by, and so are not stored for, the PEREGRIN step
-    call dep_lowest_k_tmp_x%initialise(depk_fs)
-    call dep_highest_k_tmp_x%initialise(depk_fs)
-    call dep_lowest_k_tmp_y%initialise(depk_fs)
-    call dep_highest_k_tmp_y%initialise(depk_fs)
+    call dep_lowest_k_tmp%initialise(depk_fs)
+    call dep_highest_k_tmp%initialise(depk_fs)
 
-    call calc_ffsl_hori_dep_pts(                                               &
-            self%dep_dist_peregrin_x(mesh_idx, step_idx),                      &
-            self%frac_flux_peregrin_x(mesh_idx, step_idx),                     &
-            dep_lowest_k_tmp_x, dep_highest_k_tmp_x,                           &
-            remapped_flux_x, ref_mass, ref_mass, dep_stencil_extent            &
-    )
+    do axis = 1, 3
+      call self%dep_dist_peregrin(axis, mesh_idx, step_idx)%initialise(w2_fs)
+      call self%frac_flux_peregrin(axis, mesh_idx, step_idx)%initialise(w2_fs)
 
-    call calc_ffsl_hori_dep_pts(                                               &
-            self%dep_dist_peregrin_y(mesh_idx, step_idx),                      &
-            self%frac_flux_peregrin_y(mesh_idx, step_idx),                     &
-            dep_lowest_k_tmp_y, dep_highest_k_tmp_y,                           &
-            remapped_flux_y, ref_mass, ref_mass, dep_stencil_extent            &
-    )
-
-    if (log_at_level(LOG_LEVEL_DEBUG)) then
-      write(field_name, '(2A,I8)')                                             &
-          adjustl(trim(self%name)), ' dep_dist_xy_peregrin_x, step ', step
-      call log_field_minmax(                                                   &
-              LOG_LEVEL_DEBUG, field_name,                                     &
-              self%dep_dist_peregrin_x(mesh_idx, step_idx)                     &
+      call calc_ffsl_hori_dep_pts(                                             &
+              self%dep_dist_peregrin(axis, mesh_idx, step_idx),                &
+              self%frac_flux_peregrin(axis, mesh_idx, step_idx),               &
+              dep_lowest_k_tmp, dep_highest_k_tmp,                             &
+              remapped_flux(axis), ref_mass, ref_mass, dep_stencil_extent      &
       )
-      write(field_name, '(2A,I8)')                                             &
-          adjustl(trim(self%name)), ' dep_dist_xy_peregrin_y, step ', step
-      call log_field_minmax(                                                   &
-              LOG_LEVEL_DEBUG, field_name,                                     &
-              self%dep_dist_peregrin_y(mesh_idx, step_idx)                     &
-      )
-    end if
+
+      if (log_at_level(LOG_LEVEL_DEBUG)) then
+        write(field_name, '(2A,I1,A,I8)')                                      &
+            adjustl(trim(self%name)), ' dep_dist_peregrin_', axis, ', step ', step
+        call log_field_minmax(                                                 &
+                LOG_LEVEL_DEBUG, field_name,                                   &
+                self%dep_dist_peregrin(axis, mesh_idx, step_idx)               &
+        )
+      end if
+    end do
 
     if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
 
