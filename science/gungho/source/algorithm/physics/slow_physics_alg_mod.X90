@@ -32,9 +32,8 @@ module slow_physics_alg_mod
   use driver_modeldb_mod,        only: modeldb_type
   use field_parent_mod,          only: write_interface
   use mixing_config_mod,         only: leonard_term
-  use print_field_stats_alg_mod, only: print_field_stats_alg
-  use print_nan_loc_alg_mod,     only: print_nan_loc_alg
-  use sci_field_minmax_alg_mod,  only: log_field_minmax
+  use log_scalar_alg_mod,        only: log_scalar_minmax
+  use log_w2_alg_mod,            only: log_w2_minmax
   use physics_config_mod,        only: microphysics_placement,         &
                                        microphysics_placement_slow,    &
                                        electric_placement,             &
@@ -383,7 +382,6 @@ contains
     !--------------------------------------------------------------------
     call invoke( setval_c(dtheta, 0.0_r_def), &
                  setval_c(du, 0.0_r_def) )
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta slow start', theta)
     call derived_fields%get_field('exner_in_wth', exner_in_wth)
     call derived_fields%get_field('exner_wth_n', exner_wth_n)
     call invoke( setval_X(exner_wth_n,exner_in_wth) )
@@ -429,10 +427,6 @@ contains
                                 dmcl_forcing, dcfl_forcing, dbcf_forcing,      &
                                 theta_forcing_done, vapour_forcing_done,       &
                                 wind_forcing_done)
-      if (theta_forcing_done) then
-        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_forcing slow', &
-                              dtheta_forcing)
-      end if
     end if
 
     !--------------------------------------------------------------------
@@ -445,7 +439,6 @@ contains
       call invoke( setval_c(dtheta_encorr, dtemp_encorr),          &
                    inc_X_divideby_Y(dtheta_encorr, exner_in_wth) )
       energy_correction_done = .true.
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_encorr slow', dtheta_encorr)
     end if
 
 #ifdef UM_PHYSICS
@@ -591,7 +584,6 @@ contains
         call um_sizes_init(1_i_def)
       end if
       microphysics_done = .true. ! Collect this increment later on
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_mphys slow', dtheta_mphys)
       call f_arr%field_final()
     end if
 
@@ -768,7 +760,6 @@ contains
                           dt)
       call um_sizes_init(1_i_def)
       radiation_done = .true. ! Collect this increment later on
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_rad slow', dtheta_rad)
       call tile_lw_albedo%field_final()
       call tile_lwinc_albedo%field_final()
       call tile_sw_diffuse_albedo%field_final()
@@ -840,8 +831,6 @@ contains
                             convection_fields,   &
                             theta, u)
       spectral_gwd_done = .true. ! Collect this increment later on
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_spectral_gwd slow', &
-                            dtheta_spectral_gwd)
     end if
 
     !--------------------------------------------------------------------
@@ -859,8 +848,6 @@ contains
                                theta, u,               &
                                mr_n)
       orographic_drag_done = .true. ! Collect this increment later on
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_orographic_drag slow', &
-                            dtheta_orographic_drag)
     end if
 
     ! Call methane oxidation code
@@ -946,9 +933,6 @@ contains
                             turbulence_fields, derived_fields,  &
                             dt, clock)
       leonard_term_done = .true. ! Collect this increment later on
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'thetal_inc_leonard slow', &
-                            thetal_inc_leonard)
-
     end if
 
     !--------------------------------------------------------------------
@@ -994,7 +978,6 @@ contains
                                              exner_in_wth,                     &
                                              Rd, Rv, cp, cpv, cl, p_zero) )
       evap_condense_done = .true.
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_cld slow', dtheta_cld)
     end if
 
     !=====================================================================
@@ -1103,7 +1086,6 @@ contains
       end do
       call dtheta_cld%field_final()
     end if
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after increments', dtheta)
 
 #ifdef UM_PHYSICS
     !--------------------------------------------------------------------
@@ -1147,10 +1129,6 @@ contains
                     inc_X_plus_Y(liquid_fraction, dcfl_pc2_checks),   &
                     inc_X_plus_Y(frozen_fraction, dcff_pc2_checks),   &
                     inc_X_plus_Y(bulk_fraction,   dbcf_pc2_checks)    )
-        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_pc2_checks slow', &
-                              dtheta_pc2_checks)
-        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after pc2 checks', &
-                              dtheta)
       end if ! (microphysics_done .or. radiation_done))
 
     end if ! (scheme == scheme_pc2)
@@ -1209,11 +1187,6 @@ contains
                   inc_X_plus_Y(dtheta, dtheta_tmp), &
                   inc_X_plus_Y(u_latest, du_tmp), &
                   inc_X_plus_Y(du, du_tmp) )
-      call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after convection', &
-                            dtheta)
-      call log_field_minmax(LOG_LEVEL_DEBUG, &
-                            'theta_latest slow after convection', theta_latest)
-
     end if
 
     !--------------------------------------------------------------------
@@ -1237,7 +1210,6 @@ contains
         call invoke(inc_X_plus_Y(dtheta, dtheta_tmp), &
                     inc_X_plus_Y(du, du_tmp) )
                     ! u_latest and theta_latest not updated as not used again
-        call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after bl', dtheta)
 
     !--------------------------------------------------------------------
     ! Jules surface and sub-surface (snow and hydrology)
@@ -1263,13 +1235,8 @@ contains
     end if ! bl
 #endif
 
-    call print_field_stats_alg( modeldb%config, dtheta, LOG_LEVEL_INFO,    &
-                                printmin=-20.0_r_def, printmax=20.0_r_def, &
-                                name='dtheta slow' )
-
-    call print_nan_loc_alg(modeldb%config, dtheta, LOG_LEVEL_DEBUG, 'dtheta slow')
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow', dtheta)
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'du slow', du)
+    call log_scalar_minmax(modeldb%config, 'dtheta slow', dtheta)
+    call log_w2_minmax(modeldb%config, 'du slow', du)
 
     if ( moisture_formulation /= moisture_formulation_dry ) then
       do i_mr = 1, nummr
