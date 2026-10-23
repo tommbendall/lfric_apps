@@ -6,6 +6,7 @@
 
 module log_scalar_alg_mod
 
+  use config_mod,                    only: config_type
   use constants_mod,                 only: r_def, l_def, i_def
   use field_mod,                     only: field_type
   use function_space_collection_mod, only: function_space_collection
@@ -36,6 +37,7 @@ contains
 
     implicit none
 
+    type(config_type),   intent(in) :: config
     character(len=*),    intent(in) :: message
     type(field_type),    intent(in) :: field
 
