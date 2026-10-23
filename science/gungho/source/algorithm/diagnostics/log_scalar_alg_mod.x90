@@ -41,7 +41,7 @@ contains
     type(field_type),    intent(in) :: field
 
     integer(kind=i_def)                :: idx
-    integer(kind=i_def),   allocatable :: column_ids
+    integer(kind=i_def),   allocatable :: column_ids(:)
 
     call log_event(message, LOG_LEVEL_INFO)
     call print_field_stats_alg(config, field, LOG_LEVEL_INFO,                  &

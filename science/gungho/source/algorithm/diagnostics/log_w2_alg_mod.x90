@@ -57,7 +57,7 @@ contains
     type(field_type)                   :: u_w2h_physics, etadot_wth
     type(field_type)                   :: u_in_w2h, v_in_w2h, w_in_wth
     integer(kind=i_def)                :: idx
-    integer(kind=i_def),   allocatable :: column_ids
+    integer(kind=i_def),   allocatable :: column_ids(:)
 
     mesh => field%get_mesh()
     dA => get_dA_at_w2(mesh)
