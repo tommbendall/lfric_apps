@@ -16,6 +16,7 @@ module predictors_alg_mod
 
   ! Constants and types
   use constants_mod,              only: r_def
+  use config_mod,                 only: config_type
   use sci_fem_constants_mod,      only: get_im3_div_fe, &
                                         get_im3_div_fv
   use field_indices_mod,          only: igh_u, igh_d
@@ -40,6 +41,8 @@ module predictors_alg_mod
   use sci_hori_mass_matrix_solver_alg_mod, &
                                   only: hori_mass_matrix_solver_alg
 
+  use log_w2_alg_mod,       only : log_w2_minmax
+
   implicit none
 
   private
@@ -59,7 +62,8 @@ contains
   !> @param[in]     rhs_n          The RHS terms for u at time n
   !> @param[in]     beta           The time n centring parameter
   !> @param[in]     model_clock    Time within the model
-  subroutine predictors_alg( advected_state, &
+  subroutine predictors_alg( config,         &
+                             advected_state, &
                              wind,           &
                              rhs_n,          &
                              beta,           &
@@ -68,6 +72,7 @@ contains
     implicit none
 
     ! Arguments
+    type( config_type ),       intent(in)    :: config
     type( field_type ),        intent(inout) :: advected_state(bundle_size)
     type( field_type ),        intent(in)    :: wind
     type( field_type ),        intent(in)    :: rhs_n
@@ -96,6 +101,7 @@ contains
       else
         call mass_matrix_solver_alg(advected_state(igh_u), rhs_n)
       end if
+      call log_w2_minmax(config, "u_transport_pred", advected_state(igh_u))
     end if
 
     ! Density predictor
