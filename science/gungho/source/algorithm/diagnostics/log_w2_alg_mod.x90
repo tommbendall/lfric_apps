@@ -99,7 +99,7 @@ contains
     allocate(column_ids(SIZE(config%logging%log_column_idxs())))
     column_ids = config%logging%log_column_idxs()
     do idx = 1, SIZE(column_ids)
-      call log_w2_column(message, u_physics, column_ids(idx))
+      call log_w2_column(message, field, column_ids(idx))
     end do
     deallocate(column_ids)
 
