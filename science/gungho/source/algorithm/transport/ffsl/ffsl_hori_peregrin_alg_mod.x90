@@ -553,7 +553,7 @@ contains
     ! TODO:
     ! NB: does setval_x on W2 fields before a halo exchange actually work properly???!
            setval_x(flux_big, flux),                                           &
-           setval_x(flux_edge_downwind_big, flux_edge_downwind)              &
+           setval_x(flux_edge_downwind_big, flux_edge_downwind),             &
            peregrin_unification_kernel_type(                                   &
                   flux, flux_big, stencil_extent_outer,                        &
                   flux_edge_downwind_big, stencil_extent_outer,                &
