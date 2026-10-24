@@ -55,6 +55,7 @@ module ffsl_hori_peregrin_alg_mod
   use ffsl_advective_updates_alg_mod,   only: swift_inner_update_tracer,       &
                                               ffsl_advective_increment
   use panel_edge_remap_alg_mod,         only: panel_edge_remap_alg
+  use panel_corner_remap_alg_mod,       only: panel_corner_remap_alg
 
   ! Kernels (existing)
   use fv_difference_x_kernel_mod,       only: fv_difference_x_kernel_type
@@ -195,6 +196,8 @@ contains
     type(r_tran_field_type) :: field_x_ry
     type(r_tran_field_type) :: field_n_rx
     type(r_tran_field_type) :: field_n_ry
+    type(r_tran_field_type) :: field_n_rx_corner
+    type(r_tran_field_type) :: field_n_ry_corner
 
     ! Fluxes and increments
     type(r_tran_field_type) :: flux_inner
@@ -214,8 +217,11 @@ contains
     integer(kind=i_def) :: mesh_id
     integer(kind=i_def) :: dep_stencil_extent_inner
     integer(kind=i_def) :: dep_stencil_extent_outer
+    integer(kind=i_def) :: stencil_extent_inner
+    integer(kind=i_def) :: stencil_extent_outer
     integer(kind=i_def) :: remap_extent
-    integer(kind=i_def) :: ndep
+    integer(kind=i_def) :: ndep_inner
+    integer(kind=i_def) :: ndep_outer
     integer(tik)        :: id
 
     if ( LPROF ) call start_timing( id, routine_name )
@@ -240,7 +246,6 @@ contains
     ! Function spaces
     field_fs => field_n%get_function_space()
     w2h_fs => function_space_collection%get_fs(mesh, 0, 0, W2H)
-    ndepk_fs => dep_lowest_k%get_function_space()
 
     if (present(compute_field_np1)) then
       to_compute_field_np1 = compute_field_np1
@@ -356,14 +361,24 @@ contains
       dep_dist_peregrin_3 => flux_precomputations%get_dep_dist_peregrin(mesh_id, step, 3)
     end if
 
-    ! The eave-remap depth needs to cover both the inner and outer flux
-    ! calculations
-    remap_extent = MAX(dep_stencil_extent_inner, dep_stencil_extent_outer)
-    ndep = ndepk_fs%get_ndata()
+    ! Stencil extents for the flux calculations: the departure extent plus the
+    ! order of the reconstruction (the eave remapping needs no extra points).
+    ! The eave-remap depth needs to cover both the inner and outer steps
+    stencil_extent_inner = MIN(                                                &
+        dep_stencil_extent_inner + ffsl_outer_order, mesh%get_halo_depth()     &
+    )
+    stencil_extent_outer = MIN(                                                &
+        dep_stencil_extent_outer + ffsl_outer_order, mesh%get_halo_depth()     &
+    )
+    remap_extent = MAX(stencil_extent_inner, stencil_extent_outer)
+    ndepk_fs => dep_lowest_k_inner%get_function_space()
+    ndep_inner = ndepk_fs%get_ndata()
+    ndepk_fs => dep_lowest_k_outer%get_function_space()
+    ndep_outer = ndepk_fs%get_ndata()
 
     ! Initialise fields ---------------------------------------------------------
-    call field_xp%initialise(field_fs)
-    call field_yp%initialise(field_fs)
+    call field_xp%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call field_yp%initialise(field_fs, halo_depth=mesh%get_halo_depth())
     call field_x%initialise(field_fs)
     call field_y%initialise(field_fs)
     call mass_flux%initialise(w2h_fs)
@@ -376,9 +391,9 @@ contains
     call increment_x%initialise(field_fs)
     call increment_y%initialise(field_fs)
 
-    call field_n_big%initialise(field_fs, halo_depth=remap_extent)
-    call field_x_big%initialise(field_fs, halo_depth=remap_extent)
-    call field_y_big%initialise(field_fs, halo_depth=remap_extent)
+    call field_n_big%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call field_x_big%initialise(field_fs, halo_depth=mesh%get_halo_depth())
+    call field_y_big%initialise(field_fs, halo_depth=mesh%get_halo_depth())
     call flux_big%initialise(w2h_fs, halo_depth=remap_extent)
     call flux_edge_downwind_big%initialise(w2h_fs, halo_depth=remap_extent)
 
@@ -395,20 +410,27 @@ contains
         remap_extent, monotone_remap, enforce_minvalue, min_val                &
     )
 
+    ! Corner-remap field_n, for use when the eave transport of field_n_rx /
+    ! field_n_ry itself crosses a panel edge (i.e. at a panel corner), as in
+    ! horizontal_sl_advective_alg
+    call panel_corner_remap_alg(                                               &
+        field_n_ry_corner, field_n_rx_corner, field_n_big,                     &
+        remap_extent, monotone_remap, enforce_minvalue, min_val                &
+    )
+
     ! Inner step ---------------------------------------------------------------
     ! Transport field_n with the PEREGRIN wind near panel edges, using a 1D SL
-    ! scheme, to give field_xp and field_yp. The kernel interface should look
-    ! like the existing horizontal SL kernels (horizontal_linear_sl_kernel_type),
-    ! but using the PEREGRIN corrected-flux departure quantities instead of
-    ! the usual ones.
-    ! TODO (3.4.1): call peregrin_eave_sl_kernel_mod once available:
+    ! scheme, to give field_xp and field_yp. This is the same eave transport as
+    ! in horizontal_sl_advective_alg: peregrin_eave_sl_kernel_mod takes the
+    ! eave-remapped and corner-remapped fields and the PEREGRIN corrected-flux
+    ! departure distances.
     call invoke(                                                               &
             peregrin_eave_sl_kernel_type(                                      &
                     field_xp, field_yp,                                        &
-                    field_n_big, dep_stencil_extent_inner,                     &
-                    field_n_big_copy, dep_stencil_extent_inner,                &
-                    field_n_rx, dep_stencil_extent_inner,                      &
-                    field_n_ry, dep_stencil_extent_inner,                      &
+                    field_n_rx, stencil_extent_inner,                          &
+                    field_n_ry, stencil_extent_inner,                          &
+                    field_n_rx_corner, stencil_extent_inner,                   &
+                    field_n_ry_corner, stencil_extent_inner,                   &
                     dep_dist_peregrin_1,                                       &
                     dep_dist_peregrin_2,                                       &
                     dep_dist_peregrin_3,                                       &
@@ -418,28 +440,26 @@ contains
     ! single kernel, using field_n away from panel edges and the eave-remapped
     ! fields (field_n_rx, field_n_ry) in the fractional reconstruction / flux
     ! calculation near panel edges, as set out in tracker step 3.3.
-    ! TODO (3.4.2): call peregrin_flux_kernel_mod once available:
             setval_c(flux_inner, 0.0_r_tran),                                  &
             setval_c(flux_inner_edge_downwind, 0.0_r_tran),                    &
             peregrin_flux_kernel_type(                                         &
                     flux_inner, flux_inner_edge_downwind,                      &
-                    field_n_big, dep_stencil_extent_inner,                     &
-                    field_n_rx, dep_stencil_extent_inner,                      &
-                    dry_mass_n, dep_stencil_extent_inner,                      &
-                    field_n_big_copy, dep_stencil_extent_inner,                &
-                    field_n_ry, dep_stencil_extent_inner,                      &
-                    dry_mass_n_copy, dep_stencil_extent_inner,                 &
+                    field_n_big, stencil_extent_inner,                         &
+                    field_n_rx, stencil_extent_inner,                          &
+                    dry_mass_n, stencil_extent_inner,                          &
+                    field_n_big_copy, stencil_extent_inner,                    &
+                    field_n_ry, stencil_extent_inner,                          &
+                    dry_mass_n_copy, stencil_extent_inner,                     &
                     dep_dist_inner, frac_flux_inner,                           &
                     dep_lowest_k_inner, dep_highest_k_inner,                   &
                     panel_id,                                                  &
-                    panel_edge_dist(1:2), stencil_extent,                      &
-                    panel_edge_dist(3:4), stencil_extent,                      &
+                    panel_edge_dist(1:2), stencil_extent_inner,                &
+                    panel_edge_dist(3:4), stencil_extent_inner,                &
                     face_selector_ew, face_selector_ns,                        &
-                    ffsl_outer_order, monotone, min_val, ndep, step_dt         &
+                    ffsl_outer_order, monotone, min_val, ndep_inner, step_dt   &
             ),                                                                 &
     ! Calculate advective form of inner transported fields, using the appropriate
     ! value of flux_inner / flux_inner_edge_downwind next to the panel edge.
-    ! TODO (3.4.3): call peregrin_divergence_kernel_mod once available:
             peregrin_divergence_kernel_type(                                   &
                     field_x, field_y, field_n,                                 &
                     flux_inner, flux_inner_edge_downwind,                      &
@@ -463,25 +483,24 @@ contains
     ! the "outer" departure quantities. When a flux crosses a panel edge,
     ! field_xp and field_yp are used in the appropriate places instead of the
     ! eave-remapped inner fields.
-    ! TODO (3.4.2): call peregrin_flux_kernel_mod once available:
     call invoke(                                                               &
             setval_c(flux_outer, 0.0_r_tran),                                  &
             setval_c(flux_outer_edge_downwind, 0.0_r_tran),                    &
             peregrin_flux_kernel_type(                                         &
                     flux_outer, flux_outer_edge_downwind,                      &
-                    field_y_big, dep_stencil_extent_outer,                     &
-                    field_x_big, dep_stencil_extent_outer,                     &
-                    field_y_rx, dep_stencil_extent_outer,                      &
-                    field_x_ry, dep_stencil_extent_outer,                      &
-                    dry_mass_y, dep_stencil_extent_outer,                      &
-                    dry_mass_x, dep_stencil_extent_outer,                      &
+                    field_y_big, stencil_extent_outer,                         &
+                    field_yp, stencil_extent_outer,                            &
+                    dry_mass_y, stencil_extent_outer,                          &
+                    field_x_big, stencil_extent_outer,                         &
+                    field_xp, stencil_extent_outer,                            &
+                    dry_mass_x, stencil_extent_outer,                          &
                     dep_dist_outer, frac_flux_outer,                           &
                     dep_lowest_k_outer, dep_highest_k_outer,                   &
                     panel_id,                                                  &
-                    panel_edge_dist(1:2), stencil_extent,                      &
-                    panel_edge_dist(3:4), stencil_extent,                      &
+                    panel_edge_dist(1:2), stencil_extent_outer,                &
+                    panel_edge_dist(3:4), stencil_extent_outer,                &
                     face_selector_ew, face_selector_ns,                        &
-                    ffsl_outer_order, monotone, min_val, ndep, step_dt         &
+                    ffsl_outer_order, monotone, min_val, ndep_outer, step_dt   &
             ),                                                                 &
     ! Combine fluxes from inner and outer steps (by averaging) -----------------
             aX_plus_bY(flux, 0.5_r_tran, flux_inner, 0.5_r_tran, flux_outer),  &
@@ -493,12 +512,13 @@ contains
     ! Unify flux and flux_edge_downwind, spreading the mass "gap" at the panel
     ! edge out over the downwind stencil, based on the Courant number at the
     ! edge.
-    ! TODO (3.4.4): call peregrin_unification_kernel_mod once available:
+    ! TODO:
+    ! NB: does setval_x on W2 fields before a halo exchange actually work properly???!
            setval_x(flux_big, flux),                                           &
            setval_x(flux_edge_downwind_big, flux_edge_downwind),               &
            peregrin_unification_kernel_type(                                   &
-                  flux, flux_big, dep_stencil_extent_outer,                    &
-                  flux_edge_downwind_big, dep_stencil_extent_outer,            &
+                  flux, flux_big, stencil_extent_outer,                        &
+                  flux_edge_downwind_big, stencil_extent_outer,                &
                   dep_dist_outer, panel_edge_dist,                             &
                   face_selector_ew, face_selector_ns                           &
             )                                                                  &

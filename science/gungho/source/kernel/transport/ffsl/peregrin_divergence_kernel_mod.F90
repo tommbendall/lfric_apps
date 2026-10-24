@@ -173,8 +173,9 @@ contains
     ! Internal arguments
     integer(kind=i_def) :: nl, w3_idx, W_idx, E_idx, S_idx, N_idx
     integer(kind=i_def) :: edge_dist_W, edge_dist_E, edge_dist_S, edge_dist_N
-    real(kind=r_tran)   :: e_face(0:nlayers-1), w_face(0:nlayers-1)
-    real(kind=r_tran)   :: n_face(0:nlayers-1), s_face(0:nlayers-1)
+    real(kind=r_tran)   :: flux_e(0:nlayers-1), flux_w(0:nlayers-1)
+    real(kind=r_tran)   :: flux_n(0:nlayers-1), flux_s(0:nlayers-1)
+    real(kind=r_tran)   :: downwind_switch(0:nlayers-1)
 
     ! This is based on the lowest order W2h dof map
     !
@@ -197,55 +198,55 @@ contains
     edge_dist_N = panel_edge_dist_N(map_pid(1))
 
     ! X direction ==============================================================
-    e_face = flux(E_idx:E_idx+nl)
-    w_face = flux(W_idx:W_idx+nl)
+    flux_e(:) = flux(E_idx:E_idx+nl)
+    flux_w(:) = flux(W_idx:W_idx+nl)
 
     if (edge_dist_E == 1) then
       ! Levels downwind of the eastern edge (dep_dist <= 0) use the downwind
       ! flux calculated at that face
-      e_face = MERGE(                                                          &
-          flux_edge_downwind(E_idx:E_idx+nl), e_face,                          &
-          dep_dist(E_idx:E_idx+nl) <= 0.0_r_tran                               &
-      )
+      ! Switch is 1 when this cell is downwind of the flux on eastern edge
+      downwind_switch(:) = 0.5_r_tran - SIGN(0.5_r_tran, dep_dist(E_idx:E_idx+nl))
+      flux_e(:) = downwind_switch(:) * flux_edge_downwind(E_idx:E_idx+nl)      &
+                  + (1.0_r_tran - downwind_switch(:)) * flux_e(:)
     end if
     if (edge_dist_W == 1) then
       ! Levels downwind of the western edge (dep_dist >= 0) use the downwind
       ! flux calculated at that face
-      w_face = MERGE(                                                          &
-          flux_edge_downwind(W_idx:W_idx+nl), w_face,                          &
-          dep_dist(W_idx:W_idx+nl) >= 0.0_r_tran                               &
-      )
+      ! Switch is 1 when this cell is downwind of the flux on western edge
+      downwind_switch(:) = 0.5_r_tran + SIGN(0.5_r_tran, dep_dist(W_idx:W_idx+nl))
+      flux_w(:) = downwind_switch(:) * flux_edge_downwind(W_idx:W_idx+nl)      &
+                  + (1.0_r_tran - downwind_switch(:)) * flux_w(:)
     end if
 
     field_x(w3_idx:w3_idx+nl) = (                                              &
         field_n(w3_idx:w3_idx+nl)*dry_mass_n(w3_idx:w3_idx+nl)                 &
-        - dt*(e_face - w_face)                                                 &
+        - dt*(flux_e(:) - flux_w(:))                                           &
     ) / dry_mass_x(w3_idx:w3_idx+nl)
 
     ! Y direction ==============================================================
-    n_face = flux(N_idx:N_idx+nl)
-    s_face = flux(S_idx:S_idx+nl)
+    flux_n = flux(N_idx:N_idx+nl)
+    flux_s = flux(S_idx:S_idx+nl)
 
     if (edge_dist_N == 1) then
       ! Levels downwind of the northern edge (dep_dist >= 0) use the downwind
       ! flux calculated at that face
-      n_face = MERGE(                                                          &
-          flux_edge_downwind(N_idx:N_idx+nl), n_face,                          &
-          dep_dist(N_idx:N_idx+nl) >= 0.0_r_tran                               &
-      )
+      ! Switch is 1 when this cell is downwind of the flux on northern edge
+      downwind_switch(:) = 0.5_r_tran + SIGN(0.5_r_tran, dep_dist(N_idx:N_idx+nl))
+      flux_n(:) = downwind_switch(:) * flux_edge_downwind(N_idx:N_idx+nl)      &
+                  + (1.0_r_tran - downwind_switch(:)) * flux_n(:)
     end if
     if (edge_dist_S == 1) then
       ! Levels downwind of the southern edge (dep_dist <= 0) use the downwind
       ! flux calculated at that face
-      s_face = MERGE(                                                          &
-          flux_edge_downwind(S_idx:S_idx+nl), s_face,                          &
-          dep_dist(S_idx:S_idx+nl) <= 0.0_r_tran                               &
-      )
+      ! Switch is 1 when this cell is downwind of the flux on southern edge
+      downwind_switch(:) = 0.5_r_tran - SIGN(0.5_r_tran, dep_dist(S_idx:S_idx+nl))
+      flux_s(:) = downwind_switch(:) * flux_edge_downwind(S_idx:S_idx+nl)      &
+                  + (1.0_r_tran - downwind_switch(:)) * flux_s(:)
     end if
 
     field_y(w3_idx:w3_idx+nl) = (                                              &
         field_n(w3_idx:w3_idx+nl)*dry_mass_n(w3_idx:w3_idx+nl)                 &
-        - dt*(n_face - s_face)                                                 &
+        - dt*(flux_n(:) - flux_s(:))                                           &
     ) / dry_mass_y(w3_idx:w3_idx+nl)
 
   end subroutine peregrin_divergence_code

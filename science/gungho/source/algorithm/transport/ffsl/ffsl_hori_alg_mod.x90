@@ -48,6 +48,7 @@ module ffsl_hori_alg_mod
   use ffsl_advective_updates_alg_mod,   only: swift_outer_update_tracer,       &
                                               swift_inner_update_tracer,       &
                                               ffsl_advective_increment
+  use ffsl_hori_peregrin_alg_mod,       only: ffsl_hori_peregrin_alg
   use limited_area_lbc_alg_mod,         only: overwrite_blending_zone_rtran
   use panel_edge_remap_alg_mod,         only: panel_edge_remap_alg
   use remap_on_extended_mesh_alg_mod,   only: remap_on_extended_mesh
@@ -172,6 +173,19 @@ contains
     ! Get pre-computed objects and set pointers --------------------------------
     mesh => field_n%get_mesh()
     transport_metadata => transport_controller%get_transport_metadata()
+
+    ! PEREGRIN panel-edge treatment, if requested for this field on the
+    ! cubed sphere
+    if (transport_metadata%get_swift_peregrin()                                &
+        .and. geometry == geometry_spherical                                   &
+        .and. topology == topology_fully_periodic) then
+      call ffsl_hori_peregrin_alg(                                             &
+              mass_flux, field_np1, field_n, step_dt,                          &
+              transport_controller, compute_field_np1                          &
+      )
+      if ( LPROF ) call stop_timing( id, 'transport.ffsl_horizontal' )
+      return
+    end if
 
     ! Function spaces
     field_fs => field_n%get_function_space()
