@@ -31,9 +31,12 @@ module ffsl_hori_peregrin_alg_mod
                                               get_face_selector_ew,            &
                                               get_face_selector_ns
   use integer_field_mod,                only: integer_field_type
-  use log_mod,                          only: log_event, LOG_LEVEL_ERROR
+  use log_mod,                          only: log_event, LOG_LEVEL_ERROR,      &
+                                              LOG_LEVEL_INFO
   use mesh_mod,                         only: mesh_type
   use r_tran_field_mod,                 only: r_tran_field_type
+  ! TODO: to remove
+  use sci_field_minmax_alg_mod,         only: log_field_minmax
   use timing_mod,                       only: start_timing, stop_timing, &
                                               tik, LPROF
 
@@ -106,13 +109,13 @@ contains
   !!                                   to control the transport of the field
   !> @param[in]     compute_field_np1  Optional argument as to whether advected
   !!                                   field should be computed
-  subroutine ffsl_hori_peregrin_alg( mass_flux, field_np1, field_n, step_dt,   &
+  subroutine ffsl_hori_peregrin_alg( flux, field_np1, field_n, step_dt,      &
                                      transport_controller, compute_field_np1 )
 
     implicit none
 
     ! Arguments ----------------------------------------------------------------
-    type(r_tran_field_type),         intent(inout) :: mass_flux
+    type(r_tran_field_type),         intent(inout) :: flux
     type(r_tran_field_type),         intent(inout) :: field_np1
     type(r_tran_field_type), target, intent(in)    :: field_n
     real(kind=r_tran),               intent(in)    :: step_dt
@@ -192,8 +195,6 @@ contains
     ! for the outer step
     type(r_tran_field_type) :: field_x
     type(r_tran_field_type) :: field_y
-    type(r_tran_field_type) :: field_y_rx
-    type(r_tran_field_type) :: field_x_ry
     type(r_tran_field_type) :: field_n_rx
     type(r_tran_field_type) :: field_n_ry
     type(r_tran_field_type) :: field_n_rx_corner
@@ -204,7 +205,6 @@ contains
     type(r_tran_field_type) :: flux_inner_edge_downwind
     type(r_tran_field_type) :: flux_outer
     type(r_tran_field_type) :: flux_outer_edge_downwind
-    type(r_tran_field_type) :: flux
     type(r_tran_field_type) :: flux_edge_downwind
     type(r_tran_field_type) :: flux_big
     type(r_tran_field_type) :: flux_edge_downwind_big
@@ -381,7 +381,6 @@ contains
     call field_yp%initialise(field_fs, halo_depth=mesh%get_halo_depth())
     call field_x%initialise(field_fs)
     call field_y%initialise(field_fs)
-    call mass_flux%initialise(w2h_fs)
     call flux_inner%initialise(w2h_fs)
     call flux_inner_edge_downwind%initialise(w2h_fs)
     call flux_outer%initialise(w2h_fs)
@@ -401,6 +400,9 @@ contains
     ! calculation when a field is needed twice in a kernel call
     field_n_big_copy => field_n_big
 
+    
+    ! TODO: to remove
+    call log_field_minmax(LOG_LEVEL_INFO, 'PEREGRIN input field_n', field_n)
     call invoke( setval_x(field_n_big, field_n) )
 
     ! Remap field_n onto the panel-edge "eave" extensions in x and y -----------
@@ -418,12 +420,34 @@ contains
         remap_extent, monotone_remap, enforce_minvalue, min_val                &
     )
 
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN remapped field_n_rx', field_n_rx             &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN remapped field_n_ry', field_n_ry             &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN corner field_n_rx', field_n_rx_corner        &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN corner field_n_ry', field_n_ry_corner        &
+    )
+
     ! Inner step ---------------------------------------------------------------
     ! Transport field_n with the PEREGRIN wind near panel edges, using a 1D SL
     ! scheme, to give field_xp and field_yp. This is the same eave transport as
     ! in horizontal_sl_advective_alg: peregrin_eave_sl_kernel_mod takes the
     ! eave-remapped and corner-remapped fields and the PEREGRIN corrected-flux
     ! departure distances.
+
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN dep_dist_inner', dep_dist_inner              &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN frac_flux_inner', frac_flux_inner            &
+    )
     call invoke(                                                               &
             peregrin_eave_sl_kernel_type(                                      &
                     field_xp, field_yp,                                        &
@@ -469,11 +493,25 @@ contains
            setval_x(field_x_big, field_x),                                     &
            setval_x(field_y_big, field_y)                                      &
     )
-
-    ! Remap field_x and field_y onto the "eave" extensions in x and y ----------
-    call panel_edge_remap_alg(                                                 &
-        field_y_rx, field_x_ry, field_y_big, field_x_big,                      &
-        remap_extent, monotone_remap, enforce_minvalue, min_val                &
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN eave field_xp', field_xp                     &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN eave field_yp', field_yp                     &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN inner flux', flux_inner                      &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN inner edge-downwind flux',                   &
+        flux_inner_edge_downwind                                               &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN inner field_x', field_x                      &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN inner field_y', field_y                      &
     )
 
     ! Outer step -------------------------------------------------------------
@@ -515,13 +553,29 @@ contains
     ! TODO:
     ! NB: does setval_x on W2 fields before a halo exchange actually work properly???!
            setval_x(flux_big, flux),                                           &
-           setval_x(flux_edge_downwind_big, flux_edge_downwind),               &
+           setval_x(flux_edge_downwind_big, flux_edge_downwind)              &
            peregrin_unification_kernel_type(                                   &
                   flux, flux_big, stencil_extent_outer,                        &
                   flux_edge_downwind_big, stencil_extent_outer,                &
                   dep_dist_outer, panel_edge_dist,                             &
                   face_selector_ew, face_selector_ns                           &
             )                                                                  &
+    )
+
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN outer flux', flux_outer                      &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN outer edge-downwind flux',                   &
+        flux_outer_edge_downwind                                               &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN unified flux', flux                          &
+    )
+    call log_field_minmax(                                                     &
+        LOG_LEVEL_INFO, 'PEREGRIN unified edge-downwind flux',                 &
+        flux_edge_downwind                                                     &
     )
 
     ! Calculate final field (if needed) using normal divergence --------------
@@ -533,6 +587,10 @@ contains
       call invoke( fv_divergence_x_kernel_type(increment_x, flux, detj_at_w3), &
                    fv_divergence_y_kernel_type(increment_y, flux, detj_at_w3), &
                    X_minus_bY(field_np1, field_n, step_dt, increment_x) )
+      ! TODO: to remove
+      call log_field_minmax(                                                   &
+          LOG_LEVEL_INFO, 'PEREGRIN final field_np1', field_np1                &
+      )
     end if
 
     if ( LPROF ) call stop_timing( id, routine_name )

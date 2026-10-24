@@ -20,9 +20,12 @@ module ffsl_hori_alg_mod
                                               get_face_selector_ns
   use integer_field_mod,                only: integer_field_type
   use lfric_mpi_mod,                    only: global_mpi
-  use log_mod,                          only: log_event, LOG_LEVEL_ERROR
+  use log_mod,                          only: log_event, LOG_LEVEL_ERROR,      &
+                                              LOG_LEVEL_INFO
   use mesh_mod,                         only: mesh_type
   use r_tran_field_mod,                 only: r_tran_field_type
+  ! TODO: to remove
+  use sci_field_minmax_alg_mod,         only: log_field_minmax
   use timing_mod,                       only: start_timing, stop_timing, &
                                               tik, LPROF
 
@@ -710,6 +713,16 @@ contains
     w2h_fs => dep_dist%get_function_space()
     field_fs => field_x%get_function_space()
     ndepk_fs => dep_lowest_k%get_function_space()
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard inner input field_n', field_n           &
+    )
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard inner dep_dist', dep_dist               &
+    )
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard inner frac_flux', frac_flux             &
+    )
 
     ! Initialise fields --------------------------------------------------------
     call increment_x%initialise( vector_space = field_fs )
@@ -837,6 +850,10 @@ contains
                                                1, panel_id, 1) )
 
     end if
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard inner flux', flux                       &
+    )
 
     ! Compute advected fields
     call invoke( fv_difference_x_kernel_type(increment_x, flux),               &
@@ -846,6 +863,13 @@ contains
                                    dry_mass_n, increment_x, step_dt)
     call swift_inner_update_tracer(field_y, field_n, dry_mass_y,               &
                                    dry_mass_n, increment_y, step_dt)
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard inner field_x', field_x                 &
+    )
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard inner field_y', field_y                 &
+    )
 
   end subroutine ffsl_hori_swift_inner_alg
 
@@ -1064,6 +1088,20 @@ contains
     field_fs => field_x%get_function_space()
     ndepk_fs => dep_lowest_k%get_function_space()
 
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard outer input field_x', field_x           &
+    )
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard outer input field_y', field_y           &
+    )
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard outer dep_dist', dep_dist               &
+    )
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard outer frac_flux', frac_flux             &
+    )
+
     if (present(compute_adv_inc)) then
       to_compute_adv_inc = compute_adv_inc
     else
@@ -1204,6 +1242,11 @@ contains
                                                1, panel_id, 1) )
     end if
 
+    ! TODO: to remove
+    call log_field_minmax(                                                     &
+      LOG_LEVEL_INFO, 'FFSL standard outer flux', flux                         &
+    )
+
     ! Compute advective increments, if required --------------------------------
     if (to_compute_adv_inc .or. to_compute_field_np1) then
 
@@ -1273,6 +1316,13 @@ contains
         end if
       end if
 
+    end if
+
+    if (to_compute_field_np1) then
+      ! TODO: to remove
+      call log_field_minmax(                                                   &
+          LOG_LEVEL_INFO, 'FFSL standard final field_np1', field_np1           &
+      )
     end if
 
   end subroutine ffsl_hori_outer_alg

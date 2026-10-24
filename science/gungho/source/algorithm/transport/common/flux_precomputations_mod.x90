@@ -2217,16 +2217,6 @@ contains
     step_of_substep = MOD(step - 1, get_num_split_steps(self%splitting)) + 1
     direction = get_splitting_direction(self%splitting, step_of_substep)
 
-    ! The PEREGRIN correction subtracts a purely geometric swept volume from the
-    ! reference wind flux, so it is only meaningful when the reference field is
-    ! unity (wind-flux mode). In mass-flux ('tracer') mode it is invalid.
-    if (trim(self%name) == 'tracer') then
-      call log_event(                                                          &
-          'flux_precomputations%compute_dep_dist_inner_peregrin: the ' //      &
-          'PEREGRIN correction is only valid for wind-flux transport, ' //     &
-          'not mass-flux (tracer) transport', LOG_LEVEL_ERROR)
-    end if
-
     if (direction /= direction_h) then
       write(log_scratch_space, '(A,I8,A)')                                     &
           'flux_precomputations%compute_dep_dist_inner_peregrin: cannot ' //   &

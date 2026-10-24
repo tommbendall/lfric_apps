@@ -246,7 +246,7 @@ contains
 
     field_y(w3_idx:w3_idx+nl) = (                                              &
         field_n(w3_idx:w3_idx+nl)*dry_mass_n(w3_idx:w3_idx+nl)                 &
-        - dt*(flux_n(:) - flux_s(:))                                           &
+        - dt*(flux_s(:) - flux_n(:))                                           &
     ) / dry_mass_y(w3_idx:w3_idx+nl)
 
   end subroutine peregrin_divergence_code
