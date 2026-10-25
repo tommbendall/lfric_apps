@@ -58,11 +58,10 @@ module peregrin_flux_kernel_mod
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_2), & ! frac_dry_flux
         arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_4), & ! dep_lowest_k
         arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_4), & ! dep_highest_k
-        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_1), & ! panel_id
-        arg_type(GH_FIELD*2, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1,  &
-                                                            STENCIL(CROSS2D)), & ! panel_edge_dist_x (W,E)
-        arg_type(GH_FIELD*2, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1,  &
-                                                            STENCIL(CROSS2D)), & ! panel_edge_dist_y (S,N)
+        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_1,  &
+                                                            STENCIL(CROSS2D)), & ! panel_id
+        arg_type(GH_FIELD*2, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1), & ! panel_edge_dist_x (W,E)
+        arg_type(GH_FIELD*2, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1), & ! panel_edge_dist_y (S,N)
         arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face selector ew
         arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face selector ns
         arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                             & ! order
@@ -124,20 +123,17 @@ contains
   !!                                    the highest model level to use in each
   !!                                    integer flux sum, for each column
   !> @param[in]     panel_id            Field containing IDs of mesh panels
+  !> @param[in]     stencil_sizes_p     Sizes of branches of the cross stencil
+  !> @param[in]     stencil_max_p       Maximum size of a cross stencil branch
+  !> @param[in]     stencil_map_p       Map of DoFs in the stencil for x-case
   !> @param[in]     panel_edge_dist_W   2D field: distance to the panel edge
   !!                                    to the West
   !> @param[in]     panel_edge_dist_E   2D field: distance to the panel edge
   !!                                    to the East
-  !> @param[in]     stencil_sizes_cx    Sizes of branches of the cross stencil
-  !> @param[in]     stencil_max_cx      Maximum size of a cross stencil branch
-  !> @param[in]     stencil_map_cx      Map of DoFs in the stencil for x-case
   !> @param[in]     panel_edge_dist_S   2D field: distance to the panel edge
   !!                                    to the South
   !> @param[in]     panel_edge_dist_N   2D field: distance to the panel edge
   !!                                    to the North
-  !> @param[in]     stencil_sizes_cy    Sizes of branches of the cross stencil
-  !> @param[in]     stencil_max_cy      Maximum size of a cross stencil branch
-  !> @param[in]     stencil_map_cy      Map of DoFs in the stencil for y-case
   !> @param[in]     face_selector_ew    2D field indicating which W/E faces to
   !!                                    loop over for this column
   !> @param[in]     face_selector_ns    2D field indicating which N/S faces to
@@ -197,16 +193,13 @@ contains
                                  dep_lowest_k,        &
                                  dep_highest_k,       &
                                  panel_id,            &
+                                 stencil_sizes_p,     &
+                                 stencil_max_p,       &
+                                 stencil_map_p,       &
                                  panel_edge_dist_W,   &
                                  panel_edge_dist_E,   &
-                                 stencil_sizes_cx,    &
-                                 stencil_max_cx,      &
-                                 stencil_map_cx,      &
                                  panel_edge_dist_S,   &
                                  panel_edge_dist_N,   &
-                                 stencil_sizes_cy,    &
-                                 stencil_max_cy,      &
-                                 stencil_map_cy,      &
                                  face_selector_ew,    &
                                  face_selector_ns,    &
                                  order,               &
@@ -255,16 +248,14 @@ contains
     integer(kind=i_def), intent(in) :: stencil_max_y
     integer(kind=i_def), intent(in) :: stencil_max_ry
     integer(kind=i_def), intent(in) :: stencil_max_my
-    integer(kind=i_def), intent(in) :: stencil_max_cx
-    integer(kind=i_def), intent(in) :: stencil_max_cy
+    integer(kind=i_def), intent(in) :: stencil_max_p
     integer(kind=i_def), intent(in) :: stencil_sizes_x(4)
     integer(kind=i_def), intent(in) :: stencil_sizes_rx(4)
     integer(kind=i_def), intent(in) :: stencil_sizes_mx(4)
     integer(kind=i_def), intent(in) :: stencil_sizes_y(4)
     integer(kind=i_def), intent(in) :: stencil_sizes_ry(4)
     integer(kind=i_def), intent(in) :: stencil_sizes_my(4)
-    integer(kind=i_def), intent(in) :: stencil_sizes_cx(4)
-    integer(kind=i_def), intent(in) :: stencil_sizes_cy(4)
+    integer(kind=i_def), intent(in) :: stencil_sizes_p(4)
     integer(kind=i_def), intent(in) :: order
     integer(kind=i_def), intent(in) :: monotone
     real(kind=r_tran),   intent(in) :: min_val
@@ -282,8 +273,7 @@ contains
     integer(kind=i_def), intent(in) :: stencil_map_y(ndf_w3,stencil_max_y,4)
     integer(kind=i_def), intent(in) :: stencil_map_ry(ndf_w3,stencil_max_ry,4)
     integer(kind=i_def), intent(in) :: stencil_map_my(ndf_w3,stencil_max_my,4)
-    integer(kind=i_def), intent(in) :: stencil_map_cx(ndf_pid,stencil_max_cx,4)
-    integer(kind=i_def), intent(in) :: stencil_map_cy(ndf_pid,stencil_max_cy,4)
+    integer(kind=i_def), intent(in) :: stencil_map_p(ndf_pid,stencil_max_p,4)
 
     ! Arguments: Fields
     real(kind=r_tran),   intent(inout) :: flux(undf_w2h)
@@ -307,19 +297,23 @@ contains
     integer(kind=i_def), intent(in)    :: dep_highest_k(undf_depk)
 
     ! Internal arguments
-    integer(kind=i_def) :: i, ipanel
+    integer(kind=i_def) :: i, ipanel, k, neighbour_panel
     integer(kind=i_def) :: edge_dist_E, edge_dist_W, edge_dist_S, edge_dist_N
     integer(kind=i_def) :: face_idx, face
     integer(kind=i_def) :: face_dofs(2)
     logical(kind=l_def) :: near_edge
     logical(kind=l_def) :: is_panel_edge
+    logical(kind=l_def) :: current_cell_downwind
+    logical(kind=l_def) :: x_direction
     integer(kind=i_def) :: stencil_extent_xl, stencil_extent_xr
     integer(kind=i_def) :: stencil_extent_yl, stencil_extent_yr
     integer(kind=i_def) :: stencil_map_x_1d(-stencil_max_x:stencil_max_x)
     integer(kind=i_def) :: stencil_map_y_1d(-stencil_max_y:stencil_max_y)
-    integer(kind=i_def) :: stencil_map_cx_1d(-stencil_max_x:stencil_max_x)
-    integer(kind=i_def) :: stencil_map_cy_1d(-stencil_max_y:stencil_max_y)
-    integer(kind=i_def) :: face_selector_edge(undf_w3_2d)
+    integer(kind=i_def) :: stencil_map_px_1d(-stencil_max_x:stencil_max_x)
+    integer(kind=i_def) :: stencil_map_py_1d(-stencil_max_y:stencil_max_y)
+    integer(kind=i_def) :: owned_panel(nlayers)
+    integer(kind=i_def) :: upwind_panel(nlayers)
+    integer(kind=i_def) :: downwind_panel(nlayers)
 
     ! Form X and Y 1D stencils
     stencil_extent_xl = stencil_sizes_x(1) - 1
@@ -342,17 +336,17 @@ contains
     end do
 
     do i = -stencil_extent_xl, 0
-      stencil_map_cx_1d(i) = stencil_map_cx(1, 1-i, 1)
+      stencil_map_px_1d(i) = stencil_map_p(1, 1-i, 1)
     end do
     do i = 1, stencil_extent_xr
-      stencil_map_cx_1d(i) = stencil_map_cx(1, i+1, 3)
+      stencil_map_px_1d(i) = stencil_map_p(1, i+1, 3)
     end do
 
     do i = -stencil_extent_yl, 0
-      stencil_map_cy_1d(i) = stencil_map_cy(1, 1-i, 2)
+      stencil_map_py_1d(i) = stencil_map_p(1, 1-i, 2)
     end do
     do i = 1, stencil_extent_yr
-      stencil_map_cy_1d(i) = stencil_map_cy(1, i+1, 4)
+      stencil_map_py_1d(i) = stencil_map_p(1, i+1, 4)
     end do
 
     ipanel = INT(panel_id(map_pid(1)), i_def)
@@ -362,6 +356,7 @@ contains
     edge_dist_N = panel_edge_dist_N(map_pid(1))
 
     ! X direction ==============================================================
+    x_direction = .true.
     face_dofs = (/ W, E /)
     near_edge = crosses_panel_edge(                                            &
         edge_dist_W, edge_dist_E, MAX(stencil_extent_xl, stencil_extent_xr),   &
@@ -370,9 +365,9 @@ contains
     )
 
     if (.not. near_edge) then
-      ! (a) Not near a panel edge: default to standard FFSL
+      ! Not near a panel edge: default to standard FFSL
       call ffsl_flux_xy_1d( nlayers,             &
-                            .true.,              &
+                            x_direction,         &
                             flux,                &
                             field_for_x,         &
                             stencil_extent_xl,   &
@@ -403,57 +398,176 @@ contains
                             undf_w3_2d,          &
                             map_w3_2d )
     else
+      ! Near edge: loop through faces
       do face_idx = 1, ABS(face_selector_ew(map_w3_2d(1)))
         face = face_dofs(face_idx - MIN(0, face_selector_ew(map_w3_2d(1))))
         is_panel_edge = (face == W .and. edge_dist_W == 1) .or.                &
                         (face == E .and. edge_dist_E == 1)
-        if (is_panel_edge) then
-          call peregrin_flux_1d(                                               &
-              nlayers, .true., face, flux_edge_downwind, field_for_x,          &
-              field_for_y, remapped_field_x, remapped_field_y,                 &
-              stencil_extent_xl, stencil_extent_xr, stencil_max_x,             &
-              stencil_map_x_1d, stencil_map_cx_1d, dry_mass_for_x,             &
-              dry_mass_for_y, dep_dist, frac_dry_flux, dep_lowest_k,           &
-              dep_highest_k, ipanel, panel_edge_dist_W, panel_edge_dist_E,     &
-              panel_edge_dist_S, panel_edge_dist_N, order, monotone, min_val,  &
-              ndep, dt, ndf_w2h, undf_w2h, map_w2h, ndf_w3, undf_w3, map_w3,   &
-              ndf_depk, undf_depk, map_depk, ndf_pid, undf_pid, map_pid,       &
-              ndf_w3_2d, undf_w3_2d, map_w3_2d)
 
-          face_selector_edge = 0
+        if (is_panel_edge) then
           if (face == W) then
-            face_selector_edge(map_w3_2d(1)) = 1
+            neighbour_panel = INT(panel_id(stencil_map_px_1d(-1)), i_def)
           else
-            face_selector_edge(map_w3_2d(1)) = -1
+            neighbour_panel = INT(panel_id(stencil_map_px_1d(1)), i_def)
           end if
-          call ffsl_flux_xy_panel_remap_1d(                                    &
-              nlayers, .true., flux, field_for_x, field_for_y,                 &
-              remapped_field_x, remapped_field_y, stencil_extent_xl,           &
-              stencil_extent_xr, stencil_max_x, stencil_map_x_1d,              &
-              dry_mass_for_x, dry_mass_for_y, dep_dist, frac_dry_flux,         &
-              dep_lowest_k, dep_highest_k, ipanel, panel_edge_dist_W,          &
-              panel_edge_dist_E, panel_edge_dist_S, panel_edge_dist_N,         &
-              stencil_map_cx_1d, face_selector_edge, order, monotone,          &
-              min_val, ndep, dt, ndf_w2h, undf_w2h, map_w2h, ndf_w3, undf_w3,  &
-              map_w3, ndf_depk, undf_depk, map_depk, ndf_pid, undf_pid,        &
-              map_pid, ndf_w3_2d, undf_w3_2d, map_w3_2d)
-        else
-          call peregrin_flux_1d(                                               &
-              nlayers, .true., face, flux, field_for_x, field_for_y,           &
-              remapped_field_x, remapped_field_y, stencil_extent_xl,           &
-              stencil_extent_xr, stencil_max_x, stencil_map_x_1d,              &
-              stencil_map_cx_1d, dry_mass_for_x, dry_mass_for_y, dep_dist,     &
-              frac_dry_flux, dep_lowest_k, dep_highest_k, ipanel,              &
-              panel_edge_dist_W, panel_edge_dist_E, panel_edge_dist_S,         &
-              panel_edge_dist_N, order, monotone, min_val, ndep, dt,           &
-              ndf_w2h, undf_w2h, map_w2h, ndf_w3, undf_w3, map_w3,             &
-              ndf_depk, undf_depk, map_depk, ndf_pid, undf_pid, map_pid,       &
-              ndf_w3_2d, undf_w3_2d, map_w3_2d)
+          do k = 1, nlayers
+            if (dep_dist(map_w2h(face)+k-1) == 0.0_r_tran) then
+              upwind_panel(k) = ipanel
+              downwind_panel(k) = neighbour_panel
+            else
+              select case (face)
+              case (W, N)
+                current_cell_downwind = dep_dist(map_w2h(face)+k-1) >         &
+                                        0.0_r_tran
+              case (E, S)
+                current_cell_downwind = dep_dist(map_w2h(face)+k-1) <         &
+                                        0.0_r_tran
+              end select
+              if (current_cell_downwind) then
+                upwind_panel(k) = neighbour_panel
+                downwind_panel(k) = ipanel
+              else
+                upwind_panel(k) = ipanel
+                downwind_panel(k) = neighbour_panel
+              end if
+            end if
+          end do
+
+          ! Compute downwind flux ----------------------------------------------
+          call peregrin_flux_1d( nlayers,            &
+                                 x_direction,        &
+                                 face,               &
+                                 flux_edge_downwind, &
+                                 field_for_x,        &
+                                 remapped_field_x,   &
+                                 remapped_field_y,   &
+                                 stencil_extent_xl,  &
+                                 stencil_extent_xr,  &
+                                 stencil_max_x,      &
+                                 stencil_map_x_1d,   &
+                                 stencil_map_px_1d,  &
+                                 dry_mass_for_x,     &
+                                 dry_mass_for_y,     &
+                                 dep_dist,           &
+                                 frac_dry_flux,      &
+                                 dep_lowest_k,       &
+                                 dep_highest_k,      &
+                                 downwind_panel,     &
+                                 panel_id,           &
+                                 order,              &
+                                 monotone,           &
+                                 min_val,            &
+                                 ndep,               &
+                                 dt,                 &
+                                 ndf_w2h,            &
+                                 undf_w2h,           &
+                                 map_w2h,            &
+                                 ndf_w3,             &
+                                 undf_w3,            &
+                                 map_w3,             &
+                                 ndf_depk,           &
+                                 undf_depk,          &
+                                 map_depk,           &
+                                 ndf_pid,            &
+                                 undf_pid,           &
+                                 map_pid,            &
+                                 ndf_w3_2d,          &
+                                 undf_w3_2d,         &
+                                 map_w3_2d )
+
+          ! Compute upwind flux ------------------------------------------------
+          call peregrin_flux_1d( nlayers,            &
+                                 x_direction,        &
+                                 face,               &
+                                 flux,               &
+                                 field_for_x,        &
+                                 remapped_field_x,   &
+                                 remapped_field_y,   &
+                                 stencil_extent_xl,  &
+                                 stencil_extent_xr,  &
+                                 stencil_max_x,      &
+                                 stencil_map_x_1d,   &
+                                 stencil_map_px_1d,  &
+                                 dry_mass_for_x,     &
+                                 dry_mass_for_y,     &
+                                 dep_dist,           &
+                                 frac_dry_flux,      &
+                                 dep_lowest_k,       &
+                                 dep_highest_k,      &
+                                 upwind_panel,       &
+                                 panel_id,           &
+                                 order,              &
+                                 monotone,           &
+                                 min_val,            &
+                                 ndep,               &
+                                 dt,                 &
+                                 ndf_w2h,            &
+                                 undf_w2h,           &
+                                 map_w2h,            &
+                                 ndf_w3,             &
+                                 undf_w3,            &
+                                 map_w3,             &
+                                 ndf_depk,           &
+                                 undf_depk,          &
+                                 map_depk,           &
+                                 ndf_pid,            &
+                                 undf_pid,           &
+                                 map_pid,            &
+                                 ndf_w3_2d,          &
+                                 undf_w3_2d,         &
+                                 map_w3_2d )
+
+        else  ! Not directly on panel edge
+          ! Can use the panel of this cell
+          owned_panel(:) = ipanel
+
+          ! Compute flux -------------------------------------------------------
+          call peregrin_flux_1d( nlayers,            &
+                                 x_direction,        &
+                                 face,               &
+                                 flux,               &
+                                 field_for_x,        &
+                                 remapped_field_x,   &
+                                 remapped_field_y,   &
+                                 stencil_extent_xl,  &
+                                 stencil_extent_xr,  &
+                                 stencil_max_x,      &
+                                 stencil_map_x_1d,   &
+                                 stencil_map_px_1d,  &
+                                 dry_mass_for_x,     &
+                                 dry_mass_for_y,     &
+                                 dep_dist,           &
+                                 frac_dry_flux,      &
+                                 dep_lowest_k,       &
+                                 dep_highest_k,      &
+                                 owned_panel,        &
+                                 panel_id,           &
+                                 order,              &
+                                 monotone,           &
+                                 min_val,            &
+                                 ndep,               &
+                                 dt,                 &
+                                 ndf_w2h,            &
+                                 undf_w2h,           &
+                                 map_w2h,            &
+                                 ndf_w3,             &
+                                 undf_w3,            &
+                                 map_w3,             &
+                                 ndf_depk,           &
+                                 undf_depk,          &
+                                 map_depk,           &
+                                 ndf_pid,            &
+                                 undf_pid,           &
+                                 map_pid,            &
+                                 ndf_w3_2d,          &
+                                 undf_w3_2d,         &
+                                 map_w3_2d )
         end if
       end do
     end if
 
     ! Y direction ==============================================================
+    x_direction = .false.
     face_dofs = (/ S, N /)
     near_edge = crosses_panel_edge(                                            &
         edge_dist_S, edge_dist_N, MAX(stencil_extent_yl, stencil_extent_yr),   &
@@ -462,9 +576,9 @@ contains
     )
 
     if (.not. near_edge) then
-      ! (a) Not near a panel edge: default to standard FFSL
+      ! Not near a panel edge: default to standard FFSL
       call ffsl_flux_xy_1d( nlayers,             &
-                            .false.,             &
+                            x_direction,         &
                             flux,                &
                             field_for_y,         &
                             stencil_extent_yl,   &
@@ -495,75 +609,195 @@ contains
                             undf_w3_2d,          &
                             map_w3_2d )
     else
+      ! Near edge: loop through faces
       do face_idx = 1, ABS(face_selector_ns(map_w3_2d(1)))
         face = face_dofs(face_idx - MIN(0, face_selector_ns(map_w3_2d(1))))
         is_panel_edge = (face == S .and. edge_dist_S == 1) .or.                &
                         (face == N .and. edge_dist_N == 1)
-        if (is_panel_edge) then
-          call peregrin_flux_1d(                                               &
-              nlayers, .false., face, flux_edge_downwind, field_for_y,         &
-              field_for_x, remapped_field_y, remapped_field_x,                 &
-              stencil_extent_yl, stencil_extent_yr, stencil_max_y,             &
-              stencil_map_y_1d, stencil_map_cy_1d, dry_mass_for_y,             &
-              dry_mass_for_x, dep_dist, frac_dry_flux, dep_lowest_k,           &
-              dep_highest_k, ipanel, panel_edge_dist_S, panel_edge_dist_N,     &
-              panel_edge_dist_E, panel_edge_dist_W, order, monotone, min_val,  &
-              ndep, dt, ndf_w2h, undf_w2h, map_w2h, ndf_w3, undf_w3, map_w3,   &
-              ndf_depk, undf_depk, map_depk, ndf_pid, undf_pid, map_pid,       &
-              ndf_w3_2d, undf_w3_2d, map_w3_2d)
 
-          face_selector_edge = 0
+        if (is_panel_edge) then
           if (face == S) then
-            face_selector_edge(map_w3_2d(1)) = 1
+            neighbour_panel = INT(panel_id(stencil_map_py_1d(-1)), i_def)
           else
-            face_selector_edge(map_w3_2d(1)) = -1
+            neighbour_panel = INT(panel_id(stencil_map_py_1d(1)), i_def)
           end if
-          call ffsl_flux_xy_panel_remap_1d(                                    &
-              nlayers, .false., flux, field_for_y, field_for_x,                &
-              remapped_field_y, remapped_field_x, stencil_extent_yl,           &
-              stencil_extent_yr, stencil_max_y, stencil_map_y_1d,              &
-              dry_mass_for_y, dry_mass_for_x, dep_dist, frac_dry_flux,         &
-              dep_lowest_k, dep_highest_k, ipanel, panel_edge_dist_S,          &
-              panel_edge_dist_N, panel_edge_dist_E, panel_edge_dist_W,         &
-              stencil_map_cy_1d, face_selector_edge, order, monotone,          &
-              min_val, ndep, dt, ndf_w2h, undf_w2h, map_w2h, ndf_w3, undf_w3,  &
-              map_w3, ndf_depk, undf_depk, map_depk, ndf_pid, undf_pid,        &
-              map_pid, ndf_w3_2d, undf_w3_2d, map_w3_2d)
-        else
-          call peregrin_flux_1d(                                               &
-              nlayers, .false., face, flux, field_for_y, field_for_x,          &
-              remapped_field_y, remapped_field_x, stencil_extent_yl,           &
-              stencil_extent_yr, stencil_max_y, stencil_map_y_1d,              &
-              stencil_map_cy_1d, dry_mass_for_y, dry_mass_for_x, dep_dist,     &
-              frac_dry_flux, dep_lowest_k, dep_highest_k, ipanel,              &
-              panel_edge_dist_S, panel_edge_dist_N, panel_edge_dist_E,         &
-              panel_edge_dist_W, order, monotone, min_val, ndep, dt,           &
-              ndf_w2h, undf_w2h, map_w2h, ndf_w3, undf_w3, map_w3,             &
-              ndf_depk, undf_depk, map_depk, ndf_pid, undf_pid, map_pid,       &
-              ndf_w3_2d, undf_w3_2d, map_w3_2d)
+          do k = 1, nlayers
+            if (dep_dist(map_w2h(face)+k-1) == 0.0_r_tran) then
+              upwind_panel(k) = ipanel
+              downwind_panel(k) = neighbour_panel
+            else
+              select case (face)
+              case (W, N)
+                current_cell_downwind = dep_dist(map_w2h(face)+k-1) >         &
+                                        0.0_r_tran
+              case (E, S)
+                current_cell_downwind = dep_dist(map_w2h(face)+k-1) <         &
+                                        0.0_r_tran
+              end select
+              if (current_cell_downwind) then
+                upwind_panel(k) = neighbour_panel
+                downwind_panel(k) = ipanel
+              else
+                upwind_panel(k) = ipanel
+                downwind_panel(k) = neighbour_panel
+              end if
+            end if
+          end do
+
+          ! Compute downwind flux ----------------------------------------------
+          call peregrin_flux_1d( nlayers,            &
+                                 x_direction,        &
+                                 face,               &
+                                 flux_edge_downwind, &
+                                 field_for_y,        &
+                                 remapped_field_y,   &
+                                 remapped_field_x,   &
+                                 stencil_extent_yl,  &
+                                 stencil_extent_yr,  &
+                                 stencil_max_y,      &
+                                 stencil_map_y_1d,   &
+                                 stencil_map_py_1d,  &
+                                 dry_mass_for_y,     &
+                                 dry_mass_for_x,     &
+                                 dep_dist,           &
+                                 frac_dry_flux,      &
+                                 dep_lowest_k,       &
+                                 dep_highest_k,      &
+                                 downwind_panel,     &
+                                 panel_id,           &
+                                 order,              &
+                                 monotone,           &
+                                 min_val,            &
+                                 ndep,               &
+                                 dt,                 &
+                                 ndf_w2h,            &
+                                 undf_w2h,           &
+                                 map_w2h,            &
+                                 ndf_w3,             &
+                                 undf_w3,            &
+                                 map_w3,             &
+                                 ndf_depk,           &
+                                 undf_depk,          &
+                                 map_depk,           &
+                                 ndf_pid,            &
+                                 undf_pid,           &
+                                 map_pid,            &
+                                 ndf_w3_2d,          &
+                                 undf_w3_2d,         &
+                                 map_w3_2d )
+
+          ! Compute upwind flux ------------------------------------------------
+          call peregrin_flux_1d( nlayers,            &
+                                 x_direction,        &
+                                 face,               &
+                                 flux_edge_downwind, &
+                                 field_for_y,        &
+                                 remapped_field_y,   &
+                                 remapped_field_x,   &
+                                 stencil_extent_yl,  &
+                                 stencil_extent_yr,  &
+                                 stencil_max_y,      &
+                                 stencil_map_y_1d,   &
+                                 stencil_map_py_1d,  &
+                                 dry_mass_for_y,     &
+                                 dry_mass_for_x,     &
+                                 dep_dist,           &
+                                 frac_dry_flux,      &
+                                 dep_lowest_k,       &
+                                 dep_highest_k,      &
+                                 upwind_panel,       &
+                                 panel_id,           &
+                                 order,              &
+                                 monotone,           &
+                                 min_val,            &
+                                 ndep,               &
+                                 dt,                 &
+                                 ndf_w2h,            &
+                                 undf_w2h,           &
+                                 map_w2h,            &
+                                 ndf_w3,             &
+                                 undf_w3,            &
+                                 map_w3,             &
+                                 ndf_depk,           &
+                                 undf_depk,          &
+                                 map_depk,           &
+                                 ndf_pid,            &
+                                 undf_pid,           &
+                                 map_pid,            &
+                                 ndf_w3_2d,          &
+                                 undf_w3_2d,         &
+                                 map_w3_2d )
+
+        else  ! Not directly on panel edge
+          ! Can use the panel of this cell
+          owned_panel(:) = ipanel
+
+          ! Compute flux -------------------------------------------------------
+          call peregrin_flux_1d( nlayers,            &
+                                 x_direction,        &
+                                 face,               &
+                                 flux_edge_downwind, &
+                                 field_for_y,        &
+                                 remapped_field_y,   &
+                                 remapped_field_x,   &
+                                 stencil_extent_yl,  &
+                                 stencil_extent_yr,  &
+                                 stencil_max_y,      &
+                                 stencil_map_y_1d,   &
+                                 stencil_map_py_1d,  &
+                                 dry_mass_for_y,     &
+                                 dry_mass_for_x,     &
+                                 dep_dist,           &
+                                 frac_dry_flux,      &
+                                 dep_lowest_k,       &
+                                 dep_highest_k,      &
+                                 owned_panel,        &
+                                 panel_id,           &
+                                 order,              &
+                                 monotone,           &
+                                 min_val,            &
+                                 ndep,               &
+                                 dt,                 &
+                                 ndf_w2h,            &
+                                 undf_w2h,           &
+                                 map_w2h,            &
+                                 ndf_w3,             &
+                                 undf_w3,            &
+                                 map_w3,             &
+                                 ndf_depk,           &
+                                 undf_depk,          &
+                                 map_depk,           &
+                                 ndf_pid,            &
+                                 undf_pid,           &
+                                 map_pid,            &
+                                 ndf_w3_2d,          &
+                                 undf_w3_2d,         &
+                                 map_w3_2d )
         end if
       end do
     end if
 
   end subroutine peregrin_flux_code
 
-  !> @brief Compute one flux face, including remapped integer contributions.
-  !> @param[in]     face                 Face for this flux calculation
-  subroutine peregrin_flux_1d(nlayers, x_direction, face, flux,                &
-                              field, field_swapped, remapped_field,            &
-                              remapped_field_swapped, stencil_extent_l,        &
-                              stencil_extent_r, stencil_max, stencil_map,      &
-                              stencil_map_pid, dry_mass, dry_mass_swapped,     &
-                              dep_dist, frac_dry_flux, dep_lowest_k,           &
-                              dep_highest_k, ipanel, panel_edge_dist_l,        &
-                              panel_edge_dist_r, panel_edge_dist_swapped_l,    &
-                              panel_edge_dist_swapped_r, order, monotone,      &
-                              min_val, ndep, dt, ndf_w2h, undf_w2h, map_w2h,   &
-                              ndf_w3, undf_w3, map_w3, ndf_depk, undf_depk,    &
-                              map_depk, ndf_pid, undf_pid, map_pid,            &
-                              ndf_w3_2d, undf_w3_2d, map_w3_2d)
+  subroutine peregrin_flux_1d(                                                 &
+        nlayers, x_direction, face,                                            &
+        flux,                                                                  &
+        field,                                                                 &
+        remapped_field, remapped_field_swapped,                                &
+        stencil_extent_l, stencil_extent_r,                                    &
+        stencil_max, stencil_map, stencil_map_pid,                             &
+        dry_mass, dry_mass_swapped,                                            &
+        dep_dist, frac_dry_flux,                                               &
+        dep_lowest_k,  dep_highest_k,                                          &
+        owned_panel, panel_id,                                                 &
+        order, monotone, min_val, ndep, dt,                                    &
+        ndf_w2h, undf_w2h, map_w2h,                                            &
+        ndf_w3, undf_w3, map_w3, ndf_depk, undf_depk,                          &
+        map_depk, ndf_pid, undf_pid, map_pid,                                  &
+        ndf_w3_2d, undf_w3_2d, map_w3_2d                                       &
+  )
 
-    use panel_edge_support_mod,         only: rotated_panel_neighbour, FAR_AWAY
+    use panel_edge_support_mod,         only: rotated_panel_neighbour
     use subgrid_horizontal_support_mod, only: fourth_order_horizontal_edge,    &
                                               nirvana_horizontal_edge
     use subgrid_common_support_mod,     only: monotonic_edge,                  &
@@ -576,21 +810,18 @@ contains
     integer(kind=i_def),       intent(in)    :: ndf_depk, undf_depk, ndf_pid, undf_pid
     integer(kind=i_def),       intent(in)    :: ndf_w3_2d, undf_w3_2d, ndep
     integer(kind=i_def),       intent(in)    :: stencil_extent_l, stencil_extent_r
-    integer(kind=i_def),       intent(in)    :: stencil_max, ipanel, order, monotone
+    integer(kind=i_def),       intent(in)    :: stencil_max, order, monotone
     integer(kind=i_def),       intent(in)    :: map_w2h(ndf_w2h), map_w3(ndf_w3)
     integer(kind=i_def),       intent(in)    :: map_depk(ndf_depk), map_pid(ndf_pid)
     integer(kind=i_def),       intent(in)    :: map_w3_2d(ndf_w3_2d)
     integer(kind=i_def),       intent(in)    :: stencil_map(-stencil_max:stencil_max)
     integer(kind=i_def),       intent(in)    :: stencil_map_pid(-stencil_max:stencil_max)
-    integer(kind=i_def),       intent(in)    :: panel_edge_dist_l(undf_pid)
-    integer(kind=i_def),       intent(in)    :: panel_edge_dist_r(undf_pid)
-    integer(kind=i_def),       intent(in)    :: panel_edge_dist_swapped_l(undf_pid)
-    integer(kind=i_def),       intent(in)    :: panel_edge_dist_swapped_r(undf_pid)
+    integer(kind=i_def),       intent(in)    :: owned_panel(nlayers)
+    real(kind=r_def),          intent(in)    :: panel_id(undf_pid)
     integer(kind=i_def),       intent(in)    :: dep_lowest_k(undf_depk)
     integer(kind=i_def),       intent(in)    :: dep_highest_k(undf_depk)
     real(kind=r_tran),         intent(inout) :: flux(undf_w2h)
     real(kind=r_tran), target, intent(in)    :: field(undf_w3)
-    real(kind=r_tran), target, intent(in)    :: field_swapped(undf_w3)
     real(kind=r_tran), target, intent(in)    :: remapped_field(undf_w3)
     real(kind=r_tran), target, intent(in)    :: remapped_field_swapped(undf_w3)
     real(kind=r_tran), target, intent(in)    :: dry_mass(undf_w3)
@@ -600,25 +831,21 @@ contains
     real(kind=r_tran),         intent(in)    :: min_val, dt
     logical(kind=l_def),       intent(in)    :: x_direction
 
-    integer(kind=i_def)         :: local_dofs(2), dof_offset
+    integer(kind=i_def)         :: local_dofs(2), dof_offset, ipanel
     integer(kind=i_def)         :: rel_idx_min, rel_idx_max, ndep_half
     integer(kind=i_def)         :: rot_edge_dist_l, rot_edge_dist_r
     integer(kind=i_def)         :: rotated_panel_l, rotated_panel_r
-    integer(kind=i_def)         :: edge_dist_local(-stencil_max:stencil_max)
-    integer(kind=i_def)         :: edge_dist_l, edge_dist_r, pid_idx
+    logical(kind=l_def)         :: rotated_panel
     integer(kind=i_def)         :: rel_idx_k, idx_dep, w2h_idx, col_idx
     integer(kind=i_def)         :: k_low, k_high, k, j, int_cell_idx, recon_size
-    integer(kind=i_def)         :: sign_disp(nlayers), edge_dist(nlayers)
-    integer(kind=i_def)         :: edge_dist_dep(nlayers)
+    integer(kind=i_def)         :: sign_disp(nlayers)
     integer(kind=i_def)         :: rel_dep_cell_idx(nlayers)
-    integer(kind=i_def)         :: rel_dep_cell_idx_bounded(nlayers)
     integer(kind=i_def)         :: rel_idx(nlayers), loc_idx(nlayers)
     real(kind=r_tran)           :: displacement(nlayers), frac_dist(nlayers)
     real(kind=r_tran)           :: recon_field(nlayers)
     real(kind=r_tran)           :: field_edge_left(nlayers), field_edge_right(nlayers)
     real(kind=r_tran)           :: field_local(nlayers, 1+2*order)
     real(kind=r_tran)           :: int_cell_switch(nlayers)
-    real(kind=r_tran)           :: swap_switch(nlayers), remap_switch(nlayers)
     real(kind=r_tran)           :: direction, inv_dt
     real(kind=r_tran), pointer  :: field_ptr(:)
     real(kind=r_tran), pointer  :: mass_ptr(:)
@@ -637,69 +864,13 @@ contains
       dof_offset = 1
     end if
 
+    ipanel = INT(owned_panel(1), i_def)
     ndep_half = (ndep - 1_i_def) / 2_i_def
     rel_idx_min = MAX(-stencil_extent_l, -ndep_half)
     rel_idx_max = MIN(stencil_extent_r, ndep_half)
-    pid_idx = map_pid(1)
     rotated_panel_l = rotated_panel_neighbour(ipanel, local_dofs(1))
     rotated_panel_r = rotated_panel_neighbour(ipanel, local_dofs(2))
-    if (ABS(rotated_panel_l) > 0) then
-      rot_edge_dist_l = -ABS(panel_edge_dist_l(pid_idx))
-    else
-      rot_edge_dist_l = -FAR_AWAY
-    end if
-    if (ABS(rotated_panel_r) > 0) then
-      rot_edge_dist_r = ABS(panel_edge_dist_r(pid_idx))
-    else
-      rot_edge_dist_r = FAR_AWAY
-    end if
 
-    do rel_idx_k = -stencil_extent_l, -1
-      pid_idx = stencil_map_pid(rel_idx_k)
-      if (rotated_panel_l == 1 .and. rel_idx_k < rot_edge_dist_l + 1) then
-        edge_dist_l = -ABS(panel_edge_dist_swapped_l(pid_idx))
-        edge_dist_r = ABS(panel_edge_dist_swapped_r(pid_idx))
-      else if (rotated_panel_l == -1 .and. rel_idx_k < rot_edge_dist_l + 1) then
-        edge_dist_l = -ABS(panel_edge_dist_swapped_r(pid_idx))
-        edge_dist_r = ABS(panel_edge_dist_swapped_l(pid_idx))
-      else
-        edge_dist_l = -ABS(panel_edge_dist_l(pid_idx))
-        edge_dist_r = ABS(panel_edge_dist_r(pid_idx))
-      end if
-      if (ABS(edge_dist_l) < ABS(edge_dist_r)) then
-        edge_dist_local(rel_idx_k) = edge_dist_l
-      else
-        edge_dist_local(rel_idx_k) = edge_dist_r
-      end if
-    end do
-
-    pid_idx = map_pid(1)
-    edge_dist_l = -ABS(panel_edge_dist_l(pid_idx))
-    edge_dist_r = ABS(panel_edge_dist_r(pid_idx))
-    if (ABS(edge_dist_l) < ABS(edge_dist_r)) then
-      edge_dist_local(0) = edge_dist_l
-    else
-      edge_dist_local(0) = edge_dist_r
-    end if
-
-    do rel_idx_k = 1, stencil_extent_r
-      pid_idx = stencil_map_pid(rel_idx_k)
-      if (rotated_panel_r == 1 .and. rel_idx_k > rot_edge_dist_r - 1) then
-        edge_dist_l = -ABS(panel_edge_dist_swapped_l(pid_idx))
-        edge_dist_r = ABS(panel_edge_dist_swapped_r(pid_idx))
-      else if (rotated_panel_r == -1 .and. rel_idx_k > rot_edge_dist_r - 1) then
-        edge_dist_l = -ABS(panel_edge_dist_swapped_r(pid_idx))
-        edge_dist_r = ABS(panel_edge_dist_swapped_l(pid_idx))
-      else
-        edge_dist_l = -ABS(panel_edge_dist_l(pid_idx))
-        edge_dist_r = ABS(panel_edge_dist_r(pid_idx))
-      end if
-      if (ABS(edge_dist_l) < ABS(edge_dist_r)) then
-        edge_dist_local(rel_idx_k) = edge_dist_l
-      else
-        edge_dist_local(rel_idx_k) = edge_dist_r
-      end if
-    end do
 
     w2h_idx = map_w2h(face)
     idx_dep = map_depk(face) + ndep_half
@@ -716,23 +887,17 @@ contains
       k_high = dep_highest_k(idx_dep + rel_idx_k)
       if (k_high < 0_i_def) cycle
 
+      if (rel_idx_k <= 0) then
+        rotated_panel = ABS(rotated_panel_l) > 0
+      else
+        rotated_panel = ABS(rotated_panel_r) > 0
+      end if
+
       col_idx = stencil_map(rel_idx_k)
       if (rel_idx_k < rot_edge_dist_l + 1 .or.                                 &
           rel_idx_k > rot_edge_dist_r - 1) then
-        if (SIGN(1, edge_dist_local(rel_idx_k)) /=                           &
-            SIGN(1, edge_dist_local(0))) then
-          field_ptr => remapped_field_swapped
-        else
-          field_ptr => field_swapped
-        end if
         mass_ptr => dry_mass_swapped
       else
-        if (SIGN(1, edge_dist_local(rel_idx_k)) /=                           &
-            SIGN(1, edge_dist_local(0))) then
-          field_ptr => remapped_field
-        else
-          field_ptr => field
-        end if
         mass_ptr => dry_mass
       end if
 
@@ -744,59 +909,45 @@ contains
               * SIGN(1, int_cell_idx - 1)) / 2, r_tran)
         if (int_cell_switch(k+1) == 0.0_r_tran) cycle
 
+        if (INT(panel_id(stencil_map_pid(rel_idx_k)), i_def) ==                &
+            owned_panel(k+1)) then
+          field_ptr => field
+        else if (rotated_panel) then
+          field_ptr => remapped_field_swapped
+        else
+          field_ptr => remapped_field
+        end if
+
         flux(w2h_idx+k) = flux(w2h_idx+k) +                                   &
             int_cell_switch(k+1) * field_ptr(col_idx+k) * mass_ptr(col_idx+k)
       end do
-    end do
-
-    do rel_idx_k = -stencil_extent_l, stencil_extent_r
-      if (ABS(edge_dist_local(rel_idx_k)) > order) then
-        edge_dist_local(rel_idx_k) = FAR_AWAY
-      end if
-    end do
-
-    rel_dep_cell_idx_bounded(:) = MIN(stencil_extent_r, MAX(-stencil_extent_l, &
-                                                            rel_dep_cell_idx(:)))
-    do k = 1, nlayers
-      edge_dist_dep(k) = edge_dist_local(rel_dep_cell_idx_bounded(k))
     end do
 
     recon_size = 1 + 2*order
     do j = 1, recon_size
       rel_idx(:) = MIN(stencil_extent_r, MAX(-stencil_extent_l,               &
           rel_dep_cell_idx(:) + j - order - 1))
-      swap_switch(:) = REAL(1 -                                              &
-          (1 + SIGN(1, rel_idx - rot_edge_dist_l - 1)) *                      &
-          (1 + SIGN(1, rot_edge_dist_r - rel_idx - 1)) / 4, r_tran)
       loc_idx(:) = (1 + sign_disp(:))/2*j +                                   &
                    (1 - sign_disp(:))/2*(recon_size - j + 1)
 
-      if (j == order + 1) then
-        do k = 1, nlayers
-          col_idx = stencil_map(rel_idx(k))
-          field_local(k, loc_idx(k)) =                                        &
-              (1.0_r_tran - swap_switch(k))*field(col_idx+k-1) +              &
-              swap_switch(k)*field_swapped(col_idx+k-1)
-        end do
-      else
-        do k = 1, nlayers
-          edge_dist(k) = edge_dist_local(rel_idx(k))
-        end do
-        remap_switch(:) = REAL(                                               &
-            (1 - SIGN(1, edge_dist)*SIGN(1, edge_dist_dep))                   &
-            * (1 + SIGN(1, ABS(edge_dist_dep) - ABS(edge_dist)))              &
-            * (1 + SIGN(1, order - ABS(edge_dist_dep))) / 8, r_tran)
-        do k = 1, nlayers
-          col_idx = stencil_map(rel_idx(k))
-          field_local(k, loc_idx(k)) =                                        &
-              (1.0_r_tran - remap_switch(k)) * (                              &
-                  (1.0_r_tran - swap_switch(k))*field(col_idx+k-1) +          &
-                  swap_switch(k)*field_swapped(col_idx+k-1)) +               &
-              remap_switch(k) * (                                             &
-                  (1.0_r_tran - swap_switch(k))*remapped_field(col_idx+k-1) + &
-                  swap_switch(k)*remapped_field_swapped(col_idx+k-1))
-        end do
-      end if
+      do k = 1, nlayers
+        col_idx = stencil_map(rel_idx(k))
+        if (INT(panel_id(stencil_map_pid(rel_idx(k))), i_def) ==              &
+            owned_panel(k)) then
+          field_local(k, loc_idx(k)) = field(col_idx+k-1)
+        else
+          if (rel_idx(k) <= 0) then
+            rotated_panel = ABS(rotated_panel_l) > 0
+          else
+            rotated_panel = ABS(rotated_panel_r) > 0
+          end if
+          if (rotated_panel) then
+            field_local(k, loc_idx(k)) = remapped_field_swapped(col_idx+k-1)
+          else
+            field_local(k, loc_idx(k)) = remapped_field(col_idx+k-1)
+          end if
+        end if
+      end do
     end do
 
     select case (order)
