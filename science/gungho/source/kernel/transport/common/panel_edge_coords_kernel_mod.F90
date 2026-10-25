@@ -23,8 +23,6 @@ use base_mesh_config_mod,      only: geometry, topology
 use finite_element_config_mod, only: coord_system
 use planet_config_mod,         only: scaled_radius
 
-use log_mod,               only: log_event, log_level_info, log_scratch_space
-
 implicit none
 
 private
@@ -204,12 +202,6 @@ subroutine panel_edge_coords_code( nlayers,                                    &
       chi_1_c = chi_1_c + chi_1(map_wx(df)) / real(ndf_wx, r_def)
       chi_2_c = chi_2_c + chi_2(map_wx(df)) / real(ndf_wx, r_def)
     end do
-    write(log_scratch_space, *) &
-        'Panel edge coords:', map_pid(1), owned_panel, swapped_panel_x, swapped_panel_y, &
-        panel_edge_dist_W(map_pid(1)), panel_edge_dist_E(map_pid(1)),          &
-        panel_edge_dist_S(map_pid(1)), panel_edge_dist_N(map_pid(1)),          &
-        alpha_x_c, beta_x_c, alpha_y_c, beta_y_c, chi_1_c, chi_2_c
-    call log_event(log_scratch_space, log_level_info)
   end if
 end subroutine panel_edge_coords_code
 

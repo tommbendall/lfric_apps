@@ -2,6 +2,8 @@
 ! (C) Crown copyright Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
 !-------------------------------------------------------------------------------
 
 
@@ -15,12 +17,10 @@ module peregrin_unification_kernel_mod
                                            ANY_DISCONTINUOUS_SPACE_2,          &
                                            STENCIL, CROSS2D,                   &
                                            CELL_COLUMN
-  use constants_mod,                 only: i_def, r_tran
+  use constants_mod,                 only: i_def, r_def, r_tran
   use kernel_mod,                    only: kernel_type
   use reference_element_mod,         only: W, E, S, N
   use sci_face_selector_support_mod, only: face_from_face_selector
-  ! TODO: to remove
-  use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_INFO
 
   implicit none
 
@@ -33,7 +33,7 @@ module peregrin_unification_kernel_mod
   !! PSy layer
   type, public, extends(kernel_type) :: peregrin_unification_kernel_type
     private
-    type(arg_type) :: meta_args(7) = (/                                        &
+    type(arg_type) :: meta_args(8) = (/                                        &
         arg_type(GH_FIELD,   GH_REAL,    GH_READWRITE,                         &
                                                    ANY_DISCONTINUOUS_SPACE_2), & ! flux_unified
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_2,  &
@@ -41,6 +41,8 @@ module peregrin_unification_kernel_mod
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_2,  &
                                                             STENCIL(CROSS2D)), & ! flux_edge_downwind
         arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_2), & ! dep_dist
+        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_1,  &
+                                                            STENCIL(CROSS2D)), &
         arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1), & ! panel_edge_dist
         arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1), & ! face_selector_ew
         arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_1)  & ! face_selector_ns
@@ -80,6 +82,12 @@ contains
   !!                                      determine whether that face is
   !!                                      downwind of the edge (no stencil
   !!                                      needed)
+  !> @param[in]     panel_id              Panel IDs in the CROSS2D stencil
+  !> @param[in]     stencil_sizes_p       Sizes of branches of the panel
+  !!                                     ID stencil
+  !> @param[in]     stencil_max_p         Maximum size of a panel ID
+  !!                                     stencil branch
+  !> @param[in]     stencil_map_p         Dofmap for the panel ID stencil
   !> @param[in]     panel_edge_dist_W     2D field: distance to the panel edge
   !!                                      to the West
   !> @param[in]     panel_edge_dist_E     2D field: distance to the panel edge
@@ -106,6 +114,7 @@ contains
       flux_read, stencil_sizes_f, stencil_max_f, stencil_map_f,                &
       flux_edge_downwind, stencil_sizes_d, stencil_max_d, stencil_map_d,       &
       dep_dist,                                                                &
+      panel_id, stencil_sizes_p, stencil_max_p, stencil_map_p,                 &
       panel_edge_dist_W, panel_edge_dist_E,                                    &
       panel_edge_dist_S, panel_edge_dist_N,                                    &
       face_selector_ew, face_selector_ns,                                      &
@@ -123,20 +132,24 @@ contains
     integer(kind=i_def), intent(in) :: ndf_pid
     integer(kind=i_def), intent(in) :: stencil_max_f
     integer(kind=i_def), intent(in) :: stencil_max_d
+    integer(kind=i_def), intent(in) :: stencil_max_p
     integer(kind=i_def), intent(in) :: stencil_sizes_f(4)
     integer(kind=i_def), intent(in) :: stencil_sizes_d(4)
+    integer(kind=i_def), intent(in) :: stencil_sizes_p(4)
 
     ! Arguments: Maps
     integer(kind=i_def), intent(in) :: map_w2h(ndf_w2h)
     integer(kind=i_def), intent(in) :: map_pid(ndf_pid)
     integer(kind=i_def), intent(in) :: stencil_map_f(ndf_w2h, stencil_max_f, 4)
     integer(kind=i_def), intent(in) :: stencil_map_d(ndf_w2h, stencil_max_d, 4)
+    integer(kind=i_def), intent(in) :: stencil_map_p(ndf_pid, stencil_max_p, 4)
 
     ! Arguments: Fields
     real(kind=r_tran),   intent(inout) :: flux_unified(undf_w2h)
     real(kind=r_tran),   intent(in)    :: flux_read(undf_w2h)
     real(kind=r_tran),   intent(in)    :: flux_edge_downwind(undf_w2h)
     real(kind=r_tran),   intent(in)    :: dep_dist(undf_w2h)
+    real(kind=r_def),    intent(in)    :: panel_id(undf_pid)
     integer(kind=i_def), intent(in)    :: panel_edge_dist_W(undf_pid)
     integer(kind=i_def), intent(in)    :: panel_edge_dist_E(undf_pid)
     integer(kind=i_def), intent(in)    :: panel_edge_dist_S(undf_pid)
@@ -150,6 +163,13 @@ contains
     integer(kind=i_def) :: edge_dist
     integer(kind=i_def) :: ew_sel, ns_sel
     integer(kind=i_def) :: j, face, branch_direction
+    integer(kind=i_def) :: central_panel, sample_panel, panel_edge
+    integer(kind=i_def) :: seam_face, seam_sign
+
+    integer(kind=i_def), parameter :: cw_face_map(4)        = (/ S, E, N, W /)
+    integer(kind=i_def), parameter :: cw_component_sign(4)  = (/ -1, 1, -1, 1 /)
+    integer(kind=i_def), parameter :: acw_face_map(4)       = (/ N, W, S, E /)
+    integer(kind=i_def), parameter :: acw_component_sign(4) = (/ 1, -1, 1, -1 /)
 
     edge_dist_W = ABS(panel_edge_dist_W(map_pid(1)))
     edge_dist_E = ABS(panel_edge_dist_E(map_pid(1)))
@@ -158,6 +178,7 @@ contains
 
     ew_sel = face_selector_ew(map_pid(1))
     ns_sel = face_selector_ns(map_pid(1))
+    central_panel = INT(panel_id(map_pid(1)), i_def)
 
     do j = 1, ABS(ew_sel) + ABS(ns_sel)
       face = face_from_face_selector(j, ew_sel, ns_sel)
@@ -175,7 +196,7 @@ contains
         edge_dist = MIN(edge_dist_N, edge_dist_S + 1) - 1
       end select
 
-      if (edge_dist > 0 .and. edge_dist < stencil_max_f) then
+          if (edge_dist > 0 .and. edge_dist < stencil_max_f) then
         ! Determine direction of stencil branch to use
         select case (face)
         case (W, E)
@@ -193,16 +214,29 @@ contains
           end if
         end select
 
-        ! TODO: to remove
-        write(log_scratch_space, *) 'UNIFICATION', map_pid(1), face, edge_dist, branch_direction
-        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        if (edge_dist + 1 <= stencil_sizes_p(branch_direction)) then
+          sample_panel = int(panel_id(stencil_map_p(                           &
+            1, edge_dist + 1, branch_direction)), i_def)
+          panel_edge = 10 * central_panel + sample_panel
+          seam_face = face
+          seam_sign = 1_i_def
+          select case (panel_edge)
+          case (41, 32, 16, 25, 64, 53)
+            seam_face = cw_face_map(face)
+            seam_sign = cw_component_sign(face)
+          case (14, 23, 61, 52, 46, 35)
+            seam_face = acw_face_map(face)
+            seam_sign = acw_component_sign(face)
+          end select
 
-        ! If near panel edge, apply unification correction, otherwise do nothing
-        call peregrin_unification_1d(                                          &
+          ! If near panel edge, apply unification correction; otherwise
+          ! do nothing
+          call peregrin_unification_1d(                                        &
             nlayers, flux_unified, flux_read, flux_edge_downwind, dep_dist,    &
-            undf_w2h, map_w2h(face), stencil_map_f, face, edge_dist,           &
-            branch_direction                                                   &
-        )
+            undf_w2h, map_w2h(face), stencil_map_f, seam_face, seam_sign,      &
+            edge_dist, branch_direction                                        &
+          )
+        end if
       end if
     end do
 
@@ -210,7 +244,8 @@ contains
 
   subroutine peregrin_unification_1d(                                          &
       nlayers, flux_unified, flux_read, flux_edge_downwind, dep_dist,          &
-      undf_w2h, idx, stencil_map, face, edge_dist, branch_direction            &
+      undf_w2h, idx, stencil_map, seam_face, seam_sign, edge_dist,             &
+      branch_direction                                                         &
   )
 
     implicit none
@@ -219,7 +254,8 @@ contains
     integer(kind=i_def), intent(in)    :: nlayers
     integer(kind=i_def), intent(in)    :: stencil_map(:,:, :)
     integer(kind=i_def), intent(in)    :: edge_dist
-    integer(kind=i_def), intent(in)    :: face
+    integer(kind=i_def), intent(in)    :: seam_face
+    integer(kind=i_def), intent(in)    :: seam_sign
     integer(kind=i_def), intent(in)    :: branch_direction
     integer(kind=i_def), intent(in)    :: undf_w2h
     integer(kind=i_def), intent(in)    :: idx
@@ -230,40 +266,30 @@ contains
 
     ! Internal variables
     integer(kind=i_def) :: nl, e_idx
-    real(kind=r_tran)   :: direction, branch_sign
+    real(kind=r_tran)   :: branch_sign
     real(kind=r_tran)   :: seam(0:nlayers-1)
     real(kind=r_tran)   :: switch(0:nlayers-1)
 
     nl = nlayers - 1
 
-    ! Determine direction based on face
-    select case (face)
-    case (W, E)
-      direction = 1.0_r_tran
-    case (N, S)
-      direction = -1.0_r_tran
+    ! Set sign for displacement into the panel from the selected edge
+    select case (branch_direction)
+    case (W, N)
+      branch_sign = 1.0_r_tran
+    case (E, S)
+      branch_sign = -1.0_r_tran
     end select
 
-    if (branch_direction /= face) then
-      branch_sign = -1.0_r_tran
-    else
-      branch_sign = 1.0_r_tran
-    end if
-
     ! Apply correction only where dep_dist+1 exceeds distance to panel edge
-    switch(:) = 0.5_r_tran + SIGN(0.5_r_tran,                                  &
-        direction * dep_dist(idx:idx+nl)                                       &
-        - branch_sign*REAL(edge_dist-1, r_tran)                                &
+    switch(:) = 0.5_r_tran + sign(0.5_r_tran,                                  &
+        branch_sign * dep_dist(idx:idx + nl)                                   &
+        - real(edge_dist - 1, r_tran)                                          &
     )
 
     ! Calculate seam
-    e_idx = stencil_map(face, edge_dist+1, branch_direction)
-    seam(:) = flux_read(e_idx:e_idx+nl) - flux_edge_downwind(e_idx:e_idx+nl)
-
-    ! TODO: to remove
-    write(log_scratch_space, *) edge_dist, e_idx, flux_unified(idx:idx+nl), switch, seam, seam(:) * switch(:) &
-        * (1.0_r_tran - REAL(edge_dist, r_tran) / (REAL(edge_dist+1, r_tran)))
-    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+    e_idx = stencil_map(seam_face, edge_dist + 1, branch_direction)
+    seam(:) = real(seam_sign, r_tran) * (                                      &
+      flux_read(e_idx:e_idx + nl) - flux_edge_downwind(e_idx:e_idx + nl))
 
     ! Apply correction, which decays away from the panel edge
     flux_unified(idx:idx+nl) = flux_unified(idx:idx+nl)                        &

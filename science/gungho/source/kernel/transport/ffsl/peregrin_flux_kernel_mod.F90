@@ -439,6 +439,7 @@ contains
                                  face,               &
                                  flux_edge_downwind, &
                                  field_for_x,        &
+                                 field_for_y,                                  &
                                  remapped_field_x,   &
                                  remapped_field_y,   &
                                  stencil_extent_xl,  &
@@ -481,6 +482,7 @@ contains
                                  face,               &
                                  flux,               &
                                  field_for_x,        &
+                                 field_for_y,                                  &
                                  remapped_field_x,   &
                                  remapped_field_y,   &
                                  stencil_extent_xl,  &
@@ -527,6 +529,7 @@ contains
                                  face,               &
                                  flux,               &
                                  field_for_x,        &
+                                 field_for_y,                                  &
                                  remapped_field_x,   &
                                  remapped_field_y,   &
                                  stencil_extent_xl,  &
@@ -650,6 +653,7 @@ contains
                                  face,               &
                                  flux_edge_downwind, &
                                  field_for_y,        &
+                                 field_for_x,                                  &
                                  remapped_field_y,   &
                                  remapped_field_x,   &
                                  stencil_extent_yl,  &
@@ -690,8 +694,9 @@ contains
           call peregrin_flux_1d( nlayers,            &
                                  x_direction,        &
                                  face,               &
-                                 flux_edge_downwind, &
+                                 flux,                                         &
                                  field_for_y,        &
+                                 field_for_x,                                  &
                                  remapped_field_y,   &
                                  remapped_field_x,   &
                                  stencil_extent_yl,  &
@@ -736,8 +741,9 @@ contains
           call peregrin_flux_1d( nlayers,            &
                                  x_direction,        &
                                  face,               &
-                                 flux_edge_downwind, &
+                                 flux,                                         &
                                  field_for_y,        &
+                                 field_for_x,                                  &
                                  remapped_field_y,   &
                                  remapped_field_x,   &
                                  stencil_extent_yl,  &
@@ -782,7 +788,7 @@ contains
   subroutine peregrin_flux_1d(                                                 &
         nlayers, x_direction, face,                                            &
         flux,                                                                  &
-        field,                                                                 &
+        field, field_swapped,                                                  &
         remapped_field, remapped_field_swapped,                                &
         stencil_extent_l, stencil_extent_r,                                    &
         stencil_max, stencil_map, stencil_map_pid,                             &
@@ -797,7 +803,6 @@ contains
         ndf_w3_2d, undf_w3_2d, map_w3_2d                                       &
   )
 
-    use panel_edge_support_mod,         only: rotated_panel_neighbour
     use subgrid_horizontal_support_mod, only: fourth_order_horizontal_edge,    &
                                               nirvana_horizontal_edge
     use subgrid_common_support_mod,     only: monotonic_edge,                  &
@@ -822,6 +827,7 @@ contains
     integer(kind=i_def),       intent(in)    :: dep_highest_k(undf_depk)
     real(kind=r_tran),         intent(inout) :: flux(undf_w2h)
     real(kind=r_tran), target, intent(in)    :: field(undf_w3)
+    real(kind=r_tran), target, intent(in)    :: field_swapped(undf_w3)
     real(kind=r_tran), target, intent(in)    :: remapped_field(undf_w3)
     real(kind=r_tran), target, intent(in)    :: remapped_field_swapped(undf_w3)
     real(kind=r_tran), target, intent(in)    :: dry_mass(undf_w3)
@@ -831,16 +837,15 @@ contains
     real(kind=r_tran),         intent(in)    :: min_val, dt
     logical(kind=l_def),       intent(in)    :: x_direction
 
-    integer(kind=i_def)         :: local_dofs(2), dof_offset, ipanel
+    integer(kind=i_def)         :: local_dofs(2), dof_offset, central_panel
+    integer(kind=i_def)         :: sample_panel
     integer(kind=i_def)         :: rel_idx_min, rel_idx_max, ndep_half
-    integer(kind=i_def)         :: rot_edge_dist_l, rot_edge_dist_r
-    integer(kind=i_def)         :: rotated_panel_l, rotated_panel_r
-    logical(kind=l_def)         :: rotated_panel
     integer(kind=i_def)         :: rel_idx_k, idx_dep, w2h_idx, col_idx
     integer(kind=i_def)         :: k_low, k_high, k, j, int_cell_idx, recon_size
     integer(kind=i_def)         :: sign_disp(nlayers)
     integer(kind=i_def)         :: rel_dep_cell_idx(nlayers)
     integer(kind=i_def)         :: rel_idx(nlayers), loc_idx(nlayers)
+    logical(kind=l_def)         :: rotated_sample
     real(kind=r_tran)           :: displacement(nlayers), frac_dist(nlayers)
     real(kind=r_tran)           :: recon_field(nlayers)
     real(kind=r_tran)           :: field_edge_left(nlayers), field_edge_right(nlayers)
@@ -864,13 +869,11 @@ contains
       dof_offset = 1
     end if
 
-    ipanel = INT(owned_panel(1), i_def)
     ndep_half = (ndep - 1_i_def) / 2_i_def
     rel_idx_min = MAX(-stencil_extent_l, -ndep_half)
     rel_idx_max = MIN(stencil_extent_r, ndep_half)
-    rotated_panel_l = rotated_panel_neighbour(ipanel, local_dofs(1))
-    rotated_panel_r = rotated_panel_neighbour(ipanel, local_dofs(2))
 
+    central_panel = INT(panel_id(map_pid(1)), i_def)
 
     w2h_idx = map_w2h(face)
     idx_dep = map_depk(face) + ndep_half
@@ -882,26 +885,20 @@ contains
     field_local = 0.0_r_tran
     flux(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
 
+    ! INTEGER FLUX -------------------------------------------------------------
+    ! TODO: the logic should be improved so that we don't do all downwind or
+    ! upwind in the same kernel: we should do all L side and R side in the same
+    ! kernel and then separate the contributions into downwind / upwind
+    ! This would require rewriting the integer and fractional parts
     do rel_idx_k = rel_idx_min, rel_idx_max
       k_low = dep_lowest_k(idx_dep + rel_idx_k)
       k_high = dep_highest_k(idx_dep + rel_idx_k)
       if (k_high < 0_i_def) cycle
 
-      if (rel_idx_k <= 0) then
-        rotated_panel = ABS(rotated_panel_l) > 0
-      else
-        rotated_panel = ABS(rotated_panel_r) > 0
-      end if
-
       col_idx = stencil_map(rel_idx_k)
-      if (rel_idx_k < rot_edge_dist_l + 1 .or.                                 &
-          rel_idx_k > rot_edge_dist_r - 1) then
-        mass_ptr => dry_mass_swapped
-      else
-        mass_ptr => dry_mass
-      end if
 
       do k = k_low, k_high
+        ! Extract panel info
         int_cell_idx = 1 + sign_disp(k+1) * (dof_offset - rel_idx_k - 1 +      &
                                              (1 - sign_disp(k+1)) / 2)
         int_cell_switch(k+1) = REAL(                                           &
@@ -909,13 +906,21 @@ contains
               * SIGN(1, int_cell_idx - 1)) / 2, r_tran)
         if (int_cell_switch(k+1) == 0.0_r_tran) cycle
 
-        if (INT(panel_id(stencil_map_pid(rel_idx_k)), i_def) ==                &
-            owned_panel(k+1)) then
+        sample_panel = INT(panel_id(stencil_map_pid(rel_idx_k)), i_def)
+        rotated_sample = panel_edge_is_rotated(central_panel, sample_panel)
+        if (rotated_sample) then
+          if (sample_panel == owned_panel(k + 1)) then
+            field_ptr => field_swapped
+          else
+            field_ptr => remapped_field_swapped
+          end if
+          mass_ptr => dry_mass_swapped
+        else if (sample_panel == owned_panel(k + 1)) then
           field_ptr => field
-        else if (rotated_panel) then
-          field_ptr => remapped_field_swapped
+          mass_ptr => dry_mass
         else
           field_ptr => remapped_field
+          mass_ptr => dry_mass
         end if
 
         flux(w2h_idx+k) = flux(w2h_idx+k) +                                   &
@@ -923,6 +928,7 @@ contains
       end do
     end do
 
+    ! FRACTIONAL FLUX ----------------------------------------------------------
     recon_size = 1 + 2*order
     do j = 1, recon_size
       rel_idx(:) = MIN(stencil_extent_r, MAX(-stencil_extent_l,               &
@@ -932,20 +938,20 @@ contains
 
       do k = 1, nlayers
         col_idx = stencil_map(rel_idx(k))
-        if (INT(panel_id(stencil_map_pid(rel_idx(k))), i_def) ==              &
-            owned_panel(k)) then
-          field_local(k, loc_idx(k)) = field(col_idx+k-1)
+
+        ! Extract panel info
+        sample_panel = INT(panel_id(stencil_map_pid(rel_idx(k))), i_def)
+        rotated_sample = panel_edge_is_rotated(central_panel, sample_panel)
+        if (rotated_sample) then
+          if (sample_panel == owned_panel(k)) then
+            field_local(k, loc_idx(k)) = field_swapped(col_idx + k - 1)
+          else
+            field_local(k, loc_idx(k)) = remapped_field_swapped(col_idx + k - 1)
+          end if
+        else if (sample_panel == owned_panel(k)) then
+          field_local(k, loc_idx(k)) = field(col_idx + k - 1)
         else
-          if (rel_idx(k) <= 0) then
-            rotated_panel = ABS(rotated_panel_l) > 0
-          else
-            rotated_panel = ABS(rotated_panel_r) > 0
-          end if
-          if (rotated_panel) then
-            field_local(k, loc_idx(k)) = remapped_field_swapped(col_idx+k-1)
-          else
-            field_local(k, loc_idx(k)) = remapped_field(col_idx+k-1)
-          end if
+          field_local(k, loc_idx(k)) = remapped_field(col_idx + k - 1)
         end if
       end do
     end do
@@ -973,5 +979,29 @@ contains
         + direction * sign_disp(:) * flux(w2h_idx:w2h_idx+nlayers-1))
 
   end subroutine peregrin_flux_1d
+
+  ! TODO: write this using my style
+  logical(kind=l_def) function panel_edge_is_rotated(                          &
+      reference_panel, sample_panel)
+
+    use panel_edge_support_mod, only: panel_neighbour, rotated_panel_neighbour
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: reference_panel, sample_panel
+    integer(kind=i_def), parameter  :: face_directions(4) = (/ W, E, S, N /)
+    integer(kind=i_def)             :: direction_idx
+
+    panel_edge_is_rotated = .false.
+    do direction_idx = 1, 4
+      if (panel_neighbour(reference_panel, face_directions(direction_idx)) ==  &
+          sample_panel) then
+        panel_edge_is_rotated = ABS(rotated_panel_neighbour(                   &
+        reference_panel, face_directions(direction_idx))) > 0
+        return
+      end if
+    end do
+
+  end function panel_edge_is_rotated
 
 end module peregrin_flux_kernel_mod

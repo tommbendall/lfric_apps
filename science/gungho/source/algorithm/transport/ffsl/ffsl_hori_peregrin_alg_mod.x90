@@ -510,7 +510,8 @@ contains
            peregrin_unification_kernel_type(                                   &
                   flux, flux_big, stencil_extent_outer,                        &
                   flux_edge_downwind_big, stencil_extent_outer,                &
-                  dep_dist_outer, panel_edge_dist,                             &
+                  dep_dist_outer, panel_id, stencil_extent_outer,              &
+                  panel_edge_dist,                                             &
                   face_selector_ew, face_selector_ns                           &
             )                                                                  &
     )
