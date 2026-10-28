@@ -153,6 +153,9 @@
         "lfric_atm_ral_ex1a_developer",
         "lfric_atm_ral_ex1a_weekly",
     ],
+    "lfric_atm_1h": [
+        "lfric_atm_nwp_gal9_1h-C224_MG_ex1a_cce_production-32bit",
+    ],
     "lfric_atm_scm_ex1a_developer": [
         "lfric_atm_scm_gal9_bomex-BiP2x2-50000x50000_ex1a_cce_fast-debug-32bit",
         "lfric_atm_scm_coma9_bomex-BiP2x2-50000x50000_ex1a_cce_fast-debug-32bit",
