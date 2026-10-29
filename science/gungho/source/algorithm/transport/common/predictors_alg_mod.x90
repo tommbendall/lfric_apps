@@ -19,6 +19,8 @@ module predictors_alg_mod
   use log_mod,                    only: log_event, LOG_LEVEL_ERROR
   use sci_fem_constants_mod,      only: get_im3_div_fe, &
                                         get_im3_div_fv
+  use sci_geometric_constants_mod, &
+                                  only: get_detj_at_w3_fe
   use field_indices_mod,          only: igh_u, igh_d
   use field_mod,                  only: field_type
   use model_clock_mod,            only: model_clock_type
@@ -34,13 +36,18 @@ module predictors_alg_mod
                                         wind_transport_predictor_no_etadot,    &
                                         wind_transport_predictor_no_w,         &
                                         wind_transport_predictor_w2h_only,     &
-                                        wind_transport_predictor_finite_difference
+                                        wind_transport_predictor_finite_difference, &
+                                        wind_transport_predictor_separate_h_and_v, &
+                                        wind_transport_predictor_no_w_3d_solve, &
+                                        wind_transport_predictor_3d_clipped
   use transport_config_mod,       only: use_density_predictor, &
                                         cap_density_predictor
 
   ! Algorithms and Kernels
   use dg_matrix_vector_kernel_mod, &
                                   only: dg_matrix_vector_kernel_type
+  use vertical_lipschitz_clipping_kernel_mod, &
+                                  only: vertical_lipschitz_clipping_kernel_type
   use sci_mass_matrix_solver_alg_mod, &
                                   only: mass_matrix_solver_alg
   use sci_hori_mass_matrix_solver_alg_mod, &
@@ -98,6 +105,14 @@ contains
     type(field_type) :: hori_tmp
     type(field_type) :: vert_wind
 
+    ! Fields needed for the separate_h_and_v wind predictor
+    type(field_type) :: w2v_rhs
+    type(field_type) :: w2v_pred
+
+    ! Fields needed for the 3d_clipped wind predictor
+    type(field_type)          :: u_clip_inc
+    type(field_type), pointer :: detj_at_w3 => null()
+
     ! Fields and values needed for the density predictor
     type(field_type) :: divergence
     type(field_type) :: div_factor
@@ -136,6 +151,34 @@ contains
                                    vert_field=vert_wind )
       case ( wind_transport_predictor_finite_difference )
         call invoke( setval_X(advected_state(igh_u), u_pred) )
+      case ( wind_transport_predictor_separate_h_and_v )
+        ! Separate mass matrix solve for the W2v values
+        call split_w2_field_alg( hori_tmp, rhs_n, w2v_field=w2v_rhs )
+        call w2v_pred%initialise( w2v_rhs%get_function_space() )
+        call mass_matrix_solver_alg(w2v_pred, w2v_rhs)
+        call hori_mass_matrix_solver_alg( advected_state(igh_u), rhs_n,        &
+                                          preserve_vertical=.false.,           &
+                                          w2v_field_solve=w2v_pred )
+      case ( wind_transport_predictor_no_w_3d_solve )
+        ! Full solve, then replace the true vertical wind with that from wind
+        call mass_matrix_solver_alg(advected_state(igh_u), rhs_n)
+        call split_w2_field_alg( hori_pred, advected_state(igh_u),             &
+                                 w2v_field=w2v_rhs )
+        call split_w2_field_alg( hori_tmp, wind, vert_field=vert_wind )
+        call combine_w2_field_alg( advected_state(igh_u), hori_pred,           &
+                                   vert_field=vert_wind )
+      case ( wind_transport_predictor_3d_clipped )
+        call mass_matrix_solver_alg(advected_state(igh_u), rhs_n)
+        cast_dt = real(model_clock%get_seconds_per_step(), r_def)
+        detj_at_w3 => get_detj_at_w3_fe(advected_state(igh_u)%get_mesh_id())
+        call u_clip_inc%initialise( advected_state(igh_u)%get_function_space() )
+        call invoke( setval_c(u_clip_inc, 0.0_r_def),                          &
+                     vertical_lipschitz_clipping_kernel_type(u_clip_inc,       &
+                                                             advected_state(igh_u), &
+                                                             detj_at_w3,       &
+                                                             cast_dt),         &
+                     inc_X_plus_Y(advected_state(igh_u), u_clip_inc) )
+        nullify( detj_at_w3 )
       case default
         call log_event( "predictors_alg: unrecognised wind_transport_predictor", &
                         LOG_LEVEL_ERROR )
