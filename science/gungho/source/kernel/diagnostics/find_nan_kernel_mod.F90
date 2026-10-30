@@ -14,6 +14,7 @@ module find_nan_kernel_mod
                                ANY_DISCONTINUOUS_SPACE_3,            &
                                ANY_DISCONTINUOUS_SPACE_4
   use constants_mod,     only: r_def, i_def
+  use, intrinsic :: iso_fortran_env, only: int32, int64
   use kernel_mod,        only: kernel_type
 
   implicit none
@@ -85,8 +86,6 @@ subroutine find_nan_code(nlayers,                    &
                          ndf_2d, undf_2d, map_2d,    &
                          ndf_n, undf_n, map_n )
 
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-
   implicit none
 
   ! Arguments
@@ -126,7 +125,7 @@ subroutine find_nan_code(nlayers,                    &
 
   do df = 1, dofs_to_loop
     do k = 0, top
-      if (.not. ieee_is_finite(field(map_3d(df) + k))) then
+      if (is_non_finite(field(map_3d(df) + k))) then
         ! If the maximum is at this location, write its information
         nan_lev(map_n(1))    = real(k, r_def)
         nan_count(map_n(1))  = 1.0_r_def
@@ -142,7 +141,7 @@ subroutine find_nan_code(nlayers,                    &
   if (ndf_3d == 6) then
     df = 5
     do k = 0, nlayers
-      if (.not. ieee_is_finite(field(map_3d(df) + k))) then
+      if (is_non_finite(field(map_3d(df) + k))) then
         ! If the maximum is at this location, write its information
         nan_lev(map_n(1))    = real(k, r_def)
         nan_count(map_n(1))  = 1.0_r_def
@@ -155,5 +154,42 @@ subroutine find_nan_code(nlayers,                    &
   end if
 
 end subroutine find_nan_code
+
+! Inspect IEEE exponent bits without evaluating non-finite floating-point data.
+logical function is_non_finite(value)
+
+  implicit none
+
+  real(kind=r_def), intent(in) :: value
+  integer(kind=int32) :: bits_32
+  integer(kind=int64) :: bits_64(2), one_bits_64(2)
+  integer(kind=i_def) :: exponent_word
+
+  select case (storage_size(value))
+  case (32)
+    bits_32 = transfer(value, bits_32)
+    is_non_finite = iand(bits_32, int(Z'7F800000', int32)) == &
+                    int(Z'7F800000', int32)
+  case (64)
+    bits_64(1) = transfer(value, bits_64(1))
+    is_non_finite = iand(bits_64(1), int(Z'7FF0000000000000', int64)) == &
+                    int(Z'7FF0000000000000', int64)
+  case (128)
+    bits_64 = transfer(value, bits_64(1), size=2)
+    one_bits_64 = transfer(1.0_r_def, one_bits_64(1), size=2)
+    if (iand(one_bits_64(1), int(Z'7FFF000000000000', int64)) == &
+        int(Z'3FFF000000000000', int64)) then
+      exponent_word = 1
+    else
+      exponent_word = 2
+    end if
+    is_non_finite = &
+      iand(bits_64(exponent_word), int(Z'7FFF000000000000', int64)) == &
+      int(Z'7FFF000000000000', int64)
+  case default
+    is_non_finite = .true.
+  end select
+
+end function is_non_finite
 
 end module find_nan_kernel_mod
