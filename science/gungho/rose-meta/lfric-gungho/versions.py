@@ -465,7 +465,6 @@ class vn32_t763(MacroUpgrade):
         self.add_setting(
             config, ["namelist:wind_relax", "v_profile_data"], "0.0"
         )
-
         return config, self.reports
 
 
@@ -489,8 +488,8 @@ class vn32_t776(MacroUpgrade):
         self.add_setting(config, [nml, "min_radius_fac"], str(0.25 / prk))
         # Was the hard-wired comorph_constants_mod value par_gen_radius_fac
         self.add_setting(config, [nml, "turb_len_fac"], "8.0")
-
         return config, self.reports
+
 
 class vn32_t714(MacroUpgrade):
     """Upgrade macro for ticket #714 by Thomas Bendall."""
