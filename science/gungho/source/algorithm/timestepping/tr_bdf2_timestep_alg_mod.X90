@@ -2,6 +2,8 @@
 ! (c) Crown copyright Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
 !-------------------------------------------------------------------------------
 
 !> @brief A three time-level iterative timestepper for the 3D nonlinear
@@ -36,6 +38,7 @@ module tr_bdf2_timestep_alg_mod
                                   only: clone_bundle,                          &
                                         bundle_axpy,                           &
                                         bundle_axpby,                          &
+                                        bundle_inc_axpby,                      &
                                         add_bundle,                            &
                                         copy_bundle,                           &
                                         set_bundle_scalar
@@ -62,7 +65,8 @@ module tr_bdf2_timestep_alg_mod
   use fast_physics_alg_mod,       only: fast_physics
   use gungho_transport_control_alg_mod,                                        &
                                   only: gungho_transport_control_alg_init,     &
-                                        gungho_transport_control_alg
+                                        gungho_transport_control_alg,          &
+                                        gungho_transport_control_theta_alg
   use lam_rhs_alg_mod,            only: calc_rhs_lbc,                          &
                                         apply_mask_rhs
 
@@ -112,8 +116,8 @@ module tr_bdf2_timestep_alg_mod
   ! Pointers
   use sci_fem_constants_mod,      only: get_mass_matrix_fe,                    &
                                         get_mass_matrix_fv
-  use dycore_constants_mod,       only: stepper_tr, stepper_bdf2,              &
-                                        gamma, gamma2, gamma3
+  use dycore_constants_mod,       only: stepper_siqn, stepper_tr,              &
+                                        stepper_bdf2, gamma, gamma2, gamma3
 
   ! Configuration options
   use aerosol_config_mod,         only: glomap_mode_dust_and_clim,             &
@@ -160,6 +164,11 @@ module tr_bdf2_timestep_alg_mod
     type(field_type), allocatable :: mr_aft_adv(:)     ! Mixing ratios after transport (both)
     type(field_type), allocatable :: mr_dag(:)         ! Mixing ratios after slow physics
     type(field_type), allocatable :: mr_bdf(:)         ! Mixing ratios after BDF2 step
+    type(field_type), allocatable :: rhs_adv_n(:) ! Transport RHS of X^n
+                                               ! (expensive transport)
+    type(field_type), allocatable :: rhs_adv_corr(:) ! Transport RHS correction
+                                               ! for X^q-X^n
+                                               ! (expensive transport)
     type(field_type), allocatable :: rhs_n(:)          ! Explicit RHS (TR)
     type(field_type), allocatable :: rhs_np1(:)        ! Implicit RHS (BDF2)
     type(field_type), allocatable :: rhs_adv(:)        ! Transport RHS (both)
@@ -483,6 +492,10 @@ contains
     allocate(self%mr_bdf(nummr))
     allocate(self%mr_dag(nummr))
     allocate(self%mr_aft_adv(nummr))
+    if (.not. self%config%timestepping%tr_bdf2_cheap_transport()) then
+      allocate(self%rhs_adv_n(bundle_size))
+      allocate(self%rhs_adv_corr(bundle_size))
+    end if
 
     self%use_moisture = ( moisture_formulation /= moisture_formulation_dry )
     self%output_cld_incs = (                                                   &
@@ -531,6 +544,11 @@ contains
       call set_bundle_scalar(0.0_r_def, self%mr_n, nummr)
       call set_bundle_scalar(0.0_r_def, self%mr_dag, nummr)
       call set_bundle_scalar(0.0_r_def, self%mr_bdf, nummr)
+    end if
+
+    if (allocated(self%rhs_adv_n)) then
+      call clone_bundle(self%state, self%rhs_adv_n, bundle_size)
+      call clone_bundle(self%state, self%rhs_adv_corr, bundle_size)
     end if
 
     ! ------------------------------------------------------------------------ !
@@ -690,8 +708,13 @@ contains
 
     ! Moisture field to transport
     type(field_type),       pointer :: mr_to_adv(:)
+    type(field_type),       pointer :: state_bdf_to_adv(:)
     type(field_type)                :: dry_flux_solver
     type(r_tran_field_type)         :: dry_flux_solver_r_tran
+    ! Dry fluxes for expensive transport: TR-stage transport, BDF2 transport of
+    ! X^n, and the part of the combined BDF2 flux not from transporting X^m
+    type(r_tran_field_type)         :: dry_flux_tr, dry_flux_n, dry_flux_other
+    real(kind=r_tran)               :: one_minus_gamma3_rtran
     type(field_type)                :: rho_star
 
     type(field_type)              :: dcfl_tot, dcff_tot, dbcf_tot
@@ -755,6 +778,7 @@ contains
     integer(kind=i_def), allocatable  :: inner_iterations_bdf2(:)
     logical(kind=l_def)               :: cheap_update
     logical(kind=l_def)               :: transport_ageofair
+    logical(kind=l_def)              :: tr_bdf2_cheap_transport
 
     if (LPROF) call start_timing(id, 'tr_bdf2_timestep_alg')
 
@@ -788,6 +812,7 @@ contains
     allocate(inner_iterations_bdf2(outer_iterations))
     inner_iterations_tr(:) = self%config%timestepping%inner_iterations_tr()
     inner_iterations_bdf2(:) = self%config%timestepping%inner_iterations_bdf2()
+    tr_bdf2_cheap_transport = self%config%timestepping%tr_bdf2_cheap_transport()
     limited_area = self%config%boundaries%limited_area()
     if (limited_area) then
       blend_frequency = self%config%boundaries%blend_frequency()
@@ -1175,6 +1200,15 @@ contains
     )
 
     do_moist_correction = (solver_moisture_conservation .and. self%use_moisture)
+    if (.not. tr_bdf2_cheap_transport) then
+      ! Store the dry flux of the TR-stage transport, before the TR solver flux
+      ! is added to total_dry_flux
+      call dry_flux_tr%initialise(u%get_function_space())
+      call dry_flux_n%initialise(u%get_function_space())
+      call dry_flux_other%initialise(u%get_function_space())
+      call invoke( setval_X(dry_flux_tr, self%total_dry_flux) )
+      one_minus_gamma3_rtran = real(1.0_r_def - gamma3, r_tran)
+    end if
     if (do_moist_correction) then
       call dry_flux_solver_r_tran%initialise(u%get_function_space())
       call invoke(                                                             &
@@ -1215,6 +1249,25 @@ contains
         setval_c(self%rhs_bdf(igh_p), 0.0_r_def)                               &
     )
 
+    ! For expensive transport, X^q-X^n is the TR transport increment, which
+    ! is needed in weak form for u, and is fixed throughout the BDF2 stage
+    if (.not. tr_bdf2_cheap_transport) then
+      call bundle_axpy(                                                        &
+          - 1.0_r_def, self%state_to_adv, self%state_aft_adv,                  &
+          self%rhs_adv_corr, bundle_size                                       &
+      )
+      ! rhs_adv_n(igh_u) is used as scratch space, as it is overwritten by
+      ! the transport
+      call invoke(                                                             &
+          setval_X(self%rhs_adv_n(igh_u), self%rhs_adv_corr(igh_u)),           &
+          setval_c(self%rhs_adv_corr(igh_u), 0.0_r_def),                       &
+          matrix_vector_kernel_type(                                           &
+              self%rhs_adv_corr(igh_u), self%rhs_adv_n(igh_u), mm_vel          &
+          ),                                                                   &
+          enforce_bc_kernel_type(self%rhs_adv_corr(igh_u))                     &
+      )
+    end if
+
     ! ======================================================================== !
     ! Outer transport loop
     ! ======================================================================== !
@@ -1228,22 +1281,91 @@ contains
         ! -------------------------------------------------------------------- !
         ! Transport
         ! -------------------------------------------------------------------- !
-        ! Transport state_bdf & mr_bdf: put results in rhs_adv & mr
-        ! Transporting wind is u^{n+1}
+        if (tr_bdf2_cheap_transport) then
+          ! Transport state_bdf & mr_bdf: put results in rhs_adv & mr
+          ! Transporting wind is u^{n+1}
+          state_bdf_to_adv => self%state_bdf
+        else
+          ! Transport state_dag over the whole timestep, using u^{n+1}
+          ! (SIQN stepper with wind_n = wind_np1 = u^{n+1} gives this):
+          ! put results in rhs_adv_n, and the dry flux in dry_flux_n.
+          ! Moisture is not transported here, only once in the next call, and
+          ! theta is transported after that so that the final moisture is used
+          call gungho_transport_control_alg(                                   &
+                  self%config, self%rhs_adv_n,                                 &
+                  self%state_dag, self%state(igh_u), self%state(igh_u),        &
+                  self%mr_dag, self%mr_dag, model_clock, outer,                &
+                  stepper_siqn, cheap_update=.false.,                          &
+                  dry_flux_out=dry_flux_n, skip_moisture=.true.,               &
+                  skip_theta=.true.                                            &
+          )
+          ! The dry flux that is consistent with the combined density update
+          ! is gamma3*F^m + (1-gamma3)*(F^n - F^TR), where F^TR is the dry flux
+          ! of the TR-stage transport. Here we find the latter two terms
+          call invoke(                                                         &
+              X_minus_Y(dry_flux_other, dry_flux_n, dry_flux_tr),              &
+              inc_a_times_X(one_minus_gamma3_rtran, dry_flux_other)            &
+          )
+          ! The remaining transport is of state_m & mr_bdf over (1-2*gamma)*dt
+          state_bdf_to_adv => self%state_m
+        end if
+
         ! Here we also transport tracers over the whole timestep using
         ! a transporting wind of 0.5*(u^n + u^{n+1})
-        call gungho_transport_control_alg(                                     &
-                self%config, self%rhs_adv,                                     &
-                self%state_bdf, self%state(igh_u), self%state_n(igh_u),        &
-                mr, mr_to_adv, model_clock, outer, stepper_bdf2,               &
-                cheap_update, self%adv_inc_prev, self%wind_prev,               &
-                self%state_bdf(igh_d), self%state_dag(igh_d),                  &
-                self%total_dry_flux,                                           &
-                adv_tracer_all_outer, adv_tracer_all_outer_dag,                &
-                adv_tracer_last_outer, adv_tracer_last_outer_dag,              &
-                con_tracer_all_outer, con_tracer_all_outer_dag,                &
-                con_tracer_last_outer, con_tracer_last_outer_dag               &
-        )
+        ! For expensive transport the combined dry flux is used for moisture,
+        ! so moisture is only transported once
+        if (tr_bdf2_cheap_transport) then
+          call gungho_transport_control_alg(                                   &
+                  self%config, self%rhs_adv,                                   &
+                  state_bdf_to_adv, self%state(igh_u), self%state_n(igh_u),    &
+                  mr, mr_to_adv, model_clock, outer, stepper_bdf2,             &
+                  cheap_update, self%adv_inc_prev, self%wind_prev,             &
+                  self%state_bdf(igh_d), self%state_dag(igh_d),                &
+                  self%total_dry_flux,                                         &
+                  adv_tracer_all_outer, adv_tracer_all_outer_dag,              &
+                  adv_tracer_last_outer, adv_tracer_last_outer_dag,            &
+                  con_tracer_all_outer, con_tracer_all_outer_dag,              &
+                  con_tracer_last_outer, con_tracer_last_outer_dag             &
+          )
+        else
+          call gungho_transport_control_alg(                                   &
+                  self%config, self%rhs_adv,                                   &
+                  state_bdf_to_adv, self%state(igh_u), self%state_n(igh_u),    &
+                  mr, mr_to_adv, model_clock, outer, stepper_bdf2,             &
+                  cheap_update, self%adv_inc_prev, self%wind_prev,             &
+                  self%state_bdf(igh_d), self%state_dag(igh_d),                &
+                  self%total_dry_flux,                                         &
+                  adv_tracer_all_outer, adv_tracer_all_outer_dag,              &
+                  adv_tracer_last_outer, adv_tracer_last_outer_dag,            &
+                  con_tracer_all_outer, con_tracer_all_outer_dag,              &
+                  con_tracer_last_outer, con_tracer_last_outer_dag,            &
+                  bdf_flux_other=dry_flux_other                                &
+          )
+        end if
+
+        if (.not. tr_bdf2_cheap_transport) then
+          ! Transport theta over the whole timestep, now that the moisture after
+          ! transport is known: put the increment in rhs_adv_n(igh_t)
+          call gungho_transport_control_theta_alg(                             &
+                  self%config, self%rhs_adv_n(igh_t), self%state_dag(igh_t),   &
+                  self%state_dag(igh_d), self%state(igh_u), mr, self%mr_dag,   &
+                  model_clock, outer, dry_flux_n                               &
+          )
+
+          ! Combine to get the increment to state_bdf:
+          ! (1-gamma3)*T[X^n] + gamma3*T[X^m] - X_bdf
+          ! = (1-gamma3)*(T[X^n]-X^n) + gamma3*(T[X^m]-X^m)
+          !   - (1-gamma3)*(X^q-X^n)
+          ! This is not done for moisture, which is transported once
+          call bundle_inc_axpby(                                               &
+              gamma3, self%rhs_adv, 1.0_r_def - gamma3, self%rhs_adv_n,        &
+              bundle_size                                                      &
+          )
+          call bundle_inc_axpby(                                               &
+              1.0_r_def, self%rhs_adv, -(1.0_r_def - gamma3),                  &
+              self%rhs_adv_corr, bundle_size                                   &
+          )
+        end if
 
         ! Convert theta increment to weak form
         call invoke(                                                           &
@@ -1633,6 +1755,8 @@ contains
     if (allocated(self%mr_dag))           deallocate(self%mr_dag)
     if (allocated(self%mr_bdf))           deallocate(self%mr_bdf)
     if (allocated(self%mr_aft_adv))       deallocate(self%mr_aft_adv)
+    if (allocated(self%rhs_adv_n))        deallocate(self%rhs_adv_n)
+    if (allocated(self%rhs_adv_corr))     deallocate(self%rhs_adv_corr)
 
     call self%dtheta%field_final()
     call self%du%field_final()

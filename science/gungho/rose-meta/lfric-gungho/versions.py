@@ -70,5 +70,23 @@ class vn32_t714(MacroUpgrade):
         self.add_setting(
             config, ["namelist:timestepping", "inner_iterations_bdf2"], "1,1"
         )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "tr_bdf2_cheap_transport"],
+            ".true.",
+        )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "tr_bdf2_first_guess"],
+            "'extrapolation'",
+        )
+        self.add_setting(
+            config, ["namelist:timestepping", "tr_bdf2_tr_physics"], ".false."
+        )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "tr_bdf2_bdf_evap_condense"],
+            ".false.",
+        )
 
         return config, self.reports

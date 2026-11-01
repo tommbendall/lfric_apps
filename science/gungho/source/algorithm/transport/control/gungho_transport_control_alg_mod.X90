@@ -11,7 +11,7 @@ module gungho_transport_control_alg_mod
   use constants_mod,                     only: i_def, r_def, l_def, r_tran,    &
                                                PRECISION_R_TRAN
   use dycore_constants_mod,              only: stepper_siqn, stepper_tr,       &
-                                               stepper_bdf2
+                                               stepper_bdf2, gamma3
   use extrusion_mod,                     only: SHIFTED
   use field_mod,                         only: field_type
   use flux_precomputations_alg_mod,      only: flux_precomputations_type
@@ -49,6 +49,7 @@ module gungho_transport_control_alg_mod
   ! Contained suroutines
   public :: gungho_transport_control_alg_init
   public :: gungho_transport_control_alg
+  public :: gungho_transport_control_theta_alg
   public :: gungho_transport_control_alg_final
 
 contains
@@ -181,6 +182,20 @@ contains
   !!                                (Optional) Second group of tracers after transport on final iteration only
   !> @param[in]     con_tracer_last_outer_after_slow
   !!                                (Optional) Second group of tracers to transport on final iteration only
+  !> @param[in,out] dry_flux_out    (Optional) Receives the dry mass flux of the
+  !!                                density transport
+  !> @param[in]     bdf_flux_other  (Optional) BDF stage of TR-BDF2 with expensive
+  !!                                transport only. The part of the combined dry
+  !!                                flux not from this transport, so that the
+  !!                                combined flux is gamma3*(this flux) + bdf_flux_other.
+  !!                                This combined flux is used to transport moisture
+  !!                                (once) and is accumulated into total_dry_flux
+  !> @param[in]     skip_moisture   (Optional) If true, moisture is not
+  !!                                transported and mr_out is only read (it may be
+  !!                                the same field as mr_in)
+  !> @param[in]     skip_theta      (Optional) If true, potential temperature is
+  !!                                not transported (see
+  !!                                gungho_transport_control_theta_alg)
 
   subroutine gungho_transport_control_alg(config,                              &
                                           advection_inc, advected_fields,      &
@@ -196,7 +211,9 @@ contains
                                           con_tracer_all_outer,                &
                                           con_tracer_all_outer_after_slow,     &
                                           con_tracer_last_outer,               &
-                                          con_tracer_last_outer_after_slow     &
+                                          con_tracer_last_outer_after_slow,    &
+                                          dry_flux_out, bdf_flux_other,        &
+                                          skip_moisture, skip_theta            &
                                           )
 
     use derived_config_mod,              only: bundle_size
@@ -250,10 +267,19 @@ contains
     type(field_collection_type), intent(in),    optional :: con_tracer_all_outer_after_slow
     type(field_collection_type), intent(inout), optional :: con_tracer_last_outer
     type(field_collection_type), intent(in),    optional :: con_tracer_last_outer_after_slow
+    type(r_tran_field_type),     intent(inout), optional :: dry_flux_out
+    type(r_tran_field_type),     intent(in),    optional :: bdf_flux_other
+    logical(kind=l_def),         intent(in),    optional :: skip_moisture
+    logical(kind=l_def),         intent(in),    optional :: skip_theta
 
     ! Internal variables
     logical(kind=l_def)                    :: do_moisture_diagnostics
     logical(kind=l_def)                    :: cheap_update_step
+    logical(kind=l_def)                    :: combine_bdf_flux
+    logical(kind=l_def)                    :: need_flux
+    logical(kind=l_def)                    :: transport_moisture
+    logical(kind=l_def)                    :: transport_theta
+    real(kind=r_tran)                      :: gamma3_rtran
 
     ! Temporary fields or pointers
     type(field_type)                       :: fields_np1(bundle_size)
@@ -262,6 +288,7 @@ contains
     type(field_type)                       :: aerosol_wind_n, aerosol_wind_np1
     type(field_type)                       :: aerosol_reference_rho
     type(r_tran_field_type)                :: tr_and_bdf2_flux
+    type(r_tran_field_type),       target  :: bdf_flux
     type(field_type),              pointer :: rho_d_n_ptr
     type(field_type),              target  :: rho_d_n_trgt
     type(field_type),              pointer :: rho_d_latest_ptr
@@ -276,6 +303,7 @@ contains
     type(flux_precomputations_type), pointer :: flux_precomputations
     type(transport_metadata_type),   pointer :: transport_metadata
     type(transport_controller_type)          :: transport_controller
+    type(transport_controller_type)          :: moisture_controller
     type(transport_controller_type)          :: aerosol_transport_controller
     integer(tik)                             :: id_cont
 
@@ -296,10 +324,15 @@ contains
       rho_d_n_ptr => rho_d_n_trgt
     end if
 
+    transport_moisture = .true.
+    if (present(skip_moisture)) transport_moisture = .not. skip_moisture
+    combine_bdf_flux = present(bdf_flux_other)
+    gamma3_rtran = real(gamma3, r_tran)
+
     ! Are we going to write out moisture conservation diagnostics? -------------
     do_moisture_diagnostics = (                                                &
         write_conservation_diag .and. outer == outer_iterations                &
-        .and. present(rho_d_n)                                                 &
+        .and. present(rho_d_n) .and. transport_moisture                        &
     )
 
     ! Determine aspects relating to cheap update steps -------------------------
@@ -325,6 +358,12 @@ contains
     if (cheap_update .AND. outer > 1 .AND. present(prev_inc)) then
       call rho_d_n_ptr%copy_field_properties(rho_d_latest_trgt)
       call invoke( X_plus_Y(rho_d_latest_trgt, rho_d_n_ptr, prev_inc(igh_d)) )
+      rho_d_latest_ptr => rho_d_latest_trgt
+    else if (combine_bdf_flux) then
+      ! The flux used for the combined transport is not that of rho_d_n, so the
+      ! density transport uses the density that is actually being transported
+      call advected_fields(igh_d)%copy_field_properties(rho_d_latest_trgt)
+      call invoke( setval_X(rho_d_latest_trgt, advected_fields(igh_d)) )
       rho_d_latest_ptr => rho_d_latest_trgt
     else
       rho_d_latest_ptr => rho_d_n_ptr
@@ -357,24 +396,44 @@ contains
     ! Increment the whole time step's dry flux, which is to be used in the
     ! transport of tracers in the final outer step, if using the cheap update
     ! or the TR-BDF2 timestepper
+    need_flux = (                                                              &
+        cheap_update .or. stepper == stepper_bdf2                              &
+        .or. (stepper == stepper_tr .and. outer == outer_iterations)          &
+        .or. present(dry_flux_out)                                             &
+    )
+    if (need_flux) then
+      flux_precomputations => transport_controller%get_flux_precomputations()
+      flux_this_outer => flux_precomputations%get_total_ref_flux()
+
+      if (present(dry_flux_out)) then
+        call invoke( setval_X(dry_flux_out, flux_this_outer) )
+      end if
+
+      ! Flux that combines this transport with the other (expensive) BDF2
+      ! transport, which is the flux that corresponds to the combined density
+      ! increment
+      if (combine_bdf_flux) then
+        call bdf_flux%initialise(flux_this_outer%get_function_space())
+        call invoke(                                                           &
+            a_times_X(bdf_flux, gamma3_rtran, flux_this_outer),                &
+            inc_X_plus_Y(bdf_flux, bdf_flux_other)                             &
+        )
+        flux_this_outer => bdf_flux
+      end if
+    end if
+
     if (cheap_update .or. (                                                    &
         stepper == stepper_bdf2 .and. outer == outer_iterations)               &
       ) then
-      flux_precomputations => transport_controller%get_flux_precomputations()
-      flux_this_outer => flux_precomputations%get_total_ref_flux()
       call invoke( inc_X_plus_Y(total_dry_flux, flux_this_outer) )
 
     ! If in BDF2 stage of TR-BDF2, but not last outer, need to store flux
     else if (stepper == stepper_bdf2 .and. outer < outer_iterations) then
-      flux_precomputations => transport_controller%get_flux_precomputations()
-      flux_this_outer => flux_precomputations%get_total_ref_flux()
       call tr_and_bdf2_flux%initialise(total_dry_flux%get_function_space())
       call invoke( X_plus_Y(tr_and_bdf2_flux, total_dry_flux, flux_this_outer) )
 
     ! Store dry flux in final outer iteration of TR
     else if (stepper == stepper_tr .and. outer == outer_iterations) then
-      flux_precomputations => transport_controller%get_flux_precomputations()
-      flux_this_outer => flux_precomputations%get_total_ref_flux()
       call invoke( setval_X(total_dry_flux, flux_this_outer) )
     end if
 
@@ -402,7 +461,8 @@ contains
 
     ! ------------------------------------------------------------------------ !
     ! Transport moisture mixing ratio fields
-    if ( moisture_formulation /= moisture_formulation_dry ) then
+    if ( moisture_formulation /= moisture_formulation_dry                      &
+         .and. transport_moisture ) then
       ! Write out moisture diagnostics
       if ( do_moisture_diagnostics ) then
         call moisture_conservation_alg( config, rho_d_n, mr_in, &
@@ -415,10 +475,26 @@ contains
       transport_metadata =>                                                    &
           transport_metadata_collection%get_transport_metadata('moisture')
 
-      call moist_mr_transport_alg(                                             &
-              mr_out, mr_in, nummr_to_transport,                               &
-              transport_controller, transport_metadata                         &
-      )
+      if (combine_bdf_flux) then
+        ! Moisture is transported once, using the combined dry flux and the
+        ! density at the start of the BDF2 stage as the reference
+        call moisture_controller%initialise(                                   &
+                config, model_clock, stepper,                                  &
+                rho_d_n_ptr, wind_for_adv, wind_np1, outer,                    &
+                cheap_update_step                                              &
+        )
+        call moisture_controller%initialise_flux_precomputations(bdf_flux)
+        call moist_mr_transport_alg(                                           &
+                mr_out, mr_in, nummr_to_transport,                             &
+                moisture_controller, transport_metadata                        &
+        )
+        call moisture_controller%finalise()
+      else
+        call moist_mr_transport_alg(                                           &
+                mr_out, mr_in, nummr_to_transport,                             &
+                transport_controller, transport_metadata                       &
+        )
+      end if
     end if
 
     ! ------------------------------------------------------------------------ !
@@ -429,10 +505,14 @@ contains
     transport_metadata =>                                                      &
         transport_metadata_collection%get_transport_metadata('potential_temperature')
 
-    call theta_transport_alg(                                                  &
-            fields_np1(igh_t), advection_inc(igh_t), advected_fields(igh_t),   &
-            mr_out, mr_in, transport_controller, transport_metadata            &
-    )
+    transport_theta = .true.
+    if (present(skip_theta)) transport_theta = .not. skip_theta
+    if (transport_theta) then
+      call theta_transport_alg(                                                &
+              fields_np1(igh_t), advection_inc(igh_t), advected_fields(igh_t), &
+              mr_out, mr_in, transport_controller, transport_metadata          &
+      )
+    end if
 
     ! ------------------------------------------------------------------------ !
     ! Transport tracers which are active in fast physics, and therefore need
@@ -516,7 +596,8 @@ contains
         call transport_controller%initialise_flux_precomputations(total_dry_flux)
 
       end if
-      if (use_multires_coupling .and. coarse_aerosol_transport) then
+      if (use_multires_coupling .and. coarse_aerosol_transport                 &
+          .and. present(total_dry_flux)) then
         ! First, need winds, fluxes and density on the coarser mesh
         aerosol_mesh => mesh_collection%get_mesh(aerosol_mesh_name)
         aerosol_w2_fs => function_space_collection%get_fs(aerosol_mesh, 0, 0, W2)
@@ -623,6 +704,68 @@ contains
     if ( LPROF ) call stop_timing( id_cont, 'dynamics.transport' )
 
   end subroutine gungho_transport_control_alg
+
+  !=============================================================================
+  !> @brief Transports potential temperature only, using a dry mass flux that
+  !!        has already been computed by gungho_transport_control_alg.
+  !> @details Used by the BDF stage of TR-BDF2 with expensive transport, so that
+  !!          theta is converted back to dry theta using the final moisture.
+  !!          Transport is over a whole timestep with a wind of wind_np1.
+  !> @param[in]     config      Application namelist configuration object
+  !> @param[in,out] theta_inc   Increment to theta from the transport
+  !> @param[in]     theta       Theta to transport
+  !> @param[in]     rho_d       Dry density corresponding to theta
+  !> @param[in]     wind        Transporting wind
+  !> @param[in]     mr_out      Moisture fields after transport
+  !> @param[in]     mr_in       Moisture fields before transport
+  !> @param[in]     model_clock Time within the model
+  !> @param[in]     outer       Outer (advection) iteration number
+  !> @param[in]     dry_flux    Dry mass flux for the whole timestep
+  subroutine gungho_transport_control_theta_alg(config, theta_inc, theta,      &
+                                                rho_d, wind, mr_out, mr_in,    &
+                                                model_clock, outer, dry_flux)
+
+    use model_clock_mod,                 only: model_clock_type
+    use mr_indices_mod,                  only: nummr
+    use theta_transport_alg_mod,         only: theta_transport_alg
+
+    implicit none
+
+    type(config_type),       intent(in)    :: config
+    type(field_type),        intent(inout) :: theta_inc
+    type(field_type),        intent(in)    :: theta
+    type(field_type),        intent(in)    :: rho_d
+    type(field_type),        intent(in)    :: wind
+    type(field_type),        intent(in)    :: mr_out(nummr)
+    type(field_type),        intent(in)    :: mr_in(nummr)
+    class(model_clock_type), intent(in)    :: model_clock
+    integer(kind=i_def),     intent(in)    :: outer
+    type(r_tran_field_type), intent(in)    :: dry_flux
+
+    type(field_type)                       :: theta_np1
+    type(transport_metadata_type), pointer :: transport_metadata
+    type(transport_controller_type)        :: transport_controller
+
+    call theta%copy_field_properties(theta_np1)
+    call invoke( setval_c(theta_np1, 0.0_r_def) )
+
+    call transport_controller%initialise(                                      &
+            config, model_clock, stepper_siqn, rho_d, wind, wind, outer,       &
+            cheap_update_step=.false.                                          &
+    )
+    call transport_controller%initialise_flux_precomputations(dry_flux)
+
+    transport_metadata =>                                                      &
+        transport_metadata_collection%get_transport_metadata('potential_temperature')
+
+    call theta_transport_alg(                                                  &
+            theta_np1, theta_inc, theta, mr_out, mr_in,                        &
+            transport_controller, transport_metadata                           &
+    )
+
+    call transport_controller%finalise()
+
+  end subroutine gungho_transport_control_theta_alg
 
   !=============================================================================
   !> @brief Calls finalising routines for gungho transport.
