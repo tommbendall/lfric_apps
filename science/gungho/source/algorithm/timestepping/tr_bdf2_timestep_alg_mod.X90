@@ -133,6 +133,7 @@ module tr_bdf2_timestep_alg_mod
                                         aerosol_none
   use stochastic_physics_config_mod,                                           &
                                   only: stochastic_physics_is_loaded
+  use timestepping_config_mod,    only: tr_bdf2_first_guess_tr_solution
 
   implicit none
 
@@ -779,6 +780,7 @@ contains
     logical(kind=l_def)               :: cheap_update
     logical(kind=l_def)               :: transport_ageofair
     logical(kind=l_def)              :: tr_bdf2_cheap_transport
+    integer(kind=i_def)              :: tr_bdf2_first_guess
 
     if (LPROF) call start_timing(id, 'tr_bdf2_timestep_alg')
 
@@ -813,6 +815,7 @@ contains
     inner_iterations_tr(:) = self%config%timestepping%inner_iterations_tr()
     inner_iterations_bdf2(:) = self%config%timestepping%inner_iterations_bdf2()
     tr_bdf2_cheap_transport = self%config%timestepping%tr_bdf2_cheap_transport()
+    tr_bdf2_first_guess = self%config%timestepping%tr_bdf2_first_guess()
     limited_area = self%config%boundaries%limited_area()
     if (limited_area) then
       blend_frequency = self%config%boundaries%blend_frequency()
@@ -1175,12 +1178,16 @@ contains
     ! X^{n+1} + gamma2*dt*F[X^{n+1}] = T[(1-gamma3)*X^q + gamma3*X^m]
     ! where X^q = X_dag + X_aft_adv - X_to_adv
 
-    ! First guess of X^{n+1} is extrapolated from X^m and X^n
-    call bundle_axpby(                                                         &
-        (1.0_r_def - 0.5_r_def/gamma), self%state_n,                           &
-        0.5_r_def/gamma, self%state_m,                                         &
-        self%state, bundle_size                                                &
-    )
+    ! First guess of X^{n+1} is either X^m, or extrapolated from X^m and X^n
+    if (tr_bdf2_first_guess == tr_bdf2_first_guess_tr_solution) then
+      call copy_bundle(self%state_m, self%state, bundle_size)
+    else
+      call bundle_axpby(                                                       &
+          (1.0_r_def - 0.5_r_def/gamma), self%state_n,                         &
+          0.5_r_def/gamma, self%state_m,                                       &
+          self%state, bundle_size                                              &
+      )
+    end if
 
     ! ------------------------------------------------------------------------ !
     ! Compute initial BDF state

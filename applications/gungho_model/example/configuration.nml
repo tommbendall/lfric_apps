@@ -296,6 +296,7 @@ tau_r=1.0,
 tau_t=1.0,
 tau_u=0.55,
 tr_bdf2_cheap_transport=.false.
+tr_bdf2_first_guess='tr_solution'
 /
 &transport
 adjust_theta=.false.,
