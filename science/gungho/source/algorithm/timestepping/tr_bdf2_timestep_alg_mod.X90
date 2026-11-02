@@ -20,6 +20,9 @@ module tr_bdf2_timestep_alg_mod
   use field_array_mod,            only: field_array_type
   use field_collection_mod,       only: field_collection_type
   use fs_continuity_mod,          only: Wtheta, W2
+  use function_space_collection_mod,                                           &
+                                  only: function_space_collection
+  use function_space_mod,         only: function_space_type
   use io_value_mod,               only: io_value_type,                         &
                                         get_io_value
 
@@ -62,11 +65,17 @@ module tr_bdf2_timestep_alg_mod
                                   only: calc_phys_predictors_alg
   use derive_exner_from_eos_alg_mod,                                           &
                                   only: derive_exner_from_eos
+  use driver_water_constants_mod, only: heat_capacity_h2o_vapour,              &
+                                        heat_capacity_h2o,                     &
+                                        gas_constant_h2o
+  use planet_config_mod,          only: p_zero, cp, Rd
   use fast_physics_alg_mod,       only: fast_physics
   use gungho_transport_control_alg_mod,                                        &
                                   only: gungho_transport_control_alg_init,     &
                                         gungho_transport_control_alg,          &
                                         gungho_transport_control_theta_alg
+  use intermesh_mappings_alg_mod, only: map_scalar_intermesh,                  &
+                                        map_w2_intermesh
   use lam_rhs_alg_mod,            only: calc_rhs_lbc,                          &
                                         apply_mask_rhs
 
@@ -111,6 +120,7 @@ module tr_bdf2_timestep_alg_mod
                                   only: dg_matrix_vector_kernel_type
   use dg_inc_matrix_vector_kernel_mod,                                         &
                                   only: dg_inc_matrix_vector_kernel_type
+  use evap_condense_kernel_mod,   only: evap_condense_kernel_type
   use matrix_vector_kernel_mod,   only: matrix_vector_kernel_type
 
   ! Pointers
@@ -130,6 +140,7 @@ module tr_bdf2_timestep_alg_mod
                                         lbc_option_um2lfric_file
   use physics_config_mod,         only: smagorinsky_placement_outer
   use section_choice_config_mod,  only: cloud_um, aerosol_um, cloud_none,      &
+                                        cloud_evap_condense,                   &
                                         aerosol_none
   use stochastic_physics_config_mod,                                           &
                                   only: stochastic_physics_is_loaded
@@ -445,6 +456,8 @@ contains
     ! Reference moist dynamics factors
     type(field_array_type),  pointer :: moist_dyn_ref_array
     type(field_type),        pointer :: moist_dyn_ref(:)
+    ! Fast physics increments stored for the TR stage of the next step
+    type(field_type),        pointer :: u_fast_inc, theta_fast_inc
 
     ! Timestep
     real(kind=r_def) :: dt
@@ -556,6 +569,20 @@ contains
     ! Initialise the physics increments to 0
     ! ------------------------------------------------------------------------ !
     call set_bundle_scalar(0.0_r_def, self%rhs_phys, bundle_size)
+
+    ! The fast physics increments used in the TR stage are read from the
+    ! checkpoint when restarting, otherwise they start at zero
+    if (config%timestepping%tr_bdf2_tr_physics()) then
+      if (.not. (config%io%checkpoint_read() .or.                              &
+          config%initialization%init_option() == init_option_checkpoint_dump)) then
+        call prognostic_fields%get_field('u_fast_inc', u_fast_inc)
+        call prognostic_fields%get_field('theta_fast_inc', theta_fast_inc)
+        call invoke(                                                           &
+            setval_c(u_fast_inc, 0.0_r_def),                                   &
+            setval_c(theta_fast_inc, 0.0_r_def)                                &
+        )
+      end if
+    end if
 
     ! ------------------------------------------------------------------------ !
     ! Operators for si solves
@@ -706,6 +733,8 @@ contains
     type(field_type),       pointer :: exner_ref
     type(field_type),       pointer :: moist_dyn_ref(:)
     type(field_array_type), pointer :: moist_dyn_ref_array
+    ! Fast physics increments stored for the TR stage of the next step
+    type(field_type),       pointer :: u_fast_inc, theta_fast_inc
 
     ! Moisture field to transport
     type(field_type),       pointer :: mr_to_adv(:)
@@ -781,6 +810,20 @@ contains
     logical(kind=l_def)               :: transport_ageofair
     logical(kind=l_def)              :: tr_bdf2_cheap_transport
     integer(kind=i_def)              :: tr_bdf2_first_guess
+    logical(kind=l_def)              :: tr_physics
+    logical(kind=l_def)              :: tr_bdf2_bdf_evap_condense
+    logical(kind=l_def)              :: theta_moist_source
+
+    ! Evaporation-condensation at the start of the BDF stage
+    type(field_type),          pointer :: exner_in_wth
+    type(field_type)                   :: dtheta_evap, dmv_evap, dmcl_evap
+    real(kind=r_def)                   :: Rv, cpv, cl
+
+    ! Smoothing of the stored fast physics increments
+    type(mesh_type),           pointer :: coarse_mesh
+    type(function_space_type), pointer :: coarse_theta_fs, coarse_w2_fs
+    type(field_type)                   :: theta_coarse, u_coarse
+    real(kind=r_def)                   :: two_gamma
 
     if (LPROF) call start_timing(id, 'tr_bdf2_timestep_alg')
 
@@ -816,6 +859,13 @@ contains
     inner_iterations_bdf2(:) = self%config%timestepping%inner_iterations_bdf2()
     tr_bdf2_cheap_transport = self%config%timestepping%tr_bdf2_cheap_transport()
     tr_bdf2_first_guess = self%config%timestepping%tr_bdf2_first_guess()
+    tr_bdf2_bdf_evap_condense =                                                &
+        self%config%timestepping%tr_bdf2_bdf_evap_condense()
+    theta_moist_source = self%config%formulation%theta_moist_source()
+    tr_physics = (                                                             &
+        self%config%timestepping%tr_bdf2_tr_physics()                          &
+        .and. use_physics .and. use_wavedynamics                               &
+    )
     limited_area = self%config%boundaries%limited_area()
     if (limited_area) then
       blend_frequency = self%config%boundaries%blend_frequency()
@@ -1016,6 +1066,47 @@ contains
             gamma, model_clock                                                 &
     )
 
+    ! Fast physics increments from the previous step, applied in the TR stage:
+    ! smooth them by restricting to the coarse mesh and prolonging back, scale
+    ! by the length of the TR stage and convert to weak form in rhs_phys.
+    ! self%du and self%dtheta are free to use as the smoothed fields here.
+    if (tr_physics) then
+      call prognostic_fields%get_field('u_fast_inc', u_fast_inc)
+      call prognostic_fields%get_field('theta_fast_inc', theta_fast_inc)
+
+      coarse_mesh => mesh_collection%get_mesh(                                 &
+          self%config%multires_coupling%physics_mesh_name()                    &
+      )
+      coarse_theta_fs => function_space_collection%get_fs(                     &
+          coarse_mesh, 0, 0, Wtheta                                            &
+      )
+      coarse_w2_fs => function_space_collection%get_fs(                        &
+          coarse_mesh, 0, 0, W2                                                &
+      )
+      call theta_coarse%initialise(coarse_theta_fs)
+      call u_coarse%initialise(coarse_w2_fs)
+
+      call map_scalar_intermesh(theta_coarse, theta_fast_inc)
+      call map_scalar_intermesh(self%dtheta, theta_coarse)
+      call map_w2_intermesh(u_coarse, u_fast_inc)
+      call map_w2_intermesh(self%du, u_coarse)
+
+      two_gamma = 2.0_r_def*gamma
+      call set_bundle_scalar(0.0_r_def, self%rhs_phys, bundle_size)
+      call invoke(                                                             &
+          name="compute_rhs_phys_for_tr_stage",                                &
+          inc_a_times_X(two_gamma, self%dtheta),                               &
+          inc_a_times_X(two_gamma, self%du),                                   &
+          dg_inc_matrix_vector_kernel_type(                                    &
+              self%rhs_phys(igh_t), self%dtheta, mm_wt                         &
+          ),                                                                   &
+          matrix_vector_kernel_type(                                           &
+              self%rhs_phys(igh_u), self%du, mm_vel                            &
+          ),                                                                   &
+          enforce_bc_kernel_type(self%rhs_phys(igh_u))                         &
+      )
+    end if
+
     outer_tr_loop: do outer = 1, outer_iterations
 
       if (use_wavedynamics) then
@@ -1117,6 +1208,9 @@ contains
               -1.0_r_def, self%rhs_m, self%rhs_n, self%rhs_m, bundle_size      &
           )
           call add_bundle(self%rhs_m, self%rhs_adv, self%rhs_m, bundle_size)
+          if (tr_physics .and. outer == 1) then
+            call add_bundle(self%rhs_m, self%rhs_phys, self%rhs_m, bundle_size)
+          end if
 
           if (limited_area) then
             if (inner == 1 .and. outer == 1) then
@@ -1170,6 +1264,16 @@ contains
 
       end if  ! use_wavedynamics
     end do outer_tr_loop
+
+    ! rhs_phys was only used for the TR stage, and the stored increments have
+    ! now been used so can be reset to accumulate this step's increments
+    if (tr_physics) then
+      call set_bundle_scalar(0.0_r_def, self%rhs_phys, bundle_size)
+      call invoke(                                                             &
+          setval_c(u_fast_inc, 0.0_r_def),                                     &
+          setval_c(theta_fast_inc, 0.0_r_def)                                  &
+      )
+    end if
 
     ! ======================================================================== !
     ! DYNAMICS -- BACKWARD-DIFFERENCE STEP
@@ -1232,6 +1336,33 @@ contains
     if (write_moisture_diag) then
       call moisture_conservation_alg(                                          &
           self%config, self%state_bdf(igh_d), mr, 'After TR solve'             &
+      )
+    end if
+
+    ! Simple evaporation-condensation before anything is transported
+    if (tr_bdf2_bdf_evap_condense) then
+      call derived_fields%get_field('exner_in_wth', exner_in_wth)
+      call self%state_bdf(igh_t)%copy_field_properties(dtheta_evap)
+      call mr(imr_v)%copy_field_properties(dmv_evap)
+      call mr(imr_cl)%copy_field_properties(dmcl_evap)
+      if (theta_moist_source) then
+        Rv = gas_constant_h2o
+        cpv = heat_capacity_h2o_vapour
+        cl = heat_capacity_h2o
+      else
+        Rv = 0.0_r_def
+        cpv = 0.0_r_def
+        cl = 0.0_r_def
+      end if
+      call invoke(                                                             &
+          evap_condense_kernel_type(                                           &
+              dtheta_evap, self%state_bdf(igh_t), dmv_evap, dmcl_evap,         &
+              mr(imr_v), mr(imr_cl), exner_in_wth,                             &
+              Rd, Rv, cp, cpv, cl, p_zero                                      &
+          ),                                                                   &
+          inc_X_plus_Y(self%state_bdf(igh_t), dtheta_evap),                    &
+          inc_X_plus_Y(mr(imr_v), dmv_evap),                                   &
+          inc_X_plus_Y(mr(imr_cl), dmcl_evap)                                  &
       )
     end if
 
@@ -1459,6 +1590,15 @@ contains
               matrix_vector_kernel_type(                                       &
                   self%rhs_phys(igh_u), self%du, mm_vel),                      &
               enforce_bc_kernel_type(self%rhs_phys(igh_u))                     &
+          )
+        end if
+
+        ! Fast physics is implicit, so the increments from every outer
+        ! iteration are stored for the TR stage of the next step
+        if (tr_physics) then
+          call invoke(                                                         &
+              inc_X_plus_Y(u_fast_inc, self%du),                               &
+              inc_X_plus_Y(theta_fast_inc, self%dtheta)                        &
           )
         end if
       end if ! use_physics

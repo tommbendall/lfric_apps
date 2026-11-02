@@ -41,6 +41,8 @@ module create_gungho_prognostics_mod
   use initialization_config_mod,      only: init_option,               &
                                             init_option_checkpoint_dump
   use io_config_mod,                  only: checkpoint_read, checkpoint_write
+  use timestepping_config_mod,        only: method, method_tr_bdf2,              &
+                                            tr_bdf2_tr_physics
   use transport_config_mod,           only : transport_ageofair
   use clock_mod,                      only : clock_type
   implicit none
@@ -94,6 +96,21 @@ contains
                               order_v=ord_v, ckp=.true., legacy=legacy))
     call proc%apply(make_spec('exner', main%none, W3, order_h=ord_h, &
                               order_v=ord_v, ckp=.true., legacy=legacy))
+
+    ! Fast physics increments from the previous step, used in the TR stage of
+    ! TR-BDF2. These need checkpointing to restart reproducibly
+    if (method == method_tr_bdf2) then
+      if (tr_bdf2_tr_physics) then
+        call proc%apply(make_spec('u_fast_inc', main%none, W2, order_h=ord_h, &
+                                  order_v=ord_v))
+        call proc%apply(make_spec('h_u_fast_inc', main%none, W2H,             &
+                                  order_h=ord_h, order_v=ord_v, ckp=.true.))
+        call proc%apply(make_spec('v_u_fast_inc', main%none, W2V,             &
+                                  order_h=ord_h, order_v=ord_v, ckp=.true.))
+        call proc%apply(make_spec('theta_fast_inc', main%none, Wtheta,        &
+                                  order_h=ord_h, order_v=ord_v, ckp=.true.))
+      end if
+    end if
 
     ! Create reference fields for solver. They are only created and checkpointed if either the first or
     ! final steps are not semi-implicit operator recalculation timesteps
