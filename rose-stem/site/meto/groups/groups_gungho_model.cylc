@@ -335,6 +335,41 @@
     ],
     }) %}
 
+{# TR-BDF2 groups, containing all of the TR-BDF2 tests #}
+{% do site_groups.update({
+    "gungho_model_azspice_tr_bdf": [
+        "gungho_model_baroclinic-tr_bdf2-C24_MG_azspice_gnu_fast-debug-64bit",
+        "gungho_model_held-suarez-tr_bdf2-C24_MG_azspice_gnu_fast-debug-64bit",
+        "gungho_model_sbr-tr_bdf2-C24_MG_azspice_gnu_fast-debug-64bit",
+        "gungho_model_schar_cart-tr_bdf2-BiP200x8-500x500_azspice_gnu_fast-debug-64bit",
+        "gungho_model_skamarock_klemp_gw-tr_bdf2-BiP300x8-1000x2000_azspice_gnu_fast-debug-64bit",
+        "gungho_model_straka_200m-tr_bdf2-BiP256x8-200x200_azspice_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_expensive_transport-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_first_guess_tr-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_tr_physics-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_bdf_evap_condense-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
+    ],
+    "gungho_model_ex1a_tr_bdf": [
+        "gungho_model_baroclinic-tr_bdf2-C24_MG_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_held-suarez-tr_bdf2-C24_MG_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_sbr-tr_bdf2-C24_MG_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_schar_cart-tr_bdf2-BiP200x8-500x500_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_skamarock_klemp_gw-tr_bdf2-BiP300x8-1000x2000_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_straka_200m-tr_bdf2-BiP256x8-200x200_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_baroclinic-tr_bdf2-C192_MG_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_expensive_transport-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_first_guess_tr-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_tr_physics-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+        "gungho_model_bryan_fritsch-moist-tr_bdf2_bdf_evap_condense-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
+    ],
+    "gungho_model_tr_bdf": [
+        "gungho_model_azspice_tr_bdf",
+        "gungho_model_ex1a_tr_bdf",
+    ],
+    }) %}
+
 {# Platform Generic Extends #}
 {% do site_groups.developer.extend(site_groups.gungho_model_developer) %}
 {% do site_groups.all.extend(site_groups.gungho_model) %}
