@@ -1030,19 +1030,6 @@ contains
 
     mesh => self%transporting_wind%get_mesh()
 
-    ! Determine the halo depths to be used in flux computations
-    if (share_stencil_extent) then
-      ! Get the extent that is stored/calculated in this controller object
-      ! This likely comes from the first time horizontal departure distances
-      ! are calculated for density transport on this mesh
-      max_courant_num = self%get_dep_stencil_extent(                           &
-              mesh%get_id(), 1, outer_step=.false., flux_calc=.false.          &
-      )
-    else
-      ! Set the stencil extent from the namelist option
-      max_courant_num = dep_pt_stencil_extent
-    end if
-
     ! This is used for the consistent transport of the "last outer" group of
     ! tracers, either with the "cheap update" or if those tracers are on a
     ! coarser mesh. In either case, the fluxes calculated during the transport
