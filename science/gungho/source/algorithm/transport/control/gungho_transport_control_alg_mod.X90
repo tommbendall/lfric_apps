@@ -20,7 +20,8 @@ module gungho_transport_control_alg_mod
                                                log_scratch_space, &
                                                LOG_LEVEL_DEBUG,   &
                                                LOG_LEVEL_ERROR,   &
-                                               LOG_LEVEL_ALWAYS
+                                               LOG_LEVEL_ALWAYS,  &
+                                               LOG_LEVEL_INFO
   use mesh_collection_mod,               only: mesh_collection
   use mesh_mod,                          only: mesh_type
   use multires_coupling_config_mod,      only: coarse_aerosol_transport, &
@@ -344,7 +345,10 @@ contains
 
     ! Check negative reference fields at this point
     if (check_any_eqn_consistent()) then
-      safe_ref = transport_controller%check_reference_field(fail_on_neg=.true.)
+      safe_ref = transport_controller%check_reference_field(fail_on_neg=.false.)
+      ! Debugging
+      write(log_scratch_space, *) 'Are reference fields safe?', safe_ref
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
       if (.not. safe_ref) then
         ! We will need to substep the transport of tracers
         ! This will happen if we re-initialise the flux precomputations
