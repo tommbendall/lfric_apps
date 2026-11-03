@@ -356,6 +356,7 @@ contains
         flux_this_outer => flux_precomputations%get_total_ref_flux()
         call flux_copy%initialise( flux_this_outer%get_function_space() )
         call invoke( setval_X(flux_copy, flux_this_outer) )
+        call transport_controller%clear_flux_precomputations()
         call transport_controller%initialise_flux_precomputations(flux_copy)
       end if
     end if
