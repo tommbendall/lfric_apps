@@ -518,6 +518,8 @@ contains
         flux_ptr => flux
       end if
 
+      call self%set_total_ref_flux(flux_ptr)
+
       ! Split flux into horizontal and vertical components ---------------------
       w2_fs => function_space_collection%get_fs(prime_mesh, 0, 0, W2)
       if (splitting /= splitting_none) then
