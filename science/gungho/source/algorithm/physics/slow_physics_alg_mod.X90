@@ -37,6 +37,8 @@ module slow_physics_alg_mod
   use sci_field_minmax_alg_mod,  only: log_field_minmax
   use log_column_kernel_mod,     only: log_column_kernel_type
   use sci_geometric_constants_mod, only: get_panel_id
+  use log_scalar_alg_mod,        only: log_scalar_minmax
+  use log_w2_alg_mod,            only: log_w2_minmax
   use physics_config_mod,        only: microphysics_placement,         &
                                        microphysics_placement_slow,    &
                                        electric_placement,             &
@@ -391,7 +393,7 @@ contains
     call theta%copy_field_properties(log_dummy)
     log_panel => get_panel_id( mesh )
     call log_field_minmax(LOG_LEVEL_DEBUG, 'theta slow start', theta)
-    if (clock%get_step() > 64127_i_def) then
+    if (clock%get_step() > 298958) then
       call invoke( log_column_kernel_type(log_dummy, theta, log_panel, 1_i_def) )
     end if
     call derived_fields%get_field('exner_in_wth', exner_in_wth)
@@ -442,7 +444,7 @@ contains
       if (theta_forcing_done) then
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_forcing slow', &
                               dtheta_forcing)
-        if (clock%get_step() > 64127_i_def) then
+        if (clock%get_step() > 298958) then
           call invoke( log_column_kernel_type(log_dummy, dtheta_forcing, log_panel, 1_i_def) )
         end if
       end if
@@ -459,7 +461,7 @@ contains
                    inc_X_divideby_Y(dtheta_encorr, exner_in_wth) )
       energy_correction_done = .true.
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_encorr slow', dtheta_encorr)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta_encorr, log_panel, 1_i_def) )
       end if
     end if
@@ -608,7 +610,7 @@ contains
       end if
       microphysics_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_mphys slow', dtheta_mphys)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta_mphys, log_panel, 1_i_def) )
       end if
       call f_arr%field_final()
@@ -788,7 +790,7 @@ contains
       call um_sizes_init(1_i_def)
       radiation_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_rad slow', dtheta_rad)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta_rad, log_panel, 1_i_def) )
       end if
       call tile_lw_albedo%field_final()
@@ -864,7 +866,7 @@ contains
       spectral_gwd_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_spectral_gwd slow', &
                             dtheta_spectral_gwd)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta_spectral_gwd, log_panel, 1_i_def) )
       end if
     end if
@@ -886,7 +888,7 @@ contains
       orographic_drag_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_orographic_drag slow', &
                             dtheta_orographic_drag)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta_orographic_drag, log_panel, 1_i_def) )
       end if
     end if
@@ -976,7 +978,7 @@ contains
       leonard_term_done = .true. ! Collect this increment later on
       call log_field_minmax(LOG_LEVEL_DEBUG, 'thetal_inc_leonard slow', &
                             thetal_inc_leonard)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, thetal_inc_leonard, log_panel, 1_i_def) )
       end if
 
@@ -1026,7 +1028,7 @@ contains
                                              Rd, Rv, cp, cpv, cl, p_zero) )
       evap_condense_done = .true.
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_cld slow', dtheta_cld)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta_cld, log_panel, 1_i_def) )
       end if
     end if
@@ -1138,7 +1140,7 @@ contains
       call dtheta_cld%field_final()
     end if
     call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after increments', dtheta)
-    if (clock%get_step() > 64127_i_def) then
+    if (clock%get_step() > 298958) then
       call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
     end if
 
@@ -1186,12 +1188,12 @@ contains
                     inc_X_plus_Y(bulk_fraction,   dbcf_pc2_checks)    )
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta_pc2_checks slow', &
                               dtheta_pc2_checks)
-        if (clock%get_step() > 64127_i_def) then
+        if (clock%get_step() > 298958) then
           call invoke( log_column_kernel_type(log_dummy, dtheta_pc2_checks, log_panel, 1_i_def) )
         end if
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after pc2 checks', &
                               dtheta)
-        if (clock%get_step() > 64127_i_def) then
+        if (clock%get_step() > 298958) then
           call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
         end if
       end if ! (microphysics_done .or. radiation_done))
@@ -1254,12 +1256,12 @@ contains
                   inc_X_plus_Y(du, du_tmp) )
       call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after convection', &
                             dtheta)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
       end if
       call log_field_minmax(LOG_LEVEL_DEBUG, &
                             'theta_latest slow after convection', theta_latest)
-      if (clock%get_step() > 64127_i_def) then
+      if (clock%get_step() > 298958) then
         call invoke( log_column_kernel_type(log_dummy, theta_latest, log_panel, 1_i_def) )
       end if
 
@@ -1287,7 +1289,7 @@ contains
                     inc_X_plus_Y(du, du_tmp) )
                     ! u_latest and theta_latest not updated as not used again
         call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow after bl', dtheta)
-        if (clock%get_step() > 64127_i_def) then
+        if (clock%get_step() > 298958) then
           call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
         end if
 
@@ -1315,16 +1317,11 @@ contains
     end if ! bl
 #endif
 
-    call print_field_stats_alg( modeldb%config, dtheta, LOG_LEVEL_INFO,    &
-                                printmin=-20.0_r_def, printmax=20.0_r_def, &
-                                name='dtheta slow' )
-
-    call print_nan_loc_alg(modeldb%config, dtheta, LOG_LEVEL_DEBUG, 'dtheta slow')
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'dtheta slow', dtheta)
-    if (clock%get_step() > 64127_i_def) then
+    call log_scalar_minmax(modeldb%config, 'dtheta slow', dtheta)
+    call log_w2_minmax(modeldb%config, 'du slow', du)
+    if (clock%get_step() > 298958) then
       call invoke( log_column_kernel_type(log_dummy, dtheta, log_panel, 1_i_def) )
     end if
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'du slow', du)
 
     if ( moisture_formulation /= moisture_formulation_dry ) then
       do i_mr = 1, nummr

@@ -28,8 +28,8 @@ module map_physics_fields_alg_mod
                                           LOG_LEVEL_INFO,    &
                                           LOG_LEVEL_DEBUG,   &
                                           log_level
-  use print_field_stats_alg_mod,    only: print_field_stats_alg
-  use sci_field_minmax_alg_mod,     only: log_field_minmax
+  use log_scalar_alg_mod,           only: log_scalar_minmax
+  use log_w2_alg_mod,               only: log_w2_minmax
 
   use timing_mod,                   only: start_timing, stop_timing, tik, LPROF
 
@@ -126,23 +126,15 @@ contains
     call invoke(         X_divideby_Y(u_physics, u, dA), &
                 extract_w_kernel_type(velocity_w2v, u_physics) )
 
-    call print_field_stats_alg(config, u_in_w3, LOG_LEVEL_INFO, &
-                               printmin=-150.0_r_def, printmax=150.0_r_def)
-    call print_field_stats_alg(config, v_in_w3, LOG_LEVEL_INFO, &
-                               printmin=-100.0_r_def, printmax=100.0_r_def)
-    call print_field_stats_alg(config, w_in_wth, LOG_LEVEL_INFO, &
-                               printmin=-10.0_r_def, printmax=10.0_r_def)
+    call log_w2_minmax(config, 'u', u)
 
     if (log_level() <= LOG_LEVEL_DEBUG) then
       call divergence_diagnostic_alg(divergence, l2, u, mesh)
-      call print_field_stats_alg(config, divergence, LOG_LEVEL_DEBUG,          &
-                                 printmin=-0.001_r_def, printmax=0.001_r_def,  &
-                                 name='divergence')
+      call log_scalar_minmax(config, 'divergence', divergence)
     end if
-    call print_field_stats_alg(config, rho, LOG_LEVEL_DEBUG, &
-                               printmin=1e-8_r_def,          &
-                               printmax=2.0_r_def, name='rho')
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta', theta)
+    call log_scalar_minmax(config, 'rho', rho)
+    call log_scalar_minmax(config, 'theta', theta)
+    call log_scalar_minmax(config, 'exner', exner)
 
     if ( smagorinsky ) then
 

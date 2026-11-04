@@ -12,7 +12,7 @@ module log_location_kernel_mod
                                ANY_DISCONTINUOUS_SPACE_1,            &
                                ANY_DISCONTINUOUS_SPACE_3,            &
                                OWNED_AND_HALO_CELL_COLUMN
-  use constants_mod,     only: r_def, i_def
+  use constants_mod,     only: r_def, i_def, radians_to_degrees
   use kernel_mod,        only: kernel_type
   use log_mod,           only: log_event, log_scratch_space, LOG_LEVEL_DEBUG
 
@@ -90,14 +90,18 @@ subroutine log_location_code( nlayers,   &
   case (1)
     write(log_scratch_space, '(A,I8,A,2E16.8,I8)')                             &
         'Coordinates, column ', map_pid(1), ' : ',                             &
-        longitude(map(1)), latitude(map(1)), INT(panel_id(map_pid(1)), i_def)
+        longitude(map(1)) * radians_to_degrees,                                &
+        latitude(map(1)) * radians_to_degrees,                                 &
+        INT(panel_id(map_pid(1)), i_def)
     call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
 
   case default
     do df = 1, ndf
       write(log_scratch_space, '(A,I8,A,I8,A,2E16.8,I8)')                      &
           'Coordinates, column ', map_pid(1), 'dof ', df, ' : ',               &
-          longitude(map(df)), latitude(map(df)), INT(panel_id(map_pid(1)), i_def)
+          longitude(map(df)) * radians_to_degrees,                             &
+          latitude(map(df)) * radians_to_degrees,                              &
+          INT(panel_id(map_pid(1)), i_def)
       call log_event(log_scratch_space, LOG_LEVEL_DEBUG)
     end do
   end select
