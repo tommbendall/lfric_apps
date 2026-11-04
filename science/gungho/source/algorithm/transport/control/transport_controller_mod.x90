@@ -686,7 +686,6 @@ contains
           ref_field_safe = .true.
         else
           ! We're about to fail... log the Lipschitz numbers
-          dt = self%dt_substep * real(self%num_substeps, r_tran)
           ref_field_safe = .false.
 
           call lipschitz_diag_alg(                                             &
