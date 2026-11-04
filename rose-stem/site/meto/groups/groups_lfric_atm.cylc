@@ -315,6 +315,35 @@
     ],
     }) %}
 
+{# TR-BDF2 groups, containing all of the TR-BDF2 tests #}
+{% do site_groups.update({
+    "lfric_atm_azspice_tr_bdf2": [
+        "lfric_atm_nwp_gal10-tr_bdf2-C12_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_expensive_transport-C12_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_intermediate_transport-C12_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_first_guess_tr-C12_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_bdf_evap_condense-C12_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_tr_physics-C48_MG_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_ral3-tr_bdf2-seuk_MG_azspice_gnu_fast-debug-32bit",
+        "lfric_atm_clim_gal10_chem-tr_bdf2-C12_azspice_gnu_fast-debug-32bit",
+    ],
+    "lfric_atm_ex1a_tr_bdf2": [
+        "lfric_atm_nwp_gal10-tr_bdf2-C12_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_expensive_transport-C12_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_intermediate_transport-C12_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_first_guess_tr-C12_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_bdf_evap_condense-C12_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2_tr_physics-C48_MG_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_ral3-tr_bdf2-seuk_MG_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_clim_gal10_chem-tr_bdf2-C12_ex1a_cce_fast-debug-32bit",
+        "lfric_atm_nwp_gal10-tr_bdf2-C224_MG_ex1a_cce_production-32bit",
+    ],
+    "lfric_atm_tr_bdf2": [
+        "lfric_atm_azspice_tr_bdf2",
+        "lfric_atm_ex1a_tr_bdf2",
+    ],
+    }) %}
+
 {# Platform Generic Extends #}
 {% do site_groups.developer.extend(site_groups.lfric_atm_developer) %}
 {% do site_groups.all.extend(site_groups.lfric_atm) %}

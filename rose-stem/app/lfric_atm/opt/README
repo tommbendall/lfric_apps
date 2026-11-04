@@ -59,10 +59,14 @@ Science settings
                     transport scheme and mixed solver configuration
 - ral_opts - extra options for regional models, including LBC blending weights
 - tr_bdf2 - using the TR-BDF2 timestepper
+- tr_bdf2_bdf_evap_condense - TR-BDF2 with simple evaporation-condensation at the start of the BDF stage
+- tr_bdf2_expensive_transport - TR-BDF2 with the more expensive BDF2 transport
+- tr_bdf2_first_guess_tr - TR-BDF2 using the TR solution as the first guess in the BDF stage
+- tr_bdf2_tr_physics - TR-BDF2 with fast physics increments from the previous step applied in the TR stage (needs a multigrid mesh)
 - tr_bdf2_big - using the TR-BDF2 timestepper and a larger stencil extent
 - tr_bdf2_big_ral - using the TR-BDF2 timestepper, a larger stencil extent and
-                    an alternative radiation timestep, appropriate to a 2 min
-                    overall timestep
+                    an alternative radiation timestep, appropriate to a 2.5 min
+                    overall timestep for regional models
 - ukca - UKCA Glomap aerosol scheme
 - urban2t - 2-tile urban scheme
 - dry_atm - a dry atmosphere

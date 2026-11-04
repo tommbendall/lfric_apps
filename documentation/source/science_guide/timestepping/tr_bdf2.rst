@@ -103,6 +103,7 @@ The BDF2 stage appears to require two separate transport calls. However,
 these can be combined to develop a more efficient scheme.
 
 Introduce the intermediate variables:
+
 .. math::
 
    \boldsymbol{X}^\ast=\boldsymbol{X}^n - \gamma\Delta t \mathcal{F}(\boldsymbol{X}^n), \qquad
@@ -152,6 +153,34 @@ This is the form of the TR-BDF2 scheme implemented in GungHo. Pseudo-code for
 this "cheaper" version of the whole scheme is given in the
 :ref:`Algorithm <science_guide_timestepping_tr_bdf2_algorithm>` section
 below.
+
+Combining BDF2 Transport Steps (NEW)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The cheaper BDF2 transport seems less accurate. Here is an attempted revision.
+
+Introduce the intermediate variables:
+
+In the BDF2 stage, rather than transporting :math:`\boldsymbol{X}^n` over
+:math:`\Delta t` from time level :math:`n` to :math:`n+1`, we transport some
+variables (density, wind and potential temperature if using advective form) twice:
+
+.. math::
+
+   \mathcal{T}^{(1-2\gamma)\Delta t}_{\overline{\boldsymbol{u}}^{n+1}}
+   \left[(1-\gamma_3)\mathcal{T}^{2\gamma\Delta t}_{\overline{\boldsymbol{u}}^{n+1}}\left[\boldsymbol{X}^n\right]
+   +\gamma_3\boldsymbol{X}^m\right].
+
+Then the conserved variables (moisture mixing ratios and potential temperature if using consistent form) are
+transported once over the BDF2 stage using the following dry density flux
+
+.. math::
+
+   \boldsymbol{F}_T^{BDFa} + \boldsymbol{F}_T^{BDFb} + \gamma_3(\boldsymbol{F}_T^{TR} + \boldsymbol{F}_S^{TR} - \boldsymbol{F}_T^{BDFa})
+
+where a subscript :math:`T` denotes a transport flux, and :math:`S` denotes a solver flux, and
+the superscript :math:`BDFa` corresponds to the first density transport in the BDF2 stage (from
+time level :math:`n` to the intermediate field).
 
 Transport
 ~~~~~~~~~

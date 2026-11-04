@@ -12,6 +12,13 @@
       <field field_ref="divergence"/>
       <field field_ref="exner"/>
     </field_group>
+
+    <!-- Fast physics increments stored by TR-BDF2 for its TR stage -->
+    <field_group id="tr_bdf2_fast_physics_increments" operation="instant" freq_op="1ts">
+      <field field_ref="theta_fast_inc"/>
+      <field field_ref="h_u_fast_inc"/>
+      <field field_ref="v_u_fast_inc"/>
+    </field_group>
   </file>
 
 </file_definition>
