@@ -190,6 +190,12 @@ contains
   !!                                combined flux is gamma3*(this flux) + bdf_flux_other.
   !!                                This combined flux is used to transport moisture
   !!                                (once) and is accumulated into total_dry_flux
+  !> @param[in]     bdf_flux_weight (Optional) Weight of this flux in the combined
+  !!                                flux used with bdf_flux_other, instead of gamma3
+  !> @param[in]     theta_with_bdf_flux
+  !!                                (Optional) If true, potential temperature is
+  !!                                transported with the combined flux, like
+  !!                                moisture. Requires the consistent equation form
   !> @param[in]     skip_moisture   (Optional) If true, moisture is not
   !!                                transported and mr_out is only read (it may be
   !!                                the same field as mr_in)
@@ -213,6 +219,8 @@ contains
                                           con_tracer_last_outer,               &
                                           con_tracer_last_outer_after_slow,    &
                                           dry_flux_out, bdf_flux_other,        &
+                                          bdf_flux_weight,                     &
+                                          theta_with_bdf_flux,                 &
                                           skip_moisture, skip_theta            &
                                           )
 
@@ -236,6 +244,7 @@ contains
     use timestepping_config_mod,         only: outer_iterations
     use tracer_collection_transport_mod, only: tracer_collection_transport_alg, &
                                                coarse_collection_transport_alg
+    use transport_enumerated_types_mod,  only: equation_form_consistent
     use transport_field_mod,             only: transport_field
     use wind_transport_alg_mod,          only: wind_transport_alg
 
@@ -269,6 +278,8 @@ contains
     type(field_collection_type), intent(in),    optional :: con_tracer_last_outer_after_slow
     type(r_tran_field_type),     intent(inout), optional :: dry_flux_out
     type(r_tran_field_type),     intent(in),    optional :: bdf_flux_other
+    real(kind=r_def),            intent(in),    optional :: bdf_flux_weight
+    logical(kind=l_def),         intent(in),    optional :: theta_with_bdf_flux
     logical(kind=l_def),         intent(in),    optional :: skip_moisture
     logical(kind=l_def),         intent(in),    optional :: skip_theta
 
@@ -279,7 +290,10 @@ contains
     logical(kind=l_def)                    :: need_flux
     logical(kind=l_def)                    :: transport_moisture
     logical(kind=l_def)                    :: transport_theta
-    real(kind=r_tran)                      :: gamma3_rtran
+    logical(kind=l_def)                    :: theta_bdf_flux
+    logical(kind=l_def)                    :: moisture_active
+    logical(kind=l_def)                    :: use_bdf_controller
+    real(kind=r_tran)                      :: bdf_weight_rtran
 
     ! Temporary fields or pointers
     type(field_type)                       :: fields_np1(bundle_size)
@@ -327,7 +341,19 @@ contains
     transport_moisture = .true.
     if (present(skip_moisture)) transport_moisture = .not. skip_moisture
     combine_bdf_flux = present(bdf_flux_other)
-    gamma3_rtran = real(gamma3, r_tran)
+    bdf_weight_rtran = real(gamma3, r_tran)
+    if (present(bdf_flux_weight)) then
+      bdf_weight_rtran = real(bdf_flux_weight, r_tran)
+    end if
+    theta_bdf_flux = .false.
+    if (present(theta_with_bdf_flux)) theta_bdf_flux = theta_with_bdf_flux
+    moisture_active = (                                                        &
+        moisture_formulation /= moisture_formulation_dry                       &
+        .and. transport_moisture                                               &
+    )
+    use_bdf_controller = (                                                     &
+        combine_bdf_flux .and. (moisture_active .or. theta_bdf_flux)           &
+    )
 
     ! Are we going to write out moisture conservation diagnostics? -------------
     do_moisture_diagnostics = (                                                &
@@ -415,7 +441,7 @@ contains
       if (combine_bdf_flux) then
         call bdf_flux%initialise(flux_this_outer%get_function_space())
         call invoke(                                                           &
-            a_times_X(bdf_flux, gamma3_rtran, flux_this_outer),                &
+            a_times_X(bdf_flux, bdf_weight_rtran, flux_this_outer),            &
             inc_X_plus_Y(bdf_flux, bdf_flux_other)                             &
         )
         flux_this_outer => bdf_flux
@@ -433,7 +459,8 @@ contains
       call invoke( X_plus_Y(tr_and_bdf2_flux, total_dry_flux, flux_this_outer) )
 
     ! Store dry flux in final outer iteration of TR
-    else if (stepper == stepper_tr .and. outer == outer_iterations) then
+    else if (stepper == stepper_tr .and. outer == outer_iterations           &
+             .and. present(total_dry_flux)) then
       call invoke( setval_X(total_dry_flux, flux_this_outer) )
     end if
 
@@ -460,9 +487,22 @@ contains
     call invoke( setval_c(advection_inc(igh_p), 0.0_r_def) )
 
     ! ------------------------------------------------------------------------ !
+    ! Controller for the transport that uses the combined flux (moisture, and
+    ! optionally potential temperature)
+    if (use_bdf_controller) then
+      ! Moisture and theta are transported once, using the density at the start
+      ! of the BDF2 stage as the reference
+      call moisture_controller%initialise(                                     &
+              config, model_clock, stepper,                                    &
+              rho_d_n_ptr, wind_for_adv, wind_np1, outer,                      &
+              cheap_update_step                                                &
+      )
+      call moisture_controller%initialise_flux_precomputations(bdf_flux)
+    end if
+
+    ! ------------------------------------------------------------------------ !
     ! Transport moisture mixing ratio fields
-    if ( moisture_formulation /= moisture_formulation_dry                      &
-         .and. transport_moisture ) then
+    if ( moisture_active ) then
       ! Write out moisture diagnostics
       if ( do_moisture_diagnostics ) then
         call moisture_conservation_alg( config, rho_d_n, mr_in, &
@@ -476,19 +516,11 @@ contains
           transport_metadata_collection%get_transport_metadata('moisture')
 
       if (combine_bdf_flux) then
-        ! Moisture is transported once, using the combined dry flux and the
-        ! density at the start of the BDF2 stage as the reference
-        call moisture_controller%initialise(                                   &
-                config, model_clock, stepper,                                  &
-                rho_d_n_ptr, wind_for_adv, wind_np1, outer,                    &
-                cheap_update_step                                              &
-        )
-        call moisture_controller%initialise_flux_precomputations(bdf_flux)
+        ! Moisture is transported once, using the combined dry flux
         call moist_mr_transport_alg(                                           &
                 mr_out, mr_in, nummr_to_transport,                             &
                 moisture_controller, transport_metadata                        &
         )
-        call moisture_controller%finalise()
       else
         call moist_mr_transport_alg(                                           &
                 mr_out, mr_in, nummr_to_transport,                             &
@@ -507,12 +539,25 @@ contains
 
     transport_theta = .true.
     if (present(skip_theta)) transport_theta = .not. skip_theta
-    if (transport_theta) then
+    if (transport_theta .and. theta_bdf_flux) then
+      if (transport_metadata%get_equation_form() /= equation_form_consistent)  &
+          then
+        call log_event(                                                        &
+                'Transporting theta with the combined BDF2 flux requires ' //  &
+                'the consistent equation form', LOG_LEVEL_ERROR                &
+        )
+      end if
+      call theta_transport_alg(                                                &
+              fields_np1(igh_t), advection_inc(igh_t), advected_fields(igh_t), &
+              mr_out, mr_in, moisture_controller, transport_metadata           &
+      )
+    else if (transport_theta) then
       call theta_transport_alg(                                                &
               fields_np1(igh_t), advection_inc(igh_t), advected_fields(igh_t), &
               mr_out, mr_in, transport_controller, transport_metadata          &
       )
     end if
+    if (use_bdf_controller) call moisture_controller%finalise()
 
     ! ------------------------------------------------------------------------ !
     ! Transport tracers which are active in fast physics, and therefore need

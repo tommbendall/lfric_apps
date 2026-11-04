@@ -72,8 +72,8 @@ class vn32_t714(MacroUpgrade):
         )
         self.add_setting(
             config,
-            ["namelist:timestepping", "tr_bdf2_cheap_transport"],
-            ".true.",
+            ["namelist:timestepping", "tr_bdf2_transport"],
+            "'cheap'",
         )
         self.add_setting(
             config,

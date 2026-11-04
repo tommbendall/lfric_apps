@@ -102,7 +102,7 @@ contains
     if (method == method_tr_bdf2) then
       if (tr_bdf2_tr_physics) then
         call proc%apply(make_spec('u_fast_inc', main%none, W2, order_h=ord_h, &
-                                  order_v=ord_v))
+                                  order_v=ord_v, ckp=.true.))
         call proc%apply(make_spec('h_u_fast_inc', main%none, W2H,             &
                                   order_h=ord_h, order_v=ord_v, ckp=.true.))
         call proc%apply(make_spec('v_u_fast_inc', main%none, W2V,             &

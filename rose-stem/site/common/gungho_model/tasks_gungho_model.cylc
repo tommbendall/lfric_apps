@@ -153,6 +153,20 @@
         "plot_str": "baroclinic.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR dcmip dry surface_pressure_temperature",
     }) %}
 
+
+{% elif task_ns.conf_name == "baroclinic-tr_bdf2_intermediate_transport-C24_MG" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["baroclinic", "tr_bdf2", "tr_bdf2_intermediate_transport"],
+        "resolution": "C24_MG",
+        "DT": 3600,
+        "threads": 4,
+        "mpi_parts": 6,
+        "tsteps": 240,
+        "kgo_checks": [],
+        "plot_str": "baroclinic.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR dcmip dry surface_pressure_temperature",
+    }) %}
+
 {% elif task_ns.conf_name == "baroclinic-tr_bdf2_first_guess_tr-C24_MG" %}
 
     {% do task_dict.update({
@@ -213,7 +227,7 @@
         "resolution": "BiP200x10-100x100",
         "DT": 2,
         "mpi_parts": 10,
-        "tsteps": 200,
+        "tsteps": 400,
         "panel_decomp": "row",
         "kgo_checks": [],
         "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta_e_moist xz -1 linear bryan_fritsch",
@@ -226,7 +240,21 @@
         "resolution": "BiP200x10-100x100",
         "DT": 2,
         "mpi_parts": 10,
-        "tsteps": 200,
+        "tsteps": 400,
+        "panel_decomp": "row",
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta_e_moist xz -1 linear bryan_fritsch",
+    }) %}
+
+
+{% elif task_ns.conf_name == "bryan_fritsch-moist-tr_bdf2_intermediate_transport-BiP200x10-100x100" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["bryan_fritsch-moist", "tr_bdf2", "tr_bdf2_intermediate_transport"],
+        "resolution": "BiP200x10-100x100",
+        "DT": 2,
+        "mpi_parts": 10,
+        "tsteps": 400,
         "panel_decomp": "row",
         "kgo_checks": [],
         "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta_e_moist xz -1 linear bryan_fritsch",
@@ -239,13 +267,13 @@
         "resolution": "BiP200x10-100x100",
         "DT": 2,
         "mpi_parts": 10,
-        "tsteps": 200,
+        "tsteps": 400,
         "panel_decomp": "row",
         "kgo_checks": [],
         "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta_e_moist xz -1 linear bryan_fritsch",
     }) %}
 
-{% elif task_ns.conf_name == "bryan_fritsch-moist-tr_bdf2_tr_physics-BiP200x10-100x100" %}
+{% elif task_ns.conf_name == "bryan_fritsch-moist-tr_phys-BiP200x10-100x100" %}
 
     {# Includes a restart, to test the checkpointing of the stored physics increments #}
     {% do task_dict.update({
@@ -253,7 +281,7 @@
         "resolution": "BiP200x10-100x100",
         "DT": 2,
         "mpi_parts": 10,
-        "tsteps": 200,
+        "tsteps": 400,
         "crun": 2,
         "panel_decomp": "row",
         "kgo_checks": [],
@@ -267,7 +295,7 @@
         "resolution": "BiP200x10-100x100",
         "DT": 2,
         "mpi_parts": 10,
-        "tsteps": 200,
+        "tsteps": 400,
         "panel_decomp": "row",
         "kgo_checks": [],
         "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta_e_moist xz -1 linear bryan_fritsch",
@@ -358,6 +386,19 @@
 
     {% do task_dict.update({
         "opt_confs": ["held-suarez", "io_nwp", "tr_bdf2", "tr_bdf2_expensive_transport"],
+        "resolution": "C24_MG",
+        "DT": 3600,
+        "mpi_parts": 6,
+        "tsteps": 480,
+        "kgo_checks": [],
+        "plot_str": "plot_zonal.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR held-suarez earth dcmip 30 31"
+    }) %}
+
+
+{% elif task_ns.conf_name == "held-suarez-tr_bdf2_intermediate_transport-C24_MG" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["held-suarez", "io_nwp", "tr_bdf2", "tr_bdf2_intermediate_transport"],
         "resolution": "C24_MG",
         "DT": 3600,
         "mpi_parts": 6,
@@ -528,6 +569,20 @@
         "plot_str": "sbr.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR um70 80 71 sbr",
     }) %}
 
+
+{% elif task_ns.conf_name == "sbr-tr_bdf2_intermediate_transport-C24_MG" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr", "tr_bdf2", "tr_bdf2_intermediate_transport"],
+        "resolution": "C24_MG",
+        "DT": 3600,
+        "mpi_parts": 6,
+        "tsteps": 240,
+        "threads": 4,
+        "kgo_checks": [],
+        "plot_str": "sbr.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR um70 80 71 sbr",
+    }) %}
+
 {% elif task_ns.conf_name == "sbr-tr_bdf2_first_guess_tr-C24_MG" %}
 
     {% do task_dict.update({
@@ -668,6 +723,19 @@
         "plot_str": "gw_cart_plot.py diagGungho $NODAL_DATA_DIR 300 8 theta T000000:T000050:T000100:T000150 $PLOT_DIR",
     }) %}
 
+
+{% elif task_ns.conf_name == "skamarock_klemp_gw-tr_bdf2_intermediate_transport-BiP300x8-1000x2000" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["skamarock_klemp_gw_p0", "tr_bdf2", "tr_bdf2_intermediate_transport"],
+        "resolution": "BiP300x8-1000x2000",
+        "DT": 20,
+        "tsteps": 150,
+        "use_xios": false,
+        "kgo_checks": [],
+        "plot_str": "gw_cart_plot.py diagGungho $NODAL_DATA_DIR 300 8 theta T000000:T000050:T000100:T000150 $PLOT_DIR",
+    }) %}
+
 {% elif task_ns.conf_name == "skamarock_klemp_gw-tr_bdf2_first_guess_tr-BiP300x8-1000x2000" %}
 
     {% do task_dict.update({
@@ -794,6 +862,21 @@
 
     {% do task_dict.update({
         "opt_confs": ["straka_200m", "tr_bdf2", "tr_bdf2_expensive_transport"],
+        "resolution": "BiP256x8-200x200",
+        "DT": 10,
+        "mpi_parts": 8,
+        "tsteps": 90,
+        "panel_decomp": "row",
+        "use_xios": false,
+        "kgo_checks": [],
+        "plot_str": "straka_plot_x.py diagGungho $NODAL_DATA_DIR 256 8 theta T000090 $PLOT_DIR",
+    }) %}
+
+
+{% elif task_ns.conf_name == "straka_200m-tr_bdf2_intermediate_transport-BiP256x8-200x200" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["straka_200m", "tr_bdf2", "tr_bdf2_intermediate_transport"],
         "resolution": "BiP256x8-200x200",
         "DT": 10,
         "mpi_parts": 8,
