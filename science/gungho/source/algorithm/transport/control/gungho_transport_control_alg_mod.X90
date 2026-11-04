@@ -211,6 +211,7 @@ contains
     use timestepping_config_mod,         only: outer_iterations
     use tracer_collection_transport_mod, only: tracer_collection_transport_alg, &
                                                coarse_collection_transport_alg
+    use transport_enumerated_types_mod,  only: monotone_none
     use transport_field_mod,             only: transport_field
     use wind_transport_alg_mod,          only: wind_transport_alg
 
@@ -245,6 +246,7 @@ contains
     logical(kind=l_def)                    :: do_moisture_diagnostics
     logical(kind=l_def)                    :: cheap_update_step
     logical(kind=l_def)                    :: safe_ref
+    logical(kind=l_def)                    :: non_mono_density
 
     ! Temporary fields or pointers
     type(field_type)                       :: fields_np1(bundle_size)
@@ -338,26 +340,46 @@ contains
     call invoke( X_minus_Y( advection_inc(igh_d), fields_np1(igh_d),           &
                             advected_fields(igh_d) ) )
 
+    ! Check negative reference fields at this point
+    if (check_any_eqn_consistent()) then
+      safe_ref = transport_controller%check_reference_field(fail_on_neg=.false.)
+      non_mono_density = (                                                     &
+          transport_metadata%get_horizontal_monotone() == monotone_none        &
+          .and. transport_metadata%get_vertical_monotone() == monotone_none    &
+      )
+      if (.not. safe_ref .and. non_mono_density) then
+        ! First try re-transporting density with monotonicity applied to avoid
+        ! generation of negative values through undershoots
+        call transport_controller%set_enforce_positive_ref_field()
+
+        call transport_field(                                                  &
+                fields_np1(igh_d), advected_fields(igh_d),                     &
+                transport_controller, transport_metadata                       &
+        )
+        call invoke( X_minus_Y( advection_inc(igh_d), fields_np1(igh_d),       &
+                                advected_fields(igh_d) ) )
+
+        ! Recheck whether negative values were calculated
+        safe_ref = transport_controller%check_reference_field(fail_on_neg=.false.)
+      end if
+      if (.not. safe_ref) then
+        ! We will need to substep the transport of tracers
+        ! This can be prompted by re-initialising the flux precomputations
+        flux_precomputations => transport_controller%get_flux_precomputations()
+        flux_this_outer => flux_precomputations%get_total_ref_flux()
+        call flux_copy%initialise( flux_this_outer%get_function_space() )
+        call invoke( setval_X(flux_copy, flux_this_outer) )
+        call transport_controller%clear_flux_precomputations()
+        call transport_controller%initialise_flux_precomputations(flux_copy)
+      end if
+    end if
+
     ! Increment the whole time step's dry flux, which is to be used in the
     ! transport of tracers in the final outer step, if using the cheap update
     if (cheap_update) then
       flux_precomputations => transport_controller%get_flux_precomputations()
       flux_this_outer => flux_precomputations%get_total_ref_flux()
       call invoke( inc_X_plus_Y(total_dry_flux, flux_this_outer) )
-    end if
-
-    ! Check negative reference fields at this point
-    if (check_any_eqn_consistent()) then
-      safe_ref = transport_controller%check_reference_field(fail_on_neg=.true.)
-      if (.not. safe_ref) then
-        ! We will need to substep the transport of tracers
-        ! This will happen if we re-initialise the flux precomputations
-        flux_precomputations => transport_controller%get_flux_precomputations()
-        flux_this_outer => flux_precomputations%get_total_ref_flux()
-        call flux_copy%initialise( flux_this_outer%get_function_space() )
-        call invoke( setval_X(flux_copy, flux_this_outer) )
-        call transport_controller%initialise_flux_precomputations(flux_copy)
-      end if
     end if
 
     ! ------------------------------------------------------------------------ !
