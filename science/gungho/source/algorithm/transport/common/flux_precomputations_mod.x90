@@ -723,6 +723,11 @@ contains
       ! Flux is already on the mesh for this precomputation object
       call ref_flux%copy_field_properties(self%ref_flux(1, step))
       call invoke( setval_X(self%ref_flux(1, step), ref_flux) )
+
+      ! Debug
+      write(log_scratch_space, *) 'set ref_flux, step', step
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
+      call log_field_minmax(LOG_LEVEL_INFO, 'ref_flux', self%ref_flux(1, step))
     end if
 
     if ( LPROF ) call stop_timing( id, 'transport.flux_precomp_init' )
@@ -901,6 +906,12 @@ contains
                                       self%ref_flux(2, step_idx),              &
                                       self%ref_flux(1, step_idx)) )
       end select
+
+      ! Log ref_mass, ref_mass_prime
+      write(log_scratch_space,*) 'ref_flux, mesh', 2, 'step', step_idx
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
+      call log_field_minmax(LOG_LEVEL_INFO, 'ref_flux', self%ref_flux(2, step_idx))
+      call log_field_minmax(LOG_LEVEL_INFO, 'ref_flux_prime', self%ref_flux(1, step_idx))
 
       if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
     end if
@@ -1150,6 +1161,13 @@ contains
                                              depth=transport_boundary_depth)
         end if
 
+        ! Log ref_mass, ref_mass_prev and ref_flux
+        write(log_scratch_space,*) 'ref_mass, mesh', mesh_idx, 'step', step
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_mass', self%ref_mass(mesh_idx, step))
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_mass_prev', ref_mass_prev)
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_flux', ref_flux)
+
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
 
       ! ---------------------------------------------------------------------- !
@@ -1166,6 +1184,12 @@ contains
           call invoke( X_times_Y(self%ref_mass(mesh_idx, step),                &
                                  self%ref_field(mesh_idx, step), detj_w3) )
         end if
+
+        ! Log ref_mass, ref_mass_field
+        write(log_scratch_space,*) 'ref_mass, mesh', mesh_idx, 'step', step
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_mass', self%ref_mass(mesh_idx, step))
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_field', self%ref_field(mesh_idx, step))
 
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
 
@@ -1186,6 +1210,13 @@ contains
           call invoke( shift_mass_w3_kernel_type(self%ref_mass(2, step),       &
                                                  ref_mass_prime) )
         end if
+
+        ! Log ref_mass, ref_mass_prime
+        write(log_scratch_space,*) 'ref_mass, mesh', mesh_idx, 'step', step
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_mass', self%ref_mass(mesh_idx, step))
+        call log_field_minmax(LOG_LEVEL_INFO, 'ref_mass_prime', ref_mass_prime)
+
         if ( LPROF ) call stop_timing( id, 'transport.flux_precomp' )
       end if
 
@@ -1779,6 +1810,9 @@ contains
 
     call invoke( inc_X_plus_Y(self%total_ref_flux, total_ref_flux) )
 
+    ! Log ref_mass, ref_mass_prime
+    call log_field_minmax(LOG_LEVEL_INFO, 'total_ref_flux', self%total_ref_flux)
+
   end subroutine set_total_ref_flux
 
 ! ============================================================================ !
@@ -2195,7 +2229,7 @@ contains
       call get_field_minmax(ref_mass, field_min, field_max)
 
       if (field_min < EPS_R_TRAN) then
-        write(log_scratch_space, *) 'Negative value found in reference mass at step', step
+        write(log_scratch_space, *) 'Negative value ', field_min, ' found in reference mass at step', step
         call log_event(log_scratch_space, LOG_LEVEL_INFO)
         ref_field_safe = .false.
         EXIT
