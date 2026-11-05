@@ -402,7 +402,7 @@ contains
     !--------------------------------------------------------------------
     if (lipschitz_damping) then
       call invoke( inc_X_plus_Y(u_latest, du) )
-      call lipschitz_damping_alg(config, u_latest, dt)
+      call lipschitz_damping_alg(u_latest, dt)
     end if
 
     ! Calculate total physics increment

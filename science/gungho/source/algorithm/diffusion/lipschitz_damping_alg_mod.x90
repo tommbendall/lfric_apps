@@ -10,8 +10,6 @@
 
 module lipschitz_damping_alg_mod
 
-  use config_mod, only: config_type
-
   implicit none
 
   private
@@ -24,10 +22,9 @@ contains
   !> @details Zeroes a local increment field, applies the Lipschitz damping
   !>          kernel, and accumulates the result back into the prognostic wind
   !>          field.
-  !> @param[in]     config  Application namelist configuration object
   !> @param[in,out] u       Wind field to damp
   !> @param[in]     dt      The model timestep length
-  subroutine lipschitz_damping_alg(config, u, dt)
+  subroutine lipschitz_damping_alg(u, dt)
 
     use constants_mod,                 only: r_def, i_def
     use field_mod,                     only: field_type
@@ -44,7 +41,6 @@ contains
 
     implicit none
 
-    type(config_type), intent(in)    :: config
     type(field_type),  intent(inout) :: u
     real(kind=r_def),  intent(in)    :: dt
 
