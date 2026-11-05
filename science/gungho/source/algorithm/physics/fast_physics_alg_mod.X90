@@ -162,6 +162,7 @@ contains
     real(kind=r_def),        intent(in) :: dt
 
     ! Local fields...
+    type( field_type ) :: u_latest
     ! ...for boundary layer
     type( field_type ) :: dtheta_bl, du_bl
     ! ...for evaporation condensation
@@ -218,6 +219,10 @@ contains
     !--------------------------------------------------------------------
     ! Initialisation of fields and flags
     !--------------------------------------------------------------------
+    call u_star%copy_field_properties(u_latest)
+    call invoke(setval_X(u_latest, u_star) )
+
+
     call invoke( setval_c(dtheta, 0.0_r_def), &
                  setval_c(du, 0.0_r_def) )
     boundary_layer_done = .false.
@@ -396,12 +401,12 @@ contains
     ! Lipschitz damping of the physics wind increment
     !--------------------------------------------------------------------
     if (lipschitz_damping) then
+      call invoke( inc_X_plus_Y(u_latest, du) )
       call lipschitz_damping_alg(config, u_latest, dt)
     end if
 
     ! Calculate total physics increment
-    call invoke(X_minus_Y(dtheta, theta_latest, theta_star), &
-                X_minus_Y(du, u_latest, u_star) )
+    call invoke(X_minus_Y(du, u_latest, u_star) )
 
     !--------------------------------------------------------------------
     ! Smagorinsky horizontal mixing
