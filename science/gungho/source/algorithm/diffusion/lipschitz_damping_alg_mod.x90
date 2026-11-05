@@ -60,7 +60,7 @@ contains
     if ( LPROF ) call start_timing( id, 'lipschitz_damping' )
 
     mesh => u%get_mesh()
-    detj_at_w3 => get_detj_at_w3_fv(mesh)
+    detj_at_w3 => get_detj_at_w3_fv(mesh%get_id())
 
     w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
     call u_inc%initialise( u%get_function_space() )
