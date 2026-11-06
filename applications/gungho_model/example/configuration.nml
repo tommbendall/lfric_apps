@@ -195,7 +195,7 @@ split_w=.true.,
 /
 &mixing
 leonard_term=.false.,
-lipschitz_damping=.false.,
+lipschitz_damping=.true.,
 smagorinsky=.false.,
 viscosity=.false.,
 viscosity_mu=0.0,

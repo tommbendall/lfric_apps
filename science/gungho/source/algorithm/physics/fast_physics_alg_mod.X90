@@ -219,9 +219,9 @@ contains
     !--------------------------------------------------------------------
     ! Initialisation of fields and flags
     !--------------------------------------------------------------------
+    call derived_fields%get_field('u_star', u_star)
     call u_star%copy_field_properties(u_latest)
     call invoke(setval_X(u_latest, u_star) )
-
 
     call invoke( setval_c(dtheta, 0.0_r_def), &
                  setval_c(du, 0.0_r_def) )
