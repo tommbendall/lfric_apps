@@ -833,7 +833,7 @@ subroutine create_model_data( modeldb,      &
       end if
       if (.not. checkpoint_read .and. lipschitz_damping) then
         dt = real(modeldb%clock%get_seconds_per_step(), r_def)
-        call lipschitz_damping_alg(modeldb%config, u, dt)
+        call lipschitz_damping_alg(u, dt)
       end if
       call map_physics_fields_alg(u, exner, rho, theta,     &
                                   moist_dyn_array%bundle,     &
