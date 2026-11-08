@@ -182,13 +182,7 @@ module horizontal_sl_advective_alg_mod
     ! sphere mesh, and only if requested via the swift_peregrin config option
     do_peregrin = is_cubed_sphere .and. transport_metadata%get_swift_peregrin()
 
-    if ( panel_edge_treatment == panel_edge_treatment_remapping .and.          &
-         is_cubed_sphere .and. .not. do_peregrin ) then
-      call log_event(                                                          &
-              'SL: cannot use panel edge remapping without Peregrin',          &
-              LOG_LEVEL_ERROR                                                  &
-      )
-    else if (.not. panel_edge_treatment == panel_edge_treatment_remapping      &
+    if (.not. panel_edge_treatment == panel_edge_treatment_remapping           &
              .and. do_peregrin) then
       call log_event(                                                          &
               'SL: cannot use Peregrin without panel edge remapping',          &
