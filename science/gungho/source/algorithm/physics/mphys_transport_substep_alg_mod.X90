@@ -177,8 +177,7 @@ contains
     type(field_type), pointer :: ls_rain_3d, ls_snow_3d
     type(field_type), pointer :: liquid_fraction, frozen_fraction
     type(field_type), pointer :: bulk_fraction
-    real(kind=r_def) :: dbg_min, dbg_max
-    character(len=str_def) :: dbg_msg
+    type(field_type), pointer :: test_tracer
 
     ! State and moisture during the substeps
     type(field_type) :: state_sub(bundle_size)
@@ -282,11 +281,6 @@ contains
             field_list=substep_tracers                                         &
         )
       end if
-      ! TEMPORARY DIAGNOSTIC: bounds of liquid_fraction before the transport
-      call get_field_minmax(liquid_fraction, dbg_min, dbg_max)
-      write(dbg_msg, '(A,I0,2(A,ES16.8))') 'DBG substep ', substep,            &
-          ' lf before transport min=', dbg_min, ' max=', dbg_max
-      call log_event(trim(dbg_msg), LOG_LEVEL_INFO)
       call gungho_transport_control_substep_alg(                               &
           config, theta_inc_sub, state_sub(igh_t), rho_k, rho_k1, wind_n,      &
           wind_np1, mr, mr_sub, substep_tracers, tracers_in, clock, outer,     &
