@@ -414,7 +414,7 @@ subroutine output_diags_for_radiation( dtheta_rad, &
   sw_down_uv_surf_rts, sw_down_uv_clear_surf_rts, &
   sw_direct_uv_surf_rts, sw_direct_uv_clear_surf_rts, &
   sw_up_uv_surf_rts, sw_up_uv_clear_surf_rts, &
-  photolysis_rates_rts, dt )
+  photolysis_rates_rts, dt, output_dtheta_rad )
 
   implicit none
 
@@ -482,6 +482,7 @@ subroutine output_diags_for_radiation( dtheta_rad, &
     photolysis_rates_rts
 
   real(r_def), intent(in) :: dt
+  logical( l_def ), intent(in), optional :: output_dtheta_rad
 
   ! Diagnostics locally computed here from other fields
   type( field_type ) :: &
@@ -496,12 +497,15 @@ subroutine output_diags_for_radiation( dtheta_rad, &
 
   ! Local working variables
   logical( l_def ) :: ignore
+  logical( l_def ) :: write_dtheta_rad
   integer( tik )  :: id
 
   if ( LPROF ) call start_timing( id, 'diags.radiation' )
 
   ! Prognostic fields
-  call dtheta_rad%write_field('radiation__dtheta_rad')
+  write_dtheta_rad = .true.
+  if ( present(output_dtheta_rad) ) write_dtheta_rad = output_dtheta_rad
+  if ( write_dtheta_rad ) call dtheta_rad%write_field('radiation__dtheta_rad')
   call lw_down_surf%write_field('radiation__lw_down_surf')
   call sw_down_surf%write_field('radiation__sw_down_surf')
   call sw_direct_surf%write_field('radiation__sw_direct_surf')

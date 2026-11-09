@@ -1,0 +1,181 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+!> @brief Update of the radiative heating to a window of the model timestep
+
+module radiation_update_alg_mod
+
+use constants_mod,        only: r_def, l_def
+use field_mod,            only: field_type
+use field_collection_mod, only: field_collection_type
+use sw_mts_kernel_mod,    only: sw_mts_kernel_type
+use lw_mts_kernel_mod,    only: lw_mts_kernel_type
+use timing_mod,           only: start_timing, stop_timing, tik, LPROF
+
+implicit none
+
+private
+
+public :: radiation_update_alg
+
+contains
+
+!> @brief Potential temperature increment from radiation over a time window
+!> @details Converts the stored heating rates of the latest radiation
+!!          timestep to the solar geometry of a window within the model
+!!          timestep, and multiplies by the length of the window. The fields
+!!          in the radiation collection are unchanged, so the surface fluxes
+!!          remain those of the whole model timestep. If the radiation
+!!          timestep is the model timestep the heating rate is not corrected,
+!!          so the window has no effect on it.
+!> @param[in,out] dtheta_rad            Potential temperature increment
+!> @param[in]     derived_fields        Derived fields
+!> @param[in]     radiation_fields      Fields for radiation scheme
+!> @param[in]     surface_fields        Fields for surface scheme
+!> @param[in]     cos_zenith_angle_win  Cosine of the zenith angle in window
+!> @param[in]     lit_fraction_win      Lit fraction of the window
+!> @param[in]     dt                    Length of the window (s)
+subroutine radiation_update_alg(                                               &
+    dtheta_rad, derived_fields, radiation_fields, surface_fields,              &
+    cos_zenith_angle_win, lit_fraction_win, dt                                 &
+)
+
+  implicit none
+
+  type(field_type),            intent(inout) :: dtheta_rad
+  type(field_collection_type), intent(in)    :: derived_fields
+  type(field_collection_type), intent(in)    :: radiation_fields
+  type(field_collection_type), intent(in)    :: surface_fields
+  type(field_type),            intent(in)    :: cos_zenith_angle_win
+  type(field_type),            intent(in)    :: lit_fraction_win
+  real(kind=r_def),            intent(in)    :: dt
+
+  type(field_type), pointer :: exner_in_wth
+  type(field_type), pointer :: tile_fraction
+  type(field_type), pointer :: tile_temperature
+  type(field_type), pointer :: tile_lw_grey_albedo
+
+  type(field_type), pointer :: sw_heating_rate_rts
+  type(field_type), pointer :: sw_down_surf_rts
+  type(field_type), pointer :: sw_direct_surf_rts
+  type(field_type), pointer :: sw_down_blue_surf_rts
+  type(field_type), pointer :: sw_direct_blue_surf_rts
+  type(field_type), pointer :: sw_up_surf_rts
+  type(field_type), pointer :: sw_up_toa_rts
+  type(field_type), pointer :: sw_direct_toa_rts
+  type(field_type), pointer :: sw_up_tile_rts
+  type(field_type), pointer :: sw_up_blue_tile_rts
+  type(field_type), pointer :: cos_zenith_angle_rts
+  type(field_type), pointer :: lit_fraction_rts
+  type(field_type), pointer :: orographic_correction_rts
+
+  type(field_type), pointer :: lw_heating_rate_rts
+  type(field_type), pointer :: lw_down_surf_rts
+  type(field_type), pointer :: lw_up_surf_rts
+  type(field_type), pointer :: lw_up_toa_rts
+  type(field_type), pointer :: lw_up_tile_rts
+
+  ! Outputs of the corrections, of which only the heating rates are used
+  type(field_type) :: sw_heating_rate, sw_down_surf, sw_direct_surf
+  type(field_type) :: sw_down_blue_surf, sw_direct_blue_surf
+  type(field_type) :: sw_up_surf, sw_up_toa, sw_direct_toa
+  type(field_type) :: sw_up_tile, sw_up_blue_tile
+  type(field_type) :: lw_heating_rate, lw_down_surf, lw_up_surf
+  type(field_type) :: lw_up_toa, lw_up_tile
+
+  logical(kind=l_def) :: lw_copy_rts
+  real(kind=r_def)    :: dt_again
+  integer(kind=tik)   :: id
+
+  if (LPROF) call start_timing(id, 'radiation.update')
+
+  call derived_fields%get_field('exner_in_wth', exner_in_wth)
+
+  call surface_fields%get_field('tile_fraction', tile_fraction)
+  call surface_fields%get_field('tile_temperature', tile_temperature)
+  call surface_fields%get_field('tile_lw_grey_albedo', tile_lw_grey_albedo)
+
+  call radiation_fields%get_field('sw_heating_rate_rts', sw_heating_rate_rts)
+  call radiation_fields%get_field('sw_down_surf_rts', sw_down_surf_rts)
+  call radiation_fields%get_field('sw_direct_surf_rts', sw_direct_surf_rts)
+  call radiation_fields%get_field(                                             &
+      'sw_down_blue_surf_rts', sw_down_blue_surf_rts                           &
+  )
+  call radiation_fields%get_field(                                             &
+      'sw_direct_blue_surf_rts', sw_direct_blue_surf_rts                       &
+  )
+  call radiation_fields%get_field('sw_up_surf_rts', sw_up_surf_rts)
+  call radiation_fields%get_field('sw_up_toa_rts', sw_up_toa_rts)
+  call radiation_fields%get_field('sw_direct_toa_rts', sw_direct_toa_rts)
+  call radiation_fields%get_field('sw_up_tile_rts', sw_up_tile_rts)
+  call radiation_fields%get_field('sw_up_blue_tile_rts', sw_up_blue_tile_rts)
+  call radiation_fields%get_field('cos_zenith_angle_rts', cos_zenith_angle_rts)
+  call radiation_fields%get_field('lit_fraction_rts', lit_fraction_rts)
+  call radiation_fields%get_field(                                             &
+      'orographic_correction_rts', orographic_correction_rts                   &
+  )
+
+  call radiation_fields%get_field('lw_heating_rate_rts', lw_heating_rate_rts)
+  call radiation_fields%get_field('lw_down_surf_rts', lw_down_surf_rts)
+  call radiation_fields%get_field('lw_up_surf_rts', lw_up_surf_rts)
+  call radiation_fields%get_field('lw_up_toa_rts', lw_up_toa_rts)
+  call radiation_fields%get_field('lw_up_tile_rts', lw_up_tile_rts)
+
+  call sw_heating_rate_rts%copy_field_properties(sw_heating_rate)
+  call sw_down_surf_rts%copy_field_properties(sw_down_surf)
+  call sw_direct_surf_rts%copy_field_properties(sw_direct_surf)
+  call sw_down_blue_surf_rts%copy_field_properties(sw_down_blue_surf)
+  call sw_direct_blue_surf_rts%copy_field_properties(sw_direct_blue_surf)
+  call sw_up_surf_rts%copy_field_properties(sw_up_surf)
+  call sw_up_toa_rts%copy_field_properties(sw_up_toa)
+  call sw_direct_toa_rts%copy_field_properties(sw_direct_toa)
+  call sw_up_tile_rts%copy_field_properties(sw_up_tile)
+  call sw_up_blue_tile_rts%copy_field_properties(sw_up_blue_tile)
+  call lw_heating_rate_rts%copy_field_properties(lw_heating_rate)
+  call lw_down_surf_rts%copy_field_properties(lw_down_surf)
+  call lw_up_surf_rts%copy_field_properties(lw_up_surf)
+  call lw_up_toa_rts%copy_field_properties(lw_up_toa)
+  call lw_up_tile_rts%copy_field_properties(lw_up_tile)
+
+  ! The thermal correction only changes the fluxes, not the heating rate
+  lw_copy_rts = .true.
+
+  call invoke( sw_mts_kernel_type(                                             &
+                   sw_heating_rate, sw_down_surf, sw_direct_surf,              &
+                   sw_down_blue_surf, sw_direct_blue_surf,                     &
+                   sw_up_surf, sw_up_toa, sw_direct_toa,                       &
+                   sw_up_tile, sw_up_blue_tile,                                &
+                   sw_heating_rate_rts, sw_down_surf_rts, sw_direct_surf_rts,  &
+                   sw_down_blue_surf_rts, sw_direct_blue_surf_rts,             &
+                   sw_up_surf_rts, sw_up_toa_rts, sw_direct_toa_rts,           &
+                   sw_up_tile_rts, sw_up_blue_tile_rts,                        &
+                   exner_in_wth,                                               &
+                   cos_zenith_angle_win, lit_fraction_win,                     &
+                   cos_zenith_angle_rts, lit_fraction_rts,                     &
+                   orographic_correction_rts                                   &
+               ),                                                              &
+               lw_mts_kernel_type(                                             &
+                   lw_heating_rate, lw_down_surf, lw_up_surf,                  &
+                   lw_up_toa, lw_up_tile,                                      &
+                   lw_heating_rate_rts, lw_down_surf_rts, lw_up_surf_rts,      &
+                   lw_up_toa_rts, lw_up_tile_rts,                              &
+                   exner_in_wth,                                               &
+                   tile_fraction, tile_temperature, tile_lw_grey_albedo,       &
+                   lw_copy_rts                                                 &
+               ) )
+
+  ! The total temperature increment, then converted to a theta increment
+  dt_again = dt
+  call invoke( aX_plus_bY(dtheta_rad, dt, sw_heating_rate,                     &
+                          dt_again, lw_heating_rate),                          &
+               inc_X_divideby_Y(dtheta_rad, exner_in_wth) )
+
+  if (LPROF) call stop_timing(id, 'radiation.update')
+
+end subroutine radiation_update_alg
+
+end module radiation_update_alg_mod

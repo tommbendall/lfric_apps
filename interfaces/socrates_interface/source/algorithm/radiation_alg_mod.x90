@@ -85,6 +85,9 @@ contains
 !> @param[in,out] conv_frozen_mmr          Convective frozen gridbox MMR
 !> @param[in,out] conv_frozen_number       Convective frozen number conc
 !> @param[in]     dt                       Timestep length (s)
+!> @param[in]     output_dtheta_rad        Optional, if false the radiative
+!>                                         theta increment is not written
+!>                                         (default true)
 subroutine radiation_alg(config, dtheta_rad, theta, exner, mr, moist_dyn,     &
                          pressure_in_wth, temperature_in_wth,                 &
                          derived_fields, radiation_fields, cloud_fields,      &
@@ -98,7 +101,7 @@ subroutine radiation_alg(config, dtheta_rad, theta, exner, mr, moist_dyn,     &
                          radiative_cloud_fraction, radiative_conv_fraction,   &
                          conv_liquid_fraction, conv_frozen_fraction,          &
                          conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number,&
-                         dt)
+                         dt, output_dtheta_rad)
 
   implicit none
 
@@ -133,6 +136,7 @@ subroutine radiation_alg(config, dtheta_rad, theta, exner, mr, moist_dyn,     &
   type( field_collection_type ), intent(in) :: surface_fields
   logical( kind=l_def ), intent(in) :: rad_this_tstep, rad_inc_this_tstep
   real( kind=r_def ), intent(in) :: dt
+  logical( kind=l_def ), intent(in), optional :: output_dtheta_rad
 
   real( kind=r_def ) :: dt_again
   type(mesh_type), pointer :: mesh      => null()
@@ -757,7 +761,7 @@ subroutine radiation_alg(config, dtheta_rad, theta, exner, mr, moist_dyn,     &
       sw_down_uv_surf_rts, sw_down_uv_clear_surf_rts, &
       sw_direct_uv_surf_rts, sw_direct_uv_clear_surf_rts, &
       sw_up_uv_surf_rts, sw_up_uv_clear_surf_rts, &
-      photolysis_rates_rts, dt )
+      photolysis_rates_rts, dt, output_dtheta_rad )
   end if
 
   nullify ( mesh, twod_mesh )

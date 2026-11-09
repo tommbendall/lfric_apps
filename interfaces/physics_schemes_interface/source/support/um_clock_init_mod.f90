@@ -9,12 +9,13 @@ module um_clock_init_mod
 
   ! LFRic modules
   use clock_mod,     only : clock_type
-  use constants_mod, only : r_um
+  use constants_mod, only : r_def, r_um
 
   implicit none
 
   private
   public :: um_clock_init
+  public :: set_um_timestep
 
 contains
 
@@ -35,5 +36,26 @@ contains
     recip_timestep = 1.0_r_um / timestep
 
   end subroutine um_clock_init
+
+  !> @brief Set the timestep used in the UM code to a different length
+  !> @details The microphysics constants depend on the timestep, so are
+  !!          recalculated at the next call of the microphysics. Call this from
+  !!          the algorithm layer, outside any OpenMP region, and restore the
+  !!          timestep of the model afterwards.
+  !> @param[in] dt  The timestep length (s)
+  subroutine set_um_timestep( dt )
+
+    use timestep_mod, only: timestep, recip_timestep
+    use mphys_constants_mod, only: l_calc_mp_const
+
+    implicit none
+
+    real(r_def), intent(in) :: dt
+
+    timestep = real(dt, r_um)
+    recip_timestep = 1.0_r_um / timestep
+    l_calc_mp_const = .true.
+
+  end subroutine set_um_timestep
 
 end module um_clock_init_mod

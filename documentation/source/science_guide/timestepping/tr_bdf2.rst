@@ -254,6 +254,75 @@ states :math:`\boldsymbol{X}^\dagger`, :math:`\boldsymbol{X}^{q+\dagger}` and
    \boldsymbol{X}^{n+1} &= \boldsymbol{X}^{n+\dagger} - \Delta t\,\mathcal{P}_E(\boldsymbol{X}^{n+\dagger}).
    \end{aligned}
 
+Physics in the BDF2 stage
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In the coupling above, the slow physics is evaluated once at the start of the
+timestep and so lags the transport and the implicit solve of both stages. As an
+option, some of the slow physics can instead be split between the two stages.
+This is used for the physics for which the lag matters most: the cloud
+microphysics, the PC2 cloud scheme and the radiative heating. It needs the
+cheaper BDF2 transport described above.
+
+In the TR stage the slow physics operator :math:`\mathcal{P}_S` is evaluated
+on :math:`\boldsymbol{X}^n` over the length of the TR stage, rather than over
+:math:`\Delta t`,
+
+.. math:: :label: trbdf2_bdf_physics_tr
+
+   \boldsymbol{X}^\dagger = \boldsymbol{X}^n - 2\gamma\Delta t\,\mathcal{P}_S(\boldsymbol{X}^n).
+
+The state that is transported in the BDF2 stage,
+
+.. math::
+
+   \boldsymbol{X}^{BDF} = (1-\gamma_3)\boldsymbol{X}^q + \gamma_3\boldsymbol{X}^m,
+
+then already includes the TR-stage physics increment, as
+:math:`(1-\gamma_3)+\gamma_3=1`. The BDF2-stage operator :math:`\mathcal{P}_B`
+is evaluated on this state over the remaining :math:`(1-2\gamma)\Delta t`,
+before it is transported,
+
+.. math:: :label: trbdf2_bdf_physics_bdf
+
+   \boldsymbol{X}^{BDF\dagger} = \boldsymbol{X}^{BDF}
+   - (1-2\gamma)\Delta t\,\mathcal{P}_B(\boldsymbol{X}^{BDF}),
+   \qquad
+   \boldsymbol{X}^{q+\dagger} = \mathcal{T}^{(1-2\gamma)\Delta t}_{\overline{\boldsymbol{u}}_m^{n+1}}
+   \left[\boldsymbol{X}^{BDF\dagger}\right].
+
+The physics is therefore split sequentially, with the physics of the BDF2
+stage acting on the state that includes the TR-stage physics and the dynamics
+of the TR stage. The two increments together cover the whole timestep, as
+:math:`2\gamma+(1-2\gamma)=1`.
+
+The operator :math:`\mathcal{P}_B` is made up of:
+
+* an optional adjustment of the cloud to the change of pressure since the start
+  of the timestep, which is applied before the microphysics;
+* the microphysics, which is applied over :math:`(1-2\gamma)\Delta t` to the
+  state :math:`\boldsymbol{X}^{BDF}`, using the density, pressure and winds of
+  this state;
+* the radiative heating, which is recalculated over the BDF2 stage by
+  correcting the fluxes of the radiation scheme for the mean solar angle and
+  illuminated fraction of the stage, rather than running the radiation scheme
+  again;
+* the response of the PC2 cloud scheme to the radiative heating, and the checks
+  of the cloud and moisture that follow the other increments.
+
+The radiative heating in the TR stage is calculated in the same way, from the
+mean solar angle and illuminated fraction of the TR stage.
+
+The cloud fractions and the precipitation fraction are changed by this physics
+between the two stages, so are transported in both stages in the same way as
+moisture. The other tracers are transported once over the whole timestep, as
+before.
+
+The precipitation rates that are passed to other schemes are the mean of the
+rates of the two stages, weighted by their lengths. Diagnostics of the
+increments from the two stages are summed to give the increments over the
+timestep, and diagnostics of rates are averaged with the same weights.
+
 Moisture
 ~~~~~~~~~
 

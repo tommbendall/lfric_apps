@@ -88,5 +88,25 @@ class vn32_t714(MacroUpgrade):
             ["namelist:timestepping", "tr_bdf2_bdf_evap_condense"],
             ".false.",
         )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "tr_bdf2_bdf_physics"],
+            ".false.",
+        )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "tr_bdf2_bdf_cloud_balance"],
+            ".false.",
+        )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "si_mphys_transport_interleave"],
+            ".false.",
+        )
+        self.add_setting(
+            config,
+            ["namelist:timestepping", "si_mphys_transport_substeps"],
+            "1",
+        )
 
         return config, self.reports

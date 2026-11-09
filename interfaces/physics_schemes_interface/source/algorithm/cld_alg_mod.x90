@@ -64,11 +64,15 @@ contains
   !>@param[in]     mr_n              (in)     mixing ratios at start of timestep
   !>@param[in]     dt                (in)     Timestep length
   !>@param[in]     step              (in)     Timestep
+  !>@param[in]     output_diags      (in)     Optional, if false the
+  !>                                          diagnostics are not written
+  !>                                          (default true)
   subroutine cld_alg(config,                                   &
                      theta_inc, mr, theta, exner, rho,         &
                      derived_fields, turbulence_fields,        &
                      cloud_fields, convection_fields,          &
-                     theta_n, mr_n, step, dt, call_b4_conv)
+                     theta_n, mr_n, step, dt, call_b4_conv,    &
+                     output_diags)
 
     use smith_kernel_mod, only: smith_kernel_type
     use bm_kernel_mod,    only: bm_kernel_type
@@ -96,6 +100,7 @@ contains
     integer( i_def ),   intent( in )    :: step
     real( r_def ),      intent( in )    :: dt
     logical( l_def ),   intent( in )    :: call_b4_conv
+    logical( l_def ),   intent( in ), optional :: output_diags
 
     ! Variable below is for remapping from w3 to wth.
     type( field_type ), pointer :: exner_wth => null()
@@ -133,6 +138,12 @@ contains
     integer(i_def) :: i_mr, ncells
     character(str_def) :: name_ext
     integer(tik)       :: id
+    logical(l_def)     :: write_this_diag
+
+    write_this_diag = write_diag .and. use_xios_io
+    if ( present(output_diags) ) then
+      write_this_diag = write_this_diag .and. output_diags
+    end if
 
     if ( LPROF ) call start_timing( id, 'cloud' )
 
@@ -230,7 +241,8 @@ contains
                                      exner_wth,               & ! IN wth
                                      cloud_fields,            & ! INOUT
                                      dtheta_pc2_inc_pres, dt, & ! OUT
-                                     name_ext)
+                                     name_ext,                &
+                                     output_diags)
 
       ! Temporary value of theta to be updated with increment from
       ! pressure forcing for use as input for initiation.
@@ -252,7 +264,8 @@ contains
                                cloud_fields,        & ! INOUT
                                sskew_bm, svar_bm,   &
                                svar_tb,             &
-                               theta_inc, name_ext )  ! OUT
+                               theta_inc, name_ext,   &  ! OUT
+                               output_diags )
 
       call invoke( inc_X_plus_Y(theta_inc, dtheta_pc2_inc_pres) )
 
@@ -271,7 +284,7 @@ contains
 
     if ( LPROF ) call stop_timing( id, 'cloud' )
 
-    if ( write_diag .and. use_xios_io .and. &
+    if ( write_this_diag .and. &
          mod(step,diagnostic_frequency) == 0 .and. &
          .not. call_b4_conv ) then
 
