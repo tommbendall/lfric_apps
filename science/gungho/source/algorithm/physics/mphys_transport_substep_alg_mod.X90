@@ -1,0 +1,417 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+!> @brief Substeps of transport and microphysics for the semi-implicit scheme
+module mphys_transport_substep_alg_mod
+
+  use config_mod,                only: config_type
+  use constants_mod,             only: r_def, r_tran, i_def, l_def, str_def
+  use log_mod,                   only: log_event, LOG_LEVEL_INFO
+  use sci_field_minmax_alg_mod,  only: get_field_minmax
+  use derived_config_mod,        only: bundle_size
+  use field_collection_mod,      only: field_collection_type
+  use field_indices_mod,         only: igh_d, igh_t
+  use field_mod,                 only: field_type
+  use function_space_collection_mod,                                           &
+                                 only: function_space_collection
+  use function_space_mod,        only: function_space_type
+  use fs_continuity_mod,         only: Wtheta
+  use gungho_transport_control_alg_mod,                                        &
+                                 only: gungho_transport_control_substep_alg
+  use mesh_mod,                  only: mesh_type
+  use model_clock_mod,           only: model_clock_type
+  use mr_indices_mod,            only: nummr, imr_v, imr_cl, imr_ci, imr_s
+  use sci_field_bundle_builtins_mod,                                           &
+                                 only: add_bundle, clone_bundle,               &
+                                       copy_bundle, set_bundle_scalar
+  use r_tran_field_mod,          only: r_tran_field_type
+  use timestepping_common_mod,   only: conditional_collection_copy
+  use cloud_config_mod,          only: scheme, scheme_pc2, cld_fsd_hill
+  use microphysics_config_mod,   only: l_mcr_precfrac
+  use section_choice_config_mod, only: cloud, cloud_um
+#ifdef UM_PHYSICS
+  use fsd_condensate_alg_mod,    only: fsd_condensate_alg
+  use mphys_alg_mod,             only: mphys_alg
+  use pc2_checks_alg_mod,        only: pc2_checks_alg
+  use um_clock_init_mod,         only: set_um_timestep
+  use um_sizes_init_mod,         only: um_sizes_init
+#endif
+
+  implicit none
+
+  private
+
+  public :: setup_substep_tracers
+  public :: mphys_transport_substeps
+
+contains
+
+  !> @details The tracers that the microphysics and PC2 change are transported
+  !!          in the substeps, rather than over the whole timestep. The
+  !!          collection is empty without PC2 or a precipitation fraction.
+  !> @param[in,out] substep_tracers      Collection of the substep tracers
+  !> @param[in]     cloud_fields         Fields for cloud scheme
+  !> @param[in]     microphysics_fields  Fields for mphys scheme
+  subroutine setup_substep_tracers(                                            &
+      substep_tracers, cloud_fields, microphysics_fields                       &
+  )
+
+    use pure_abstract_field_mod,   only: pure_abstract_field_type
+
+    implicit none
+
+    type(field_collection_type), intent(inout) :: substep_tracers
+    type(field_collection_type), intent(in)    :: cloud_fields
+    type(field_collection_type), intent(in)    :: microphysics_fields
+
+    character(len=*), parameter :: cloud_names(3) =                            &
+        [character(len=16) :: 'liquid_fraction', 'frozen_fraction',            &
+                              'bulk_fraction']
+
+    type(field_type),                pointer :: tracer
+    class(pure_abstract_field_type), pointer :: tracer_ptr
+    integer(kind=i_def)                      :: i
+
+    call substep_tracers%initialise(name='substep_tracers')
+
+    if (cloud == cloud_um .and. scheme == scheme_pc2) then
+      do i = 1, size(cloud_names)
+        call cloud_fields%get_field(trim(cloud_names(i)), tracer)
+        tracer_ptr => tracer
+        call substep_tracers%add_reference_to_field(tracer_ptr)
+      end do
+    end if
+
+    if (l_mcr_precfrac) then
+      call microphysics_fields%get_field('precfrac', tracer)
+      tracer_ptr => tracer
+      call substep_tracers%add_reference_to_field(tracer_ptr)
+    end if
+
+  end subroutine setup_substep_tracers
+
+  !> @details Replaces the transport of the moisture and potential temperature
+  !!          over the timestep, and the microphysics before it. Instead
+  !!          the timestep is split into substeps, each of which transports
+  !!          the moisture, potential temperature and the cloud and
+  !!          precipitation fractions with a fraction of the dry flux of the
+  !!          whole timestep, and then calls the microphysics. The dry density
+  !!          follows from the flux, so the density after the last substep is
+  !!          that of the whole timestep. The derived fields stay at the start
+  !!          of the timestep. The precipitation rates are the mean of those
+  !!          of the substeps.
+  !> @param[in]     config                 Application namelist configuration
+  !> @param[in]     num_substeps           Number of substeps
+  !> @param[in]     outer                  Outer (advection) iteration number
+  !> @param[in,out] mr                     Moisture after the substeps
+  !> @param[in]     mr_start               Moisture at the start
+  !> @param[in]     state_start            State to be transported
+  !> @param[in]     rho_start              Reference dry density of the flux
+  !> @param[in]     dry_flux               Dry mass flux of the whole timestep
+  !> @param[in]     wind_np1               Transporting wind at the end
+  !> @param[in]     wind_n                 Transporting wind at the start
+  !> @param[in]     exner                  Exner pressure in w3
+  !> @param[in,out] dtheta_adv             Change of theta over the substeps
+  !> @param[in,out] substep_tracers        Collection of the substep tracers
+  !> @param[in]     substep_tracers_start  Substep tracers at the start
+  !> @param[in,out] diag_sum               Sums of the diagnostics over the
+  !!                                       timestep, which the substeps add to
+  !!                                       and the last microphysics writes
+  !> @param[in]     derived_fields         Group of derived fields
+  !> @param[in]     microphysics_fields    Fields for mphys scheme
+  !> @param[in]     cloud_fields           Fields for cloud scheme
+  !> @param[in]     aerosol_fields         Fields for aerosol scheme
+  !> @param[in]     turbulence_fields      Fields for turbulence scheme
+  !> @param[in]     orography_fields       Fields for orog drag scheme
+  !> @param[in]     convection_fields      Fields for convection scheme
+  !> @param[in]     clock                  Model time
+  !> @param[in]     dt                     The model timestep length
+  subroutine mphys_transport_substeps(                                         &
+      config, num_substeps, outer, mr, mr_start, state_start, rho_start,       &
+      dry_flux, wind_np1, wind_n, exner, dtheta_adv, substep_tracers,          &
+      substep_tracers_start, diag_sum, derived_fields, microphysics_fields,    &
+      cloud_fields, aerosol_fields, turbulence_fields, orography_fields,       &
+      convection_fields, clock, dt                                             &
+  )
+
+    implicit none
+
+    type(config_type),           intent(in)    :: config
+    integer(kind=i_def),         intent(in)    :: num_substeps
+    integer(kind=i_def),         intent(in)    :: outer
+    type(field_type),            intent(inout) :: mr(nummr)
+    type(field_type),            intent(in)    :: mr_start(nummr)
+    type(field_type),            intent(in)    :: state_start(bundle_size)
+    type(field_type),            intent(in)    :: rho_start
+    type(r_tran_field_type),     intent(in)    :: dry_flux
+    type(field_type),            intent(in)    :: wind_np1
+    type(field_type),            intent(in)    :: wind_n
+    type(field_type),            intent(in)    :: exner
+    type(field_type),            intent(inout) :: dtheta_adv
+    type(field_collection_type), intent(inout) :: substep_tracers
+    type(field_collection_type), intent(in)    :: substep_tracers_start
+    type(field_collection_type), intent(inout) :: diag_sum
+
+    type(field_collection_type), intent(in)    :: derived_fields
+    type(field_collection_type), intent(in)    :: microphysics_fields
+    type(field_collection_type), intent(in)    :: cloud_fields
+    type(field_collection_type), intent(in)    :: aerosol_fields
+    type(field_collection_type), intent(in)    :: turbulence_fields
+    type(field_collection_type), intent(in)    :: orography_fields
+    type(field_collection_type), intent(in)    :: convection_fields
+
+    class(model_clock_type),     intent(in)    :: clock
+    real(kind=r_def),            intent(in)    :: dt
+
+#ifdef UM_PHYSICS
+    ! Internal variables
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: vector_space
+
+    type(field_type), pointer :: dtheta_mphys, dmv_mphys
+    type(field_type), pointer :: ls_rain, ls_snow, ls_graup, lsca_2d
+    type(field_type), pointer :: ls_rain_3d, ls_snow_3d
+    type(field_type), pointer :: liquid_fraction, frozen_fraction
+    type(field_type), pointer :: bulk_fraction
+    real(kind=r_def) :: dbg_min, dbg_max
+    character(len=str_def) :: dbg_msg
+
+    ! State and moisture during the substeps
+    type(field_type) :: state_sub(bundle_size)
+    type(field_type) :: mr_sub(nummr)
+    type(field_type) :: theta_inc_sub, rho_k, rho_k1, drho
+    type(r_tran_field_type) :: dry_flux_sub
+    type(field_collection_type) :: tracers_in
+
+    type(field_type) :: f_arr
+    type(field_type) :: dmr_mphys(nummr)
+    type(field_type) :: dtheta_mphys_sub, dtheta_mphys_sum, dmv_sum
+    type(field_type) :: dcfl_mphys, dcff_mphys, dbcf_mphys
+    type(field_type) :: ls_rain_sum, ls_snow_sum, ls_graup_sum, lsca_2d_sum
+    type(field_type) :: ls_rain_3d_sum, ls_snow_3d_sum
+    type(field_type) :: dtheta_pc2_checks, dmv_pc2_checks, dmcl_pc2_checks
+    type(field_type) :: dmci_pc2_checks, dms_pc2_checks
+    type(field_type) :: dcfl_pc2_checks, dcff_pc2_checks, dbcf_pc2_checks
+
+    integer(kind=i_def) :: substep, ncells
+    logical(kind=l_def) :: use_pc2, last_substep
+    real(kind=r_def)    :: substep_fraction, dt_sub
+    real(kind=r_tran)   :: flux_fraction
+
+    substep_fraction = 1.0_r_def/real(num_substeps, r_def)
+    flux_fraction = real(substep_fraction, r_tran)
+    dt_sub = substep_fraction*dt
+    use_pc2 = (cloud == cloud_um .and. scheme == scheme_pc2)
+
+    mesh => state_start(igh_t)%get_mesh()
+
+    call microphysics_fields%get_field('dtheta_mphys', dtheta_mphys)
+    call microphysics_fields%get_field('dmv_mphys', dmv_mphys)
+    call microphysics_fields%get_field('ls_rain', ls_rain)
+    call microphysics_fields%get_field('ls_snow', ls_snow)
+    call microphysics_fields%get_field('ls_graup', ls_graup)
+    call microphysics_fields%get_field('lsca_2d', lsca_2d)
+    call microphysics_fields%get_field('ls_rain_3d', ls_rain_3d)
+    call microphysics_fields%get_field('ls_snow_3d', ls_snow_3d)
+    call cloud_fields%get_field('liquid_fraction', liquid_fraction)
+    call cloud_fields%get_field('frozen_fraction', frozen_fraction)
+    call cloud_fields%get_field('bulk_fraction', bulk_fraction)
+
+    ! ------------------------------------------------------------------------
+    ! Initialise the fields of the substeps and the sums over them
+    ! ------------------------------------------------------------------------
+    call clone_bundle(state_start, state_sub, bundle_size)
+    call copy_bundle(state_start, state_sub, bundle_size)
+    call clone_bundle(mr, mr_sub, nummr)
+    call copy_bundle(mr_start, mr_sub, nummr)
+    call clone_bundle(mr, dmr_mphys, nummr)
+
+    call rho_start%copy_field_properties(rho_k)
+    call rho_start%copy_field_properties(rho_k1)
+    call rho_start%copy_field_properties(drho)
+    call state_start(igh_t)%copy_field_properties(theta_inc_sub)
+    call dry_flux_sub%initialise(dry_flux%get_function_space())
+
+    call state_start(igh_t)%copy_field_properties(dtheta_adv)
+    call state_start(igh_t)%copy_field_properties(dtheta_mphys_sub)
+    call state_start(igh_t)%copy_field_properties(dtheta_mphys_sum)
+    call dmv_mphys%copy_field_properties(dmv_sum)
+    call ls_rain%copy_field_properties(ls_rain_sum)
+    call ls_snow%copy_field_properties(ls_snow_sum)
+    call ls_graup%copy_field_properties(ls_graup_sum)
+    call lsca_2d%copy_field_properties(lsca_2d_sum)
+    call ls_rain_3d%copy_field_properties(ls_rain_3d_sum)
+    call ls_snow_3d%copy_field_properties(ls_snow_3d_sum)
+    call invoke(                                                               &
+        setval_X(rho_k, rho_start),                                            &
+        a_times_X(dry_flux_sub, flux_fraction, dry_flux),                      &
+        setval_c(dtheta_mphys_sum, 0.0_r_def),                                 &
+        setval_c(dmv_sum, 0.0_r_def),                                          &
+        setval_c(ls_rain_sum, 0.0_r_def),                                      &
+        setval_c(ls_snow_sum, 0.0_r_def),                                      &
+        setval_c(ls_graup_sum, 0.0_r_def),                                     &
+        setval_c(lsca_2d_sum, 0.0_r_def),                                      &
+        setval_c(ls_rain_3d_sum, 0.0_r_def),                                   &
+        setval_c(ls_snow_3d_sum, 0.0_r_def)                                    &
+    )
+
+    vector_space => function_space_collection%get_fs(mesh, 0, 0, Wtheta, 3)
+    call f_arr%initialise(vector_space)
+
+    ncells = mesh%get_last_edge_cell()
+
+    do substep = 1, num_substeps
+      last_substep = (substep == num_substeps)
+
+      ! ----------------------------------------------------------------------
+      ! Transport over the substep: the moisture is in mr, and the density
+      ! and potential temperature are updated with the increments
+      ! ----------------------------------------------------------------------
+      if (substep == 1) then
+        call conditional_collection_copy(                                      &
+            tracers_in, generic_fields_to_copy=substep_tracers_start,          &
+            field_list=substep_tracers_start                                   &
+        )
+      else
+        call conditional_collection_copy(                                      &
+            tracers_in, generic_fields_to_copy=substep_tracers,                &
+            field_list=substep_tracers                                         &
+        )
+      end if
+      ! TEMPORARY DIAGNOSTIC: bounds of liquid_fraction before the transport
+      call get_field_minmax(liquid_fraction, dbg_min, dbg_max)
+      write(dbg_msg, '(A,I0,2(A,ES16.8))') 'DBG substep ', substep,            &
+          ' lf before transport min=', dbg_min, ' max=', dbg_max
+      call log_event(trim(dbg_msg), LOG_LEVEL_INFO)
+      call gungho_transport_control_substep_alg(                               &
+          config, theta_inc_sub, state_sub(igh_t), rho_k, rho_k1, wind_n,      &
+          wind_np1, mr, mr_sub, substep_tracers, tracers_in, clock, outer,     &
+          dry_flux_sub, substep_fraction                                       &
+      )
+      call tracers_in%clear()
+      call invoke(                                                             &
+          inc_X_plus_Y(state_sub(igh_t), theta_inc_sub),                       &
+          X_minus_Y(drho, rho_k1, rho_k),                                      &
+          inc_X_plus_Y(state_sub(igh_d), drho),                                &
+          setval_X(rho_k, rho_k1)                                              &
+      )
+
+      ! ----------------------------------------------------------------------
+      ! The cloud and moisture are transported separately, so are checked
+      ! before the microphysics, which needs cloud fractions in [0,1]
+      ! ----------------------------------------------------------------------
+      if (use_pc2) then
+        call pc2_checks_alg(                                                   &
+            mr, state_sub(igh_t), exner, derived_fields, cloud_fields,         &
+            dtheta_pc2_checks, dmv_pc2_checks, dmcl_pc2_checks,                &
+            dmci_pc2_checks, dms_pc2_checks, dcfl_pc2_checks,                  &
+            dcff_pc2_checks, dbcf_pc2_checks, diag_sum=diag_sum                &
+        )
+        call invoke(                                                           &
+            name="update_after_pc2_checks_before_mphys_substep",               &
+            inc_X_plus_Y(state_sub(igh_t), dtheta_pc2_checks),                 &
+            inc_X_plus_Y(mr(imr_v), dmv_pc2_checks),                           &
+            inc_X_plus_Y(mr(imr_cl), dmcl_pc2_checks),                         &
+            inc_X_plus_Y(mr(imr_ci), dmci_pc2_checks),                         &
+            inc_X_plus_Y(mr(imr_s), dms_pc2_checks),                           &
+            inc_X_plus_Y(liquid_fraction, dcfl_pc2_checks),                    &
+            inc_X_plus_Y(frozen_fraction, dcff_pc2_checks),                    &
+            inc_X_plus_Y(bulk_fraction, dbcf_pc2_checks)                       &
+        )
+      end if
+
+      ! ----------------------------------------------------------------------
+      ! Microphysics over the substep
+      ! ----------------------------------------------------------------------
+      if (cld_fsd_hill) then
+        call fsd_condensate_alg(config, f_arr, cloud_fields, convection_fields)
+      end if
+      call set_bundle_scalar(0.0_r_def, dmr_mphys, nummr)
+      ! Switch UM to running i-first on whole domain, for the microphysics only
+      call um_sizes_init(ncells)
+      call set_um_timestep(dt_sub)
+      call mphys_alg(                                                          &
+          config, mr, state_sub(igh_t), state_sub(igh_d), derived_fields,      &
+          microphysics_fields, cloud_fields, aerosol_fields,                   &
+          turbulence_fields, orography_fields, f_arr, dmr_mphys,               &
+          dtheta_mphys_sub, dcfl_mphys, dcff_mphys, dbcf_mphys, dt_sub,        &
+          last_substep, diag_sum, substep_fraction                             &
+      )
+      call set_um_timestep(dt)
+      call um_sizes_init(1_i_def)
+
+      call add_bundle(dmr_mphys, mr, mr, nummr)
+      call invoke(                                                             &
+          inc_X_plus_Y(state_sub(igh_t), dtheta_mphys_sub),                    &
+          inc_X_plus_Y(dtheta_mphys_sum, dtheta_mphys_sub),                    &
+          inc_X_plus_Y(dmv_sum, dmr_mphys(imr_v)),                             &
+          inc_X_plus_Y(ls_rain_sum, ls_rain),                                  &
+          inc_X_plus_Y(ls_snow_sum, ls_snow),                                  &
+          inc_X_plus_Y(ls_graup_sum, ls_graup),                                &
+          inc_X_plus_Y(lsca_2d_sum, lsca_2d),                                  &
+          inc_X_plus_Y(ls_rain_3d_sum, ls_rain_3d),                            &
+          inc_X_plus_Y(ls_snow_3d_sum, ls_snow_3d)                             &
+      )
+
+      if (use_pc2) then
+        call invoke(                                                           &
+            name="update_with_pc2_mphys_inc_substep",                          &
+            inc_X_plus_Y(liquid_fraction, dcfl_mphys),                         &
+            inc_X_plus_Y(frozen_fraction, dcff_mphys),                         &
+            inc_X_plus_Y(bulk_fraction, dbcf_mphys)                            &
+        )
+
+        ! PC2 checks of the cloud and moisture after the increments
+        call pc2_checks_alg(                                                   &
+            mr, state_sub(igh_t), exner, derived_fields, cloud_fields,         &
+            dtheta_pc2_checks, dmv_pc2_checks, dmcl_pc2_checks,                &
+            dmci_pc2_checks, dms_pc2_checks, dcfl_pc2_checks,                  &
+            dcff_pc2_checks, dbcf_pc2_checks, diag_sum=diag_sum                &
+        )
+        call invoke(                                                           &
+            name="update_after_pc2_checks_substep",                            &
+            inc_X_plus_Y(state_sub(igh_t), dtheta_pc2_checks),                 &
+            inc_X_plus_Y(mr(imr_v), dmv_pc2_checks),                           &
+            inc_X_plus_Y(mr(imr_cl), dmcl_pc2_checks),                         &
+            inc_X_plus_Y(mr(imr_ci), dmci_pc2_checks),                         &
+            inc_X_plus_Y(mr(imr_s), dms_pc2_checks),                           &
+            inc_X_plus_Y(liquid_fraction, dcfl_pc2_checks),                    &
+            inc_X_plus_Y(frozen_fraction, dcff_pc2_checks),                    &
+            inc_X_plus_Y(bulk_fraction, dbcf_pc2_checks)                       &
+        )
+      end if
+
+      call copy_bundle(mr, mr_sub, nummr)
+    end do
+
+    call f_arr%field_final()
+
+    ! ------------------------------------------------------------------------
+    ! The outputs, which cover the whole timestep
+    ! ------------------------------------------------------------------------
+    call invoke(                                                               &
+        X_minus_Y(dtheta_adv, state_sub(igh_t), state_start(igh_t)),           &
+        setval_X(dtheta_mphys, dtheta_mphys_sum),                              &
+        setval_X(dmv_mphys, dmv_sum),                                          &
+        setval_X(ls_rain, ls_rain_sum),                                        &
+        setval_X(ls_snow, ls_snow_sum),                                        &
+        setval_X(ls_graup, ls_graup_sum),                                      &
+        setval_X(lsca_2d, lsca_2d_sum),                                        &
+        setval_X(ls_rain_3d, ls_rain_3d_sum),                                  &
+        setval_X(ls_snow_3d, ls_snow_3d_sum),                                  &
+        inc_a_times_X(substep_fraction, ls_rain),                              &
+        inc_a_times_X(substep_fraction, ls_snow),                              &
+        inc_a_times_X(substep_fraction, ls_graup),                             &
+        inc_a_times_X(substep_fraction, lsca_2d),                              &
+        inc_a_times_X(substep_fraction, ls_rain_3d),                           &
+        inc_a_times_X(substep_fraction, ls_snow_3d)                            &
+    )
+#endif
+
+  end subroutine mphys_transport_substeps
+
+end module mphys_transport_substep_alg_mod

@@ -164,6 +164,52 @@
         "plot_str": "plot_map.py $NODAL_DATA_DIR/lfric_diagnostics.nc  $PLOT_DIR",
     }) %}
 
+{% elif task_ns.conf_name == "nwp_gal10-tr_bdf2_bdf_physics-C12" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["tr_bdf2", "tr_bdf2_bdf_physics", "um_dump"],
+        "resolution": "C12",
+        "DT": 1800,
+        "tsteps": 144,
+        "crun": 2,
+        "crun_compare": false,
+        "mpi_parts": 6,
+        "kgo_checks": [],
+        "plot_str": "plot_map.py $NODAL_DATA_DIR/lfric_diagnostics.nc  $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "nwp_gal10-tr_bdf2_bdf_physics_balance-C12" %}
+
+    {% do task_dict.update({
+        "opt_confs": [
+            "tr_bdf2", "tr_bdf2_bdf_physics_cloud_balance", "um_dump"
+        ],
+        "resolution": "C12",
+        "DT": 1800,
+        "tsteps": 144,
+        "crun": 2,
+        "crun_compare": false,
+        "mpi_parts": 6,
+        "kgo_checks": [],
+        "plot_str": "plot_map.py $NODAL_DATA_DIR/lfric_diagnostics.nc  $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "nwp_gal10-si_mphys_interleave-C12" %}
+
+    {# Semi-implicit, with 4 substeps of microphysics and transport #}
+    {% do task_dict.update({
+        "opt_confs": ["si_mphys_transport_interleave", "um_dump"],
+        "resolution": "C12",
+        "DT": 1800,
+        "tsteps": 144,
+        "crun": 2,
+        "crun_compare": false,
+        "mpi_parts": 6,
+        "kgo_checks": [],
+        "log_level": "debug",
+        "plot_str": "plot_map.py $NODAL_DATA_DIR/lfric_diagnostics.nc  $PLOT_DIR",
+    }) %}
+
 {% elif task_ns.conf_name == "nwp_gal10-tr_bdf2_tr_physics-C48_MG" %}
 
     {# Needs a multigrid mesh, and includes a restart to test the checkpointing of the stored physics increments #}

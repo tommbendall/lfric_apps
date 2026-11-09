@@ -131,7 +131,23 @@ contains
                                            coord_system_native
     use formulation_config_mod,      only: use_physics,                        &
                                            use_wavedynamics,                   &
-                                           dlayer_on
+                                           dlayer_on,                          &
+                                           moisture_formulation,               &
+                                           moisture_formulation_dry
+    use section_choice_config_mod,   only: aerosol,                            &
+                                           aerosol_um,                         &
+                                           cloud,                              &
+                                           cloud_um,                           &
+                                           microphysics,                       &
+                                           microphysics_um,                    &
+                                           radiation,                          &
+                                           radiation_socrates
+    use physics_config_mod,          only: radiation_placement,                &
+                                           radiation_placement_slow
+    use cloud_config_mod,            only: cloud_scheme => scheme,             &
+                                           scheme_pc2
+    use microphysics_config_mod,     only: microphysics_casim
+    use aerosol_config_mod,          only: murk_prognostic
     use io_config_mod,               only: write_diag,                         &
                                            use_xios_io
     use planet_config_mod,           only: gravity,                            &
@@ -148,7 +164,13 @@ contains
                                            outer_iterations,                   &
                                            inner_iterations_si,                &
                                            inner_iterations_tr,                &
-                                           inner_iterations_bdf2
+                                           inner_iterations_bdf2,              &
+                                           tr_bdf2_transport,                  &
+                                           tr_bdf2_transport_cheap,            &
+                                           tr_bdf2_bdf_physics,                &
+                                           tr_bdf2_bdf_cloud_balance,          &
+                                           si_mphys_transport_interleave,      &
+                                           si_mphys_transport_substeps
     use base_mesh_config_mod,        only: geometry,                           &
                                            geometry_spherical,                 &
                                            geometry_planar,                    &
@@ -285,6 +307,38 @@ contains
           call log_event( log_scratch_space, LOG_LEVEL_ERROR )
         end if
 
+        if ( si_mphys_transport_interleave ) then
+          if ( si_mphys_transport_substeps < 1 ) then
+            write( log_scratch_space, '(A,I4)' )                               &
+              'Invalid Choice: si_mphys_transport_substeps must be at ' //     &
+              'least 1:', si_mphys_transport_substeps
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          end if
+          if ( .not. use_physics .or. .not. use_wavedynamics .or.              &
+               moisture_formulation == moisture_formulation_dry ) then
+            write( log_scratch_space, '(A)' )                                  &
+              'Invalid Options: si_mphys_transport_interleave requires ' //    &
+              'physics, wave dynamics and a moist formulation'
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          else if ( microphysics /= microphysics_um ) then
+            write( log_scratch_space, '(A)' )                                  &
+              'Invalid Options: si_mphys_transport_interleave requires ' //    &
+              'the UM microphysics scheme'
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          else if ( microphysics_casim ) then
+            write( log_scratch_space, '(A)' )                                  &
+              'Invalid Options: si_mphys_transport_interleave does not ' //    &
+              'support CASIM'
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          end if
+          if ( cheap_update ) then
+            write( log_scratch_space, '(A)' )                                  &
+              'Invalid Options: si_mphys_transport_interleave cannot be ' //   &
+              'used with the cheap transport update'
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          end if
+        end if
+
       else if ( method == method_tr_bdf2 ) then
         if ( outer_iterations < 1 ) then
           write( log_scratch_space, '(A,I4)' )                                 &
@@ -317,6 +371,53 @@ contains
               'Invalid Choice: inner_iterations_bdf2 must be at least 1:',     &
               minval(inner_iterations_bdf2)
           call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+        end if
+
+        if ( tr_bdf2_bdf_physics ) then
+          if ( tr_bdf2_transport /= tr_bdf2_transport_cheap ) then
+            write( log_scratch_space, '(A)' )                                  &
+              'Invalid Options: tr_bdf2_bdf_physics requires cheap ' //        &
+              'tr_bdf2_transport'
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          end if
+          if ( .not. use_physics .or. .not. use_wavedynamics .or.              &
+               moisture_formulation == moisture_formulation_dry ) then
+            write( log_scratch_space, '(A)' )                                  &
+              'Invalid Options: tr_bdf2_bdf_physics requires physics, ' //     &
+              'wave dynamics and a moist formulation'
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+          else
+            if ( microphysics /= microphysics_um ) then
+              write( log_scratch_space, '(A)' )                                &
+                'Invalid Options: tr_bdf2_bdf_physics requires the UM ' //     &
+                'microphysics scheme'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            else if ( microphysics_casim ) then
+              write( log_scratch_space, '(A)' )                                &
+                'Invalid Options: tr_bdf2_bdf_physics does not support CASIM'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            end if
+            if ( radiation == radiation_socrates .and.                         &
+                 radiation_placement /= radiation_placement_slow ) then
+              write( log_scratch_space, '(A)' )                                &
+                'Invalid Options: tr_bdf2_bdf_physics requires radiation ' //  &
+                'to be placed in slow physics'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            end if
+            if ( aerosol == aerosol_um .and. murk_prognostic ) then
+              write( log_scratch_space, '(A)' )                                &
+                'Invalid Options: tr_bdf2_bdf_physics does not support ' //    &
+                'prognostic murk'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            end if
+            if ( tr_bdf2_bdf_cloud_balance .and.                               &
+                 ( cloud /= cloud_um .or. cloud_scheme /= scheme_pc2 ) ) then
+              write( log_scratch_space, '(A)' )                                &
+                'Invalid Options: tr_bdf2_bdf_cloud_balance requires the ' //  &
+                'PC2 cloud scheme'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            end if
+          end if
         end if
       end if
 

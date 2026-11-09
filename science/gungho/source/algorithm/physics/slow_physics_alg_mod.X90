@@ -104,9 +104,12 @@ module slow_physics_alg_mod
   use glomap_aerosol_alg_mod,    only: glomap_aerosol_alg
   use strat_aerosol_alg_mod,     only: strat_aerosol_alg
   use mphys_alg_mod,             only: mphys_alg
+  use diag_sum_alg_mod,          only: diag_sum_add
   use casim_alg_mod,             only: casim_alg
   use electric_main_alg_mod,     only: electric_main_alg
-  use illuminate_alg_mod,        only: illuminate_alg
+  use illuminate_alg_mod,        only: illuminate_alg, illuminate_window_alg
+  use radiation_update_alg_mod,  only: radiation_update_alg
+  use um_clock_init_mod,         only: set_um_timestep
   use rad_tile_alg_mod,          only: rad_tile_alg
   use rad_cloud_alg_mod,         only: rad_cloud_alg
   use radiation_alg_mod,         only: radiation_alg
@@ -194,6 +197,15 @@ contains
   !> @param[in]     dtemp_encorr           Temperature increment for energy correction
   !> @param[in]     mesh                   Current mesh
   !> @param[in]     twod_mesh              2d mesh
+  !> @param[in]     staged_dt              Optional, if present the microphysics,
+  !!                                       radiation and their PC2 responses are
+  !!                                       for this length of time, not dt
+  !> @param[in]     skip_microphysics      Optional, if true the microphysics is
+  !!                                       not called, as it is called later
+  !> @param[in,out] diag_sum               Optional, sums of the diagnostics over
+  !!                                       the calls of physics in a timestep.
+  !!                                       Diagnostics that are summed are added
+  !!                                       to it and not written
   subroutine slow_physics(modeldb, du, dtheta, mr,                             &
                           theta, u, rho, exner, moist_dyn, mr_n,               &
                           derived_fields,                                      &
@@ -203,7 +215,8 @@ contains
                           convection_fields, cloud_fields, surface_fields,     &
                           soil_fields, snow_fields, chemistry_fields,          &
                           aerosol_fields, clock, dt, dtemp_encorr,             &
-                          mesh, twod_mesh )
+                          mesh, twod_mesh, staged_dt, skip_microphysics,       &
+                          diag_sum )
 
     implicit none
 
@@ -239,8 +252,14 @@ contains
     class( model_clock_type ), intent(in) :: clock
     real( kind=r_def ),        intent(in) :: dt
     real( kind=r_def ),        intent(in) :: dtemp_encorr
+    real( kind=r_def ), optional, intent(in) :: staged_dt
+    logical( kind=l_def ), optional, intent(in) :: skip_microphysics
+    type( field_collection_type ), optional, intent(inout) :: diag_sum
 
     real( kind=r_def )                    :: time_now
+    real( kind=r_def )                    :: dt_phys
+    logical( kind=l_def )                 :: skip_mphys
+    logical( kind=l_def )                 :: sum_dtheta_rad
     real( kind=r_def )                    :: Rv, cpv, cl
 
     ! Local fields...
@@ -259,6 +278,7 @@ contains
     type( field_type ) :: dcfl_pc2_rad, dbcf_pc2_rad
 #ifdef UM_PHYSICS
     real( r_def ) :: inv_kappa
+    type( field_type ) :: cos_zenith_angle_win, lit_fraction_win
     type( field_type ) :: pressure_in_wth
     type( field_type ) :: temperature_in_wth
     type( integer_field_type ) :: trop_level
@@ -372,6 +392,16 @@ contains
     type(mesh_type),        pointer :: aerosol_twod_mesh => null()
 #endif
     integer(tik)                    :: id
+
+    ! Time covered by the microphysics, radiation and PC2 responses
+    dt_phys = dt
+    if ( present(staged_dt) ) dt_phys = staged_dt
+    skip_mphys = .false.
+    if ( present(skip_microphysics) ) skip_mphys = skip_microphysics
+    ! The staged radiation increment replaces the one that radiation writes
+    sum_dtheta_rad = ( present(diag_sum) .and. present(staged_dt)              &
+                       .and. write_diag .and. use_xios_io )
+
     if ( LPROF ) call start_timing( id, 'slow_physics' )
     if (write_conservation_diag) then
       call moisture_conservation_alg( modeldb%config, rho, mr, 'Before slow' )
@@ -563,7 +593,8 @@ contains
     call clone_bundle(mr_n, dmr_mphys, nummr)
     call set_bundle_scalar(0.0_r_def, dmr_mphys, nummr)
     if ( microphysics == microphysics_um .and. &
-         microphysics_placement == microphysics_placement_slow) then
+         microphysics_placement == microphysics_placement_slow .and. &
+         .not. skip_mphys ) then
       if ( microphysics_casim ) then
         call casim_alg( modeldb%config, mr_n, theta, rho,                &
                         derived_fields, microphysics_fields,             &
@@ -574,15 +605,24 @@ contains
         ! Switch UM to running i-first on whole domain
         ncells = mesh%get_last_edge_cell()
         call um_sizes_init(ncells)
+        ! The UM microphysics uses its own timestep, not the dt argument
+        if ( present(staged_dt) ) call set_um_timestep(staged_dt)
         call mphys_alg( modeldb%config,mr_n, theta, rho, derived_fields,   &
                         microphysics_fields, cloud_fields, aerosol_fields, &
                         turbulence_fields, orography_fields, f_arr,        &
                         dmr_mphys, dtheta_mphys, dcfl_pc2_mphys,           &
-                        dcff_pc2_mphys, dbcf_pc2_mphys, dt )
+                        dcff_pc2_mphys, dbcf_pc2_mphys, dt_phys,           &
+                        output_diags=.not. present(diag_sum),              &
+                        diag_sum=diag_sum, diag_weight=dt_phys/dt )
+        if ( present(staged_dt) ) call set_um_timestep(dt)
         ! Switch UM back to columns
         call um_sizes_init(1_i_def)
       end if
       microphysics_done = .true. ! Collect this increment later on
+      call f_arr%field_final()
+    else if ( skip_mphys ) then
+      ! The microphysics increment is zero here, as it is added later
+      call invoke( setval_c(dtheta_mphys, 0.0_r_def) )
       call f_arr%field_final()
     end if
 
@@ -756,9 +796,22 @@ contains
                           radiative_cloud_fraction, radiative_conv_fraction,   &
                           conv_liquid_fraction, conv_frozen_fraction,          &
                           conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number,&
-                          dt)
+                          dt, output_dtheta_rad=.not. sum_dtheta_rad)
       call um_sizes_init(1_i_def)
       radiation_done = .true. ! Collect this increment later on
+      if ( present(staged_dt) ) then
+        ! Recalculate the increment for the solar angle over the staged time
+        call illuminate_window_alg( modeldb%config, radiation_fields,          &
+                                    cos_zenith_angle_win, lit_fraction_win,    &
+                                    0.0_r_def, staged_dt )
+        call radiation_update_alg( dtheta_rad, derived_fields,                 &
+                                   radiation_fields, surface_fields,           &
+                                   cos_zenith_angle_win, lit_fraction_win,     &
+                                   staged_dt )
+      end if
+      if ( sum_dtheta_rad ) then
+        call diag_sum_add(diag_sum, 'radiation__dtheta_rad', dtheta_rad)
+      end if
       call tile_lw_albedo%field_final()
       call tile_lwinc_albedo%field_final()
       call tile_sw_diffuse_albedo%field_final()
@@ -784,7 +837,8 @@ contains
                                    dmcl_pc2_rad,   & ! OUT
                                    dcfl_pc2_rad,   & ! OUT
                                    dbcf_pc2_rad,   & ! OUT
-                                   dt )              ! IN
+                                   dt_phys,        & ! IN
+                                   diag_sum=diag_sum )
       end if ! (scheme == scheme_pc2)
 
       !--------------------------------------------------------------------
@@ -1117,7 +1171,8 @@ contains
                              dms_pc2_checks,    & ! Increments OUT
                              dcfl_pc2_checks,   & ! Increments OUT
                              dcff_pc2_checks,   & ! Increments OUT
-                             dbcf_pc2_checks)     ! Increments OUT
+                             dbcf_pc2_checks,   & ! Increments OUT
+                             diag_sum=diag_sum )
 
         ! Update all fields and the theta increment again
         call invoke(name="update_after_pc2_checks",                   &

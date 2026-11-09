@@ -17,7 +17,8 @@ module mphys_alg_mod
   use mphys_diagnostics_mod,                                  &
                             only: initialise_diags_for_mphys, &
                                   output_diags_for_mphys
-  use constants_mod,        only: r_def, i_def
+  use constants_mod,        only: r_def, i_def, l_def
+  use diag_sum_alg_mod,     only: diag_sum_add
 
   use sci_geometric_constants_mod, only: get_height_fv, get_dz_at_wtheta
   use fs_continuity_mod,           only: W3, Wtheta
@@ -53,12 +54,21 @@ contains
   !>@param[in,out] dcff_mphys     Increment to frozen cloud fraction
   !>@param[in,out] dbcf_mphys     Increment to bulk cloud fraction
   !>@param[in]     dt             The model timestep length
+  !>@param[in]     output_diags   Optional, if false the diagnostics are not
+  !>                              written (default true)
+  !>@param[in,out] diag_sum       Optional, sums of the diagnostics over the
+  !>                              calls in a timestep. The increments and the
+  !>                              weighted rates are added to it, and the
+  !>                              sums are what is written
+  !>@param[in]     diag_weight    Optional, fraction of the timestep covered
+  !>                              by this call, which weights the rates
   subroutine mphys_alg( config,                                                &
                         mr_n, theta, dry_rho_in_w3, derived_fields,            &
                         microphysics_fields, cloud_fields, aerosol_fields,     &
                         turbulence_fields, orography_fields, f_arr,            &
                         dmr_mphys, dtheta_mphys,                               &
-                        dcfl_mphys, dcff_mphys, dbcf_mphys, dt )
+                        dcfl_mphys, dcff_mphys, dbcf_mphys, dt, output_diags,  &
+                        diag_sum, diag_weight )
 
     use pc2_conv_coupling_kernel_mod, only: pc2_conv_coupling_kernel_type
     use lsp_prognostic_tnuc_kernel_mod, only: lsp_prognostic_tnuc_kernel_type
@@ -84,6 +94,9 @@ contains
     type( field_collection_type ), intent(in)    :: orography_fields
     type( field_type ),            intent(in)    :: f_arr
     real( kind=r_def ),            intent(in)    :: dt
+    logical( kind=l_def ),         intent(in), optional :: output_diags
+    type( field_collection_type ), intent(inout), optional :: diag_sum
+    real( kind=r_def ),            intent(in), optional :: diag_weight
 
     type( field_type ), intent( inout ) :: dmr_mphys ( nummr )
     type( field_type ), intent( inout ) :: dtheta_mphys
@@ -143,6 +156,21 @@ contains
 
     type(mesh_type), pointer :: mesh
     integer(tik)             :: id
+    logical(kind=l_def)      :: write_this_diag
+    real(kind=r_def)         :: rate_weight
+
+    ! Sums of the diagnostics over the calls of the timestep
+    type( field_type ), pointer :: s_dtheta, s_dmv, s_dmcl, s_dmci, s_dmr
+    type( field_type ), pointer :: s_dmg, s_dms, s_dcfl, s_dcff, s_dbcf
+    type( field_type ), pointer :: s_ls_rain, s_ls_snow, s_ls_graup, s_lsca_2d
+    type( field_type ), pointer :: s_ls_rain_3d, s_ls_snow_3d
+    type( field_type ), pointer :: s_autoconv, s_accretion
+    type( field_type ), pointer :: s_rim_cry, s_rim_agg
+
+    write_this_diag = write_diag .and. use_xios_io
+    if ( present(output_diags) ) then
+      write_this_diag = write_this_diag .and. output_diags
+    end if
 
     if ( LPROF ) call start_timing( id, 'microphysics.wb' )
 
@@ -266,8 +294,98 @@ contains
 
     if ( LPROF ) call stop_timing( id, 'microphysics.wb' )
 
+    ! Add to the sums of the diagnostics over the timestep
+    if ( present(diag_sum) .and. write_diag .and. use_xios_io ) then
+      rate_weight = 1.0_r_def
+      if ( present(diag_weight) ) rate_weight = diag_weight
+      call diag_sum_add(diag_sum, 'microphysics__dtheta_mphys', dtheta_mphys)
+      call diag_sum_add(diag_sum, 'microphysics__dmv_mphys', dmr_mphys(imr_v))
+      call diag_sum_add(diag_sum, 'microphysics__dmcl_mphys', dmr_mphys(imr_cl))
+      call diag_sum_add(diag_sum, 'microphysics__dmci_mphys', dmr_mphys(imr_ci))
+      call diag_sum_add(diag_sum, 'microphysics__dmr_mphys', dmr_mphys(imr_r))
+      call diag_sum_add(diag_sum, 'microphysics__dms_mphys', dmr_mphys(imr_s))
+      call diag_sum_add(diag_sum, 'microphysics__dmg_mphys', dmr_mphys(imr_g))
+      call diag_sum_add(diag_sum, 'microphysics__dcfl_mphys', dcfl_mphys)
+      call diag_sum_add(diag_sum, 'microphysics__dcff_mphys', dcff_mphys)
+      call diag_sum_add(diag_sum, 'microphysics__dbcf_mphys', dbcf_mphys)
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__ls_rain', ls_rain, rate_weight              &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__ls_snow', ls_snow, rate_weight              &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__ls_graup', ls_graup, rate_weight            &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__lsca_2d', lsca_2d, rate_weight              &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__ls_rain_3d', ls_rain_3d, rate_weight        &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__ls_snow_3d', ls_snow_3d, rate_weight        &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__autoconv', autoconv, rate_weight            &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__accretion', accretion, rate_weight          &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__rim_cry', rim_cry, rate_weight              &
+      )
+      call diag_sum_add(                                                       &
+          diag_sum, 'microphysics__rim_agg', rim_agg, rate_weight              &
+      )
+    end if
+
     ! Output microphysics diagnostics
-    if (write_diag .and. use_xios_io) then
+    if (write_this_diag .and. present(diag_sum)) then
+
+      ! The sums over the timestep, with the other diagnostics from this call
+      call diag_sum%get_field('microphysics__dtheta_mphys', s_dtheta)
+      call diag_sum%get_field('microphysics__dmv_mphys', s_dmv)
+      call diag_sum%get_field('microphysics__dmcl_mphys', s_dmcl)
+      call diag_sum%get_field('microphysics__dmci_mphys', s_dmci)
+      call diag_sum%get_field('microphysics__dmr_mphys', s_dmr)
+      call diag_sum%get_field('microphysics__dmg_mphys', s_dmg)
+      call diag_sum%get_field('microphysics__dms_mphys', s_dms)
+      call diag_sum%get_field('microphysics__dcfl_mphys', s_dcfl)
+      call diag_sum%get_field('microphysics__dcff_mphys', s_dcff)
+      call diag_sum%get_field('microphysics__dbcf_mphys', s_dbcf)
+      call diag_sum%get_field('microphysics__ls_rain', s_ls_rain)
+      call diag_sum%get_field('microphysics__ls_snow', s_ls_snow)
+      call diag_sum%get_field('microphysics__ls_graup', s_ls_graup)
+      call diag_sum%get_field('microphysics__lsca_2d', s_lsca_2d)
+      call diag_sum%get_field('microphysics__ls_rain_3d', s_ls_rain_3d)
+      call diag_sum%get_field('microphysics__ls_snow_3d', s_ls_snow_3d)
+      call diag_sum%get_field('microphysics__autoconv', s_autoconv)
+      call diag_sum%get_field('microphysics__accretion', s_accretion)
+      call diag_sum%get_field('microphysics__rim_cry', s_rim_cry)
+      call diag_sum%get_field('microphysics__rim_agg', s_rim_agg)
+
+      call output_diags_for_mphys( exner_in_wth,                 &
+                                   s_dtheta,                     &
+                                   s_dmv,                        &
+                                   s_dmcl,                       &
+                                   s_dmci,                       &
+                                   s_dmr,                        &
+                                   s_dmg,                        &
+                                   s_dms,                        &
+                                   s_dcfl,                       &
+                                   s_dcff,                       &
+                                   s_dbcf,                       &
+                                   superc_liq, superc_rain,      &
+                                   s_ls_rain, s_ls_snow,         &
+                                   s_ls_graup, s_lsca_2d,        &
+                                   s_ls_rain_3d, s_ls_snow_3d,   &
+                                   s_autoconv, s_accretion,      &
+                                   s_rim_cry, s_rim_agg, tnuc,   &
+                                   sfwater, sfrain, sfsnow,      &
+                                   refl_tot, refl_1km )
+
+    else if (write_this_diag) then
 
         call output_diags_for_mphys( exner_in_wth,                 &
                                      dtheta_mphys,                 &

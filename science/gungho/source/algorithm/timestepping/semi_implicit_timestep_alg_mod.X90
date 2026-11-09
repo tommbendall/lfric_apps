@@ -104,6 +104,9 @@ module semi_implicit_timestep_alg_mod
   use dycore_constants_mod,       only: stepper_siqn
   use fast_physics_alg_mod,       only: fast_physics
   use slow_physics_alg_mod,       only: slow_physics
+  use mphys_transport_substep_alg_mod,                                         &
+                                  only: mphys_transport_substeps,              &
+                                        setup_substep_tracers
   use checks_and_balances_alg_mod,   &
                                   only: check_fields
 
@@ -156,6 +159,7 @@ module semi_implicit_timestep_alg_mod
 #ifdef UM_PHYSICS
   use cld_alg_mod,                only: cld_alg
   use aerosol_ukca_alg_mod,       only: aerosol_ukca_alg
+  use diag_sum_alg_mod,           only: diag_sum_write
   use casim_activate_alg_mod,     only: casim_activate_alg
   use lsp_precfrac_checks_kernel_mod, only: lsp_precfrac_checks_kernel_type
   use stph_main_alg_mod,          only : spt_array_names,  &
@@ -749,12 +753,32 @@ contains
     logical(l_def)     :: murk_lbc
     real(r_def)        :: tau_r
 
+    ! Microphysics interleaved with the transport on the final outer iteration
+    logical(kind=l_def)         :: interleave_mphys, interleave_now
+    integer(kind=i_def)         :: num_mphys_substeps
+    type(field_collection_type) :: substep_tracers, substep_tracers_start
+    type(field_type)            :: dtheta_sub
+    type(r_tran_field_type), allocatable :: whole_step_dry_flux
+    ! Sums of the diagnostics of the physics over the timestep, if the
+    ! microphysics is interleaved
+    type(field_collection_type), allocatable :: diag_sum
+
     integer(tik) :: id
 
     if ( LPROF ) call start_timing( id, 'semi_implicit_timestep' )
 
     lbc_option = 0
     cast_dt = real(model_clock%get_seconds_per_step(), r_def)
+
+    interleave_mphys = (                                                       &
+        self%config%timestepping%si_mphys_transport_interleave()               &
+        .and. use_physics .and. use_wavedynamics .and. self%use_moisture       &
+    )
+    num_mphys_substeps = 1_i_def
+    if (interleave_mphys) then
+      num_mphys_substeps =                                                     &
+          self%config%timestepping%si_mphys_transport_substeps()
+    end if
 
     if (limited_area .and. use_wavedynamics) then
 
@@ -870,6 +894,11 @@ contains
                            sec_tot, suffix_tot)
       end if
 
+      if (interleave_mphys) then
+        allocate(diag_sum)
+        call diag_sum%initialise(name='diag_sum')
+      end if
+
       call slow_physics( modeldb, self%du, self%dtheta, self%mr_after_slow,   &
                          self%state_n(igh_t), self%state_n(igh_u),            &
                          self%state_n(igh_d), self%state_n(igh_p), moist_dyn, &
@@ -879,7 +908,9 @@ contains
                          turbulence_fields, convection_fields, cloud_fields,  &
                          surface_fields, soil_fields, snow_fields,            &
                          chemistry_fields, aerosol_fields, model_clock,       &
-                         cast_dt, dtemp_encorr, mesh, twod_mesh )
+                         cast_dt, dtemp_encorr, mesh, twod_mesh,              &
+                         skip_microphysics=interleave_mphys,                  &
+                         diag_sum=diag_sum )
 
       call invoke(name="update_from_slow_physics",                            &
                   inc_X_plus_Y(self%state_after_slow(igh_t), self%dtheta),    &
@@ -911,6 +942,19 @@ contains
     !==========================================================================
     ! Start the Outer (advection) loop
     !==========================================================================
+    ! The cloud and precipitation fractions are transported in the substeps of
+    ! the microphysics, from their values after slow physics
+    if (interleave_mphys) then
+      call setup_substep_tracers(                                              &
+          substep_tracers, cloud_fields, microphysics_fields                   &
+      )
+      call conditional_collection_copy(                                        &
+          substep_tracers_start, generic_fields_to_copy=substep_tracers,       &
+          field_list=substep_tracers                                           &
+      )
+      allocate(whole_step_dry_flux)
+      call whole_step_dry_flux%initialise(u%get_function_space())
+    end if
     call conditional_collection_copy(adv_tracer_all_outer_after_slow,  &
               generic_fields_to_copy=adv_tracer_all_outer,             &
               field_list=adv_tracer_all_outer)
@@ -930,6 +974,12 @@ contains
       if (use_wavedynamics) then
         call invoke( setval_c(dry_flux_solver, 0.0_r_def) )
 
+        ! On the final outer iteration the moisture and potential temperature
+        ! are transported in substeps with the microphysics, using fractions
+        ! of the dry flux of the whole timestep, so that the moisture is
+        ! consistent with the moisture conservation correction
+        interleave_now = (interleave_mphys .and. outer == outer_iterations)
+
         call gungho_transport_control_alg( self%config,                        &
                 self%rhs_adv, self%advected_state, self%state(igh_u),          &
                 self%state_n(igh_u), mr, mr_to_adv, model_clock,               &
@@ -940,8 +990,25 @@ contains
                 adv_tracer_all_outer, adv_tracer_all_outer_after_slow,         &
                 adv_tracer_last_outer, adv_tracer_last_outer_after_slow,       &
                 con_tracer_all_outer, con_tracer_all_outer_after_slow,         &
-                con_tracer_last_outer, con_tracer_last_outer_after_slow        &
+                con_tracer_last_outer, con_tracer_last_outer_after_slow,       &
+                dry_flux_out=whole_step_dry_flux,                              &
+                skip_moisture=interleave_now, skip_theta=interleave_now        &
         )
+
+        if (interleave_now) then
+          call mphys_transport_substeps(                                       &
+              self%config, num_mphys_substeps, outer, mr, mr_to_adv,           &
+              self%advected_state, self%state_after_slow(igh_d),               &
+              whole_step_dry_flux, self%state(igh_u), self%state_n(igh_u),     &
+              self%state_n(igh_p), dtheta_sub, substep_tracers,                &
+              substep_tracers_start, diag_sum, derived_fields,                 &
+              microphysics_fields,                                             &
+              cloud_fields, aerosol_fields, turbulence_fields,                 &
+              orography_fields, convection_fields, model_clock, cast_dt        &
+          )
+          ! The theta increment of the substeps
+          call invoke( setval_X(self%rhs_adv(igh_t), dtheta_sub) )
+        end if
 
         if ( cheap_update .AND. (outer < outer_iterations) ) then
           ! Copy transport increments to use in next outer iteration
@@ -1197,6 +1264,12 @@ contains
     !--------------------------------------------------------------------
     ! End of Outer (advection) loop
     !--------------------------------------------------------------------
+#ifdef UM_PHYSICS
+    if (interleave_mphys) then
+      ! The microphysics has already written its sums
+      call diag_sum_write(diag_sum, exclude_prefix='microphysics__')
+    end if
+#endif
     call adv_tracer_all_outer_after_slow%clear()
     call adv_tracer_last_outer_after_slow%clear()
     call con_tracer_all_outer_after_slow%clear()

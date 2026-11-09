@@ -1,0 +1,455 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+!> @brief Physics schemes called at the start of the BDF stage of TR-BDF2
+module bdf2_physics_alg_mod
+
+  use config_mod,                only: config_type
+  use constants_mod,             only: r_def, i_def, l_def
+  use field_mod,                 only: field_type
+  use field_collection_mod,      only: field_collection_type
+  use function_space_collection_mod,                                           &
+                                 only: function_space_collection
+  use function_space_mod,        only: function_space_type
+  use fs_continuity_mod,         only: Wtheta
+  use io_config_mod,             only: write_diag, use_xios_io
+  use mesh_mod,                  only: mesh_type
+  use model_clock_mod,           only: model_clock_type
+  use moist_dyn_mod,             only: num_moist_factors, total_mass
+  use moist_dyn_factors_alg_mod, only: moist_dyn_factors_alg
+  use mr_indices_mod,            only: nummr, imr_v, imr_cl, imr_ci, imr_s
+  use physics_mappings_alg_mod,  only: map_physics_scalars, map_physics_winds
+  use sci_field_bundle_builtins_mod,                                           &
+                                 only: add_bundle, clone_bundle,               &
+                                       set_bundle_scalar
+  use dycore_constants_mod,      only: gamma
+  use cloud_config_mod,          only: scheme, scheme_pc2, cld_fsd_hill
+  use section_choice_config_mod, only: cloud, cloud_um,                        &
+                                       radiation, radiation_socrates
+#ifdef UM_PHYSICS
+  use cld_alg_mod,               only: cld_alg
+  use diag_sum_alg_mod,          only: diag_sum_add
+  use fsd_condensate_alg_mod,    only: fsd_condensate_alg
+  use illuminate_alg_mod,        only: illuminate_window_alg
+  use mphys_alg_mod,             only: mphys_alg
+  use pc2_checks_alg_mod,        only: pc2_checks_alg
+  use pc2_rad_response_alg_mod,  only: pc2_rad_response_alg
+  use radiation_update_alg_mod,  only: radiation_update_alg
+  use um_clock_init_mod,         only: set_um_timestep
+  use um_sizes_init_mod,         only: um_sizes_init
+#endif
+
+  implicit none
+
+  private
+
+  public :: bdf2_physics
+
+contains
+
+  !> @details Calls the microphysics, the radiation update and the PC2 cloud
+  !!          responses on the state at the start of the BDF stage, over the
+  !!          length of the BDF stage. The state is changed in the fields that
+  !!          are transported next, and the increment to theta is returned,
+  !!          for the caller to add to the potential temperature of the BDF
+  !!          state. The physics fields from the physics of the TR stage are
+  !!          combined with these ones, so that they cover the whole timestep.
+  !!          The derived fields are set from the BDF state while the physics
+  !!          is called, and restored afterwards.
+  !> @param[in]     config                Application namelist configuration
+  !> @param[in,out] dtheta                Potential temperature increment
+  !> @param[in,out] mr                    Mixing ratios
+  !> @param[in]     theta                 Potential temperature of BDF state
+  !> @param[in]     u                     Wind of BDF state
+  !> @param[in]     rho                   Dry density of BDF state
+  !> @param[in]     exner                 Exner pressure of BDF state
+  !> @param[in]     moist_dyn             Moist dynamics factors
+  !> @param[in]     mr_n                  Mixing ratios at start of timestep
+  !> @param[in]     theta_n               Theta at start of timestep
+  !> @param[in]     derived_fields        Group of derived fields
+  !> @param[in]     radiation_fields      Fields for radiation scheme
+  !> @param[in]     microphysics_fields   Fields for mphys scheme
+  !> @param[in]     orography_fields      Fields for orog drag scheme
+  !> @param[in]     turbulence_fields     Fields for turbulence scheme
+  !> @param[in]     convection_fields     Fields for convection scheme
+  !> @param[in]     cloud_fields          Fields for cloud scheme
+  !> @param[in]     surface_fields        Fields for surface scheme
+  !> @param[in]     aerosol_fields        Fields for aerosol scheme
+  !> @param[in]     clock                 Model time
+  !> @param[in]     dt                    The model timestep length
+  !> @param[in]     cloud_balance         Whether to call the cloud scheme first
+  !> @param[in,out] diag_sum              Sums of the diagnostics over the TR and
+  !!                                      BDF stages, which the BDF stage adds to
+  !!                                      and the microphysics writes
+  subroutine bdf2_physics(                                                     &
+      config, dtheta, mr, theta, u, rho, exner, moist_dyn, mr_n, theta_n,      &
+      derived_fields, radiation_fields, microphysics_fields,                   &
+      orography_fields, turbulence_fields, convection_fields, cloud_fields,    &
+      surface_fields, aerosol_fields, clock, dt, cloud_balance, diag_sum       &
+  )
+
+    implicit none
+
+    type(config_type),           intent(in)    :: config
+    type(field_type),            intent(inout) :: dtheta
+    type(field_type),            intent(inout) :: mr(nummr)
+    type(field_type),            intent(in)    :: theta
+    type(field_type),            intent(in)    :: u
+    type(field_type),            intent(in)    :: rho
+    type(field_type),            intent(in)    :: exner
+    type(field_type),            intent(in)    :: moist_dyn(num_moist_factors)
+    type(field_type),            intent(in)    :: mr_n(nummr)
+    type(field_type),            intent(in)    :: theta_n
+
+    type(field_collection_type), intent(in)    :: derived_fields
+    type(field_collection_type), intent(in)    :: radiation_fields
+    type(field_collection_type), intent(in)    :: microphysics_fields
+    type(field_collection_type), intent(in)    :: orography_fields
+    type(field_collection_type), intent(in)    :: turbulence_fields
+    type(field_collection_type), intent(in)    :: convection_fields
+    type(field_collection_type), intent(in)    :: cloud_fields
+    type(field_collection_type), intent(in)    :: surface_fields
+    type(field_collection_type), intent(in)    :: aerosol_fields
+
+    class(model_clock_type),     intent(in)    :: clock
+    real(kind=r_def),            intent(in)    :: dt
+    logical(kind=l_def),         intent(in)    :: cloud_balance
+    type(field_collection_type), intent(inout) :: diag_sum
+
+#ifdef UM_PHYSICS
+    ! Internal variables
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: vector_space
+
+    ! Derived fields that are set from the BDF state, and their saved values
+    type(field_type), pointer :: exner_in_wth, rho_in_wth, wetrho_in_wth
+    type(field_type), pointer :: wetrho_in_w3, u_in_w3, v_in_w3, w_in_w3
+    type(field_type)          :: exner_in_wth_n, rho_in_wth_n, wetrho_in_wth_n
+    type(field_type)          :: wetrho_in_w3_n, u_in_w3_n, v_in_w3_n
+    type(field_type)          :: w_in_w3_n
+    type(field_type)          :: moist_dyn_bdf(num_moist_factors)
+
+    type(field_type), pointer :: departure_exner_wth
+    type(field_type), pointer :: liquid_fraction, frozen_fraction
+    type(field_type), pointer :: bulk_fraction
+
+    ! Microphysics fields combined with those from the TR stage
+    type(field_type), pointer :: dtheta_mphys, dmv_mphys
+    type(field_type), pointer :: ls_rain, ls_snow, ls_graup, lsca_2d
+    type(field_type), pointer :: ls_rain_3d, ls_snow_3d
+    type(field_type)          :: dmv_mphys_tr
+    type(field_type)          :: ls_rain_tr, ls_snow_tr, ls_graup_tr
+    type(field_type)          :: lsca_2d_tr, ls_rain_3d_tr, ls_snow_3d_tr
+
+    type(field_type), pointer :: dtheta_rad, dmv_pc2_rad
+
+    type(field_type) :: theta_work, theta_updated
+    type(field_type) :: f_arr
+    type(field_type) :: dtheta_cld
+    type(field_type) :: dmr_mphys(nummr)
+    type(field_type) :: dtheta_mphys_bdf
+    type(field_type) :: dcfl_mphys, dcff_mphys, dbcf_mphys
+    type(field_type) :: cos_zenith_angle_win, lit_fraction_win
+    type(field_type) :: dtheta_rad_bdf, dmv_pc2_rad_bdf
+    type(field_type) :: dtheta_pc2_rad, dmcl_pc2_rad
+    type(field_type) :: dcfl_pc2_rad, dbcf_pc2_rad
+    type(field_type) :: dtheta_pc2_checks, dmv_pc2_checks, dmcl_pc2_checks
+    type(field_type) :: dmci_pc2_checks, dms_pc2_checks
+    type(field_type) :: dcfl_pc2_checks, dcff_pc2_checks, dbcf_pc2_checks
+
+    integer(kind=i_def) :: ncells
+    logical(kind=l_def) :: use_pc2, use_radiation
+    real(kind=r_def)    :: weight_tr, weight_bdf, dt_tr, dt_bdf
+
+    weight_tr = 2.0_r_def*gamma
+    weight_bdf = 1.0_r_def - weight_tr
+    dt_tr = weight_tr*dt
+    dt_bdf = weight_bdf*dt
+
+    use_pc2 = (cloud == cloud_um .and. scheme == scheme_pc2)
+    use_radiation = (radiation == radiation_socrates)
+
+    mesh => theta%get_mesh()
+
+    call theta%copy_field_properties(theta_work)
+    call invoke(                                                               &
+        setval_X(theta_work, theta),                                           &
+        setval_c(dtheta, 0.0_r_def)                                            &
+    )
+
+    ! ------------------------------------------------------------------------
+    ! Set the derived fields from the BDF state, saving their current values
+    ! ------------------------------------------------------------------------
+    call derived_fields%get_field('exner_in_wth', exner_in_wth)
+    call derived_fields%get_field('rho_in_wth', rho_in_wth)
+    call derived_fields%get_field('wetrho_in_wth', wetrho_in_wth)
+    call derived_fields%get_field('wetrho_in_w3', wetrho_in_w3)
+    call derived_fields%get_field('u_in_w3', u_in_w3)
+    call derived_fields%get_field('v_in_w3', v_in_w3)
+    call derived_fields%get_field('w_in_w3', w_in_w3)
+
+    call exner_in_wth%copy_field_properties(exner_in_wth_n)
+    call rho_in_wth%copy_field_properties(rho_in_wth_n)
+    call wetrho_in_wth%copy_field_properties(wetrho_in_wth_n)
+    call wetrho_in_w3%copy_field_properties(wetrho_in_w3_n)
+    call u_in_w3%copy_field_properties(u_in_w3_n)
+    call v_in_w3%copy_field_properties(v_in_w3_n)
+    call w_in_w3%copy_field_properties(w_in_w3_n)
+    call invoke(                                                               &
+        setval_X(exner_in_wth_n, exner_in_wth),                                &
+        setval_X(rho_in_wth_n, rho_in_wth),                                    &
+        setval_X(wetrho_in_wth_n, wetrho_in_wth),                              &
+        setval_X(wetrho_in_w3_n, wetrho_in_w3),                                &
+        setval_X(u_in_w3_n, u_in_w3),                                          &
+        setval_X(v_in_w3_n, v_in_w3),                                          &
+        setval_X(w_in_w3_n, w_in_w3)                                           &
+    )
+
+    ! The moist factors are for the moisture of the BDF state
+    call clone_bundle(moist_dyn, moist_dyn_bdf, num_moist_factors)
+    call moist_dyn_factors_alg(moist_dyn_bdf, mr)
+
+    call map_physics_scalars(config, rho_in_wth, rho)
+    call map_physics_scalars(config, exner_in_wth, exner)
+    call invoke(                                                               &
+        X_times_Y(wetrho_in_wth, rho_in_wth, moist_dyn_bdf(total_mass))        &
+    )
+    call map_physics_scalars(config, wetrho_in_w3, wetrho_in_wth)
+    call map_physics_winds(u_in_w3, v_in_w3, w_in_w3, u)
+
+    ! ------------------------------------------------------------------------
+    ! Balance the cloud with the pressure change since the start of the step
+    ! ------------------------------------------------------------------------
+    if (cloud_balance) then
+      call theta%copy_field_properties(dtheta_cld)
+      call invoke( setval_c(dtheta_cld, 0.0_r_def) )
+      call cld_alg(                                                            &
+          config, dtheta_cld, mr, theta_work, exner, rho, derived_fields,      &
+          turbulence_fields, cloud_fields, convection_fields,                  &
+          theta_n, mr_n, clock%get_step(), dt_tr, .true., .false.              &
+      )
+      call invoke(                                                             &
+          inc_X_plus_Y(theta_work, dtheta_cld),                                &
+          inc_X_plus_Y(dtheta, dtheta_cld)                                     &
+      )
+      ! The pressure change has now been applied
+      call cloud_fields%get_field('departure_exner_wth', departure_exner_wth)
+      call invoke( setval_X(departure_exner_wth, exner_in_wth) )
+    end if
+
+    ! ------------------------------------------------------------------------
+    ! Check the cloud and moisture, which have been transported separately
+    ! ------------------------------------------------------------------------
+    if (use_pc2) then
+      call cloud_fields%get_field('liquid_fraction', liquid_fraction)
+      call cloud_fields%get_field('frozen_fraction', frozen_fraction)
+      call cloud_fields%get_field('bulk_fraction', bulk_fraction)
+      call pc2_checks_alg(                                                     &
+          mr, theta_work, exner, derived_fields, cloud_fields,                 &
+          dtheta_pc2_checks, dmv_pc2_checks, dmcl_pc2_checks,                  &
+          dmci_pc2_checks, dms_pc2_checks, dcfl_pc2_checks,                    &
+          dcff_pc2_checks, dbcf_pc2_checks, diag_sum=diag_sum                  &
+      )
+      call invoke(                                                             &
+          name="update_after_pc2_checks_before_bdf_mphys",                     &
+          inc_X_plus_Y(theta_work, dtheta_pc2_checks),                         &
+          inc_X_plus_Y(dtheta, dtheta_pc2_checks),                             &
+          inc_X_plus_Y(mr(imr_v), dmv_pc2_checks),                             &
+          inc_X_plus_Y(mr(imr_cl), dmcl_pc2_checks),                           &
+          inc_X_plus_Y(mr(imr_ci), dmci_pc2_checks),                           &
+          inc_X_plus_Y(mr(imr_s), dms_pc2_checks),                             &
+          inc_X_plus_Y(liquid_fraction, dcfl_pc2_checks),                      &
+          inc_X_plus_Y(frozen_fraction, dcff_pc2_checks),                      &
+          inc_X_plus_Y(bulk_fraction, dbcf_pc2_checks)                         &
+      )
+    end if
+
+    ! ------------------------------------------------------------------------
+    ! Microphysics
+    ! ------------------------------------------------------------------------
+    call microphysics_fields%get_field('dtheta_mphys', dtheta_mphys)
+    call microphysics_fields%get_field('dmv_mphys', dmv_mphys)
+    call microphysics_fields%get_field('ls_rain', ls_rain)
+    call microphysics_fields%get_field('ls_snow', ls_snow)
+    call microphysics_fields%get_field('ls_graup', ls_graup)
+    call microphysics_fields%get_field('lsca_2d', lsca_2d)
+    call microphysics_fields%get_field('ls_rain_3d', ls_rain_3d)
+    call microphysics_fields%get_field('ls_snow_3d', ls_snow_3d)
+
+    ! Save the fields that the microphysics overwrites rather than increments
+    call dmv_mphys%copy_field_properties(dmv_mphys_tr)
+    call ls_rain%copy_field_properties(ls_rain_tr)
+    call ls_snow%copy_field_properties(ls_snow_tr)
+    call ls_graup%copy_field_properties(ls_graup_tr)
+    call lsca_2d%copy_field_properties(lsca_2d_tr)
+    call ls_rain_3d%copy_field_properties(ls_rain_3d_tr)
+    call ls_snow_3d%copy_field_properties(ls_snow_3d_tr)
+    call invoke(                                                               &
+        setval_X(dmv_mphys_tr, dmv_mphys),                                     &
+        setval_X(ls_rain_tr, ls_rain),                                         &
+        setval_X(ls_snow_tr, ls_snow),                                         &
+        setval_X(ls_graup_tr, ls_graup),                                       &
+        setval_X(lsca_2d_tr, lsca_2d),                                         &
+        setval_X(ls_rain_3d_tr, ls_rain_3d),                                   &
+        setval_X(ls_snow_3d_tr, ls_snow_3d)                                    &
+    )
+
+    vector_space => function_space_collection%get_fs(mesh, 0, 0, Wtheta, 3)
+    call f_arr%initialise(vector_space)
+    if (cld_fsd_hill) then
+      call fsd_condensate_alg(config, f_arr, cloud_fields, convection_fields)
+    end if
+
+    call clone_bundle(mr, dmr_mphys, nummr)
+    call set_bundle_scalar(0.0_r_def, dmr_mphys, nummr)
+    call theta%copy_field_properties(dtheta_mphys_bdf)
+
+    ncells = mesh%get_last_edge_cell()
+    call um_sizes_init(ncells)
+    call set_um_timestep(dt_bdf)
+    call mphys_alg(                                                            &
+        config, mr, theta_work, rho, derived_fields, microphysics_fields,      &
+        cloud_fields, aerosol_fields, turbulence_fields, orography_fields,     &
+        f_arr, dmr_mphys, dtheta_mphys_bdf,                                    &
+        dcfl_mphys, dcff_mphys, dbcf_mphys, dt_bdf,                            &
+        diag_sum=diag_sum, diag_weight=weight_bdf                              &
+    )
+    call set_um_timestep(dt)
+    call um_sizes_init(1_i_def)
+    call f_arr%field_final()
+
+    ! Combine the fields with those of the TR stage, for the whole timestep
+    call invoke(                                                               &
+        inc_X_plus_Y(dmv_mphys, dmv_mphys_tr),                                 &
+        inc_X_plus_Y(dtheta_mphys, dtheta_mphys_bdf),                          &
+        inc_a_times_X(weight_bdf, ls_rain),                                    &
+        inc_a_times_X(weight_bdf, ls_snow),                                    &
+        inc_a_times_X(weight_bdf, ls_graup),                                   &
+        inc_a_times_X(weight_bdf, lsca_2d),                                    &
+        inc_a_times_X(weight_bdf, ls_rain_3d),                                 &
+        inc_a_times_X(weight_bdf, ls_snow_3d),                                 &
+        inc_X_plus_bY(ls_rain, weight_tr, ls_rain_tr),                         &
+        inc_X_plus_bY(ls_snow, weight_tr, ls_snow_tr),                         &
+        inc_X_plus_bY(ls_graup, weight_tr, ls_graup_tr),                       &
+        inc_X_plus_bY(lsca_2d, weight_tr, lsca_2d_tr),                         &
+        inc_X_plus_bY(ls_rain_3d, weight_tr, ls_rain_3d_tr),                   &
+        inc_X_plus_bY(ls_snow_3d, weight_tr, ls_snow_3d_tr)                    &
+    )
+
+    ! ------------------------------------------------------------------------
+    ! Radiation update and its PC2 response, from the same state as above
+    ! ------------------------------------------------------------------------
+    if (use_radiation) then
+      call illuminate_window_alg(                                              &
+          config, radiation_fields, cos_zenith_angle_win, lit_fraction_win,    &
+          dt_tr, dt_bdf                                                        &
+      )
+      call theta%copy_field_properties(dtheta_rad_bdf)
+      call radiation_update_alg(                                               &
+          dtheta_rad_bdf, derived_fields, radiation_fields, surface_fields,    &
+          cos_zenith_angle_win, lit_fraction_win, dt_bdf                       &
+      )
+      if (use_pc2) then
+        call theta%copy_field_properties(dmv_pc2_rad_bdf)
+        call invoke( setval_c(dmv_pc2_rad_bdf, 0.0_r_def) )
+        call pc2_rad_response_alg(                                             &
+            mr, theta_work, derived_fields, cloud_fields, dtheta_rad_bdf,      &
+            dtheta_pc2_rad, dmv_pc2_rad_bdf, dmcl_pc2_rad,                     &
+            dcfl_pc2_rad, dbcf_pc2_rad, dt_bdf, diag_sum=diag_sum              &
+        )
+      end if
+    end if
+
+    ! ------------------------------------------------------------------------
+    ! Apply the increments
+    ! ------------------------------------------------------------------------
+    call invoke( inc_X_plus_Y(dtheta, dtheta_mphys_bdf) )
+    call add_bundle(dmr_mphys, mr, mr, nummr)
+
+    call cloud_fields%get_field('liquid_fraction', liquid_fraction)
+    call cloud_fields%get_field('frozen_fraction', frozen_fraction)
+    call cloud_fields%get_field('bulk_fraction', bulk_fraction)
+
+    if (use_pc2) then
+      call invoke(                                                             &
+          name="update_with_pc2_mphys_inc_bdf",                                &
+          inc_X_plus_Y(liquid_fraction, dcfl_mphys),                           &
+          inc_X_plus_Y(frozen_fraction, dcff_mphys),                           &
+          inc_X_plus_Y(bulk_fraction, dbcf_mphys)                              &
+      )
+    end if
+
+    if (use_radiation) then
+      call radiation_fields%get_field('dtheta_rad', dtheta_rad)
+      call radiation_fields%get_field('dmv_pc2_rad', dmv_pc2_rad)
+      if (write_diag .and. use_xios_io) then
+        ! The radiative increment alone, as written by the radiation scheme
+        call diag_sum_add(diag_sum, 'radiation__dtheta_rad', dtheta_rad_bdf)
+      end if
+      if (use_pc2) then
+        call invoke(                                                           &
+            name="update_with_pc2_rad_inc_bdf",                                &
+            inc_X_plus_Y(dtheta_rad_bdf, dtheta_pc2_rad),                      &
+            inc_X_plus_Y(mr(imr_v), dmv_pc2_rad_bdf),                          &
+            inc_X_plus_Y(mr(imr_cl), dmcl_pc2_rad),                            &
+            inc_X_plus_Y(liquid_fraction, dcfl_pc2_rad),                       &
+            inc_X_plus_Y(bulk_fraction, dbcf_pc2_rad),                         &
+            inc_X_plus_Y(dmv_pc2_rad, dmv_pc2_rad_bdf)                         &
+        )
+      end if
+      call invoke(                                                             &
+          inc_X_plus_Y(dtheta, dtheta_rad_bdf),                                &
+          inc_X_plus_Y(dtheta_rad, dtheta_rad_bdf)                             &
+      )
+    end if
+
+    ! ------------------------------------------------------------------------
+    ! PC2 checks of the cloud and moisture after the increments
+    ! ------------------------------------------------------------------------
+    if (use_pc2) then
+      call theta%copy_field_properties(theta_updated)
+      call invoke(                                                             &
+          name="estimate_theta_after_bdf_physics",                             &
+          setval_X(theta_updated, theta),                                      &
+          inc_X_plus_Y(theta_updated, dtheta)                                  &
+      )
+      call pc2_checks_alg(                                                     &
+          mr, theta_updated, exner, derived_fields, cloud_fields,              &
+          dtheta_pc2_checks, dmv_pc2_checks, dmcl_pc2_checks,                  &
+          dmci_pc2_checks, dms_pc2_checks, dcfl_pc2_checks,                    &
+          dcff_pc2_checks, dbcf_pc2_checks, diag_sum=diag_sum                  &
+      )
+      call invoke(                                                             &
+          name="update_after_pc2_checks_bdf",                                  &
+          inc_X_plus_Y(dtheta, dtheta_pc2_checks),                             &
+          inc_X_plus_Y(mr(imr_v), dmv_pc2_checks),                             &
+          inc_X_plus_Y(mr(imr_cl), dmcl_pc2_checks),                           &
+          inc_X_plus_Y(mr(imr_ci), dmci_pc2_checks),                           &
+          inc_X_plus_Y(mr(imr_s), dms_pc2_checks),                             &
+          inc_X_plus_Y(liquid_fraction, dcfl_pc2_checks),                      &
+          inc_X_plus_Y(frozen_fraction, dcff_pc2_checks),                      &
+          inc_X_plus_Y(bulk_fraction, dbcf_pc2_checks)                         &
+      )
+    end if
+
+    ! ------------------------------------------------------------------------
+    ! Restore the derived fields to the values for the start of the timestep
+    ! ------------------------------------------------------------------------
+    call invoke(                                                               &
+        setval_X(exner_in_wth, exner_in_wth_n),                                &
+        setval_X(rho_in_wth, rho_in_wth_n),                                    &
+        setval_X(wetrho_in_wth, wetrho_in_wth_n),                              &
+        setval_X(wetrho_in_w3, wetrho_in_w3_n),                                &
+        setval_X(u_in_w3, u_in_w3_n),                                          &
+        setval_X(v_in_w3, v_in_w3_n),                                          &
+        setval_X(w_in_w3, w_in_w3_n)                                           &
+    )
+#endif
+
+  end subroutine bdf2_physics
+
+end module bdf2_physics_alg_mod

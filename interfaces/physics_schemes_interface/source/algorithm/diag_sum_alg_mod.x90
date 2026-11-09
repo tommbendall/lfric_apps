@@ -1,0 +1,103 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+!> @brief Sums of diagnostics over the stages or substeps of a timestep
+!> @details The fields of the collection are named with the name of the
+!!          diagnostic that they are written to
+module diag_sum_alg_mod
+
+  use constants_mod,                only: r_def
+  use field_collection_iterator_mod,                                           &
+                                    only: field_collection_iterator_type
+  use field_collection_mod,         only: field_collection_type
+  use field_mod,                    only: field_type
+  use field_parent_mod,             only: field_parent_type
+
+  implicit none
+
+  private
+
+  public :: diag_sum_add
+  public :: diag_sum_write
+
+contains
+
+  !> @brief Add a weighted diagnostic to its sum, which is created if needed
+  !> @param[in,out] diag_sum  Collection of the sums
+  !> @param[in]     name      Name of the diagnostic
+  !> @param[in]     diag      Diagnostic of this stage or substep
+  !> @param[in]     weight    Optional, weight of this stage or substep. The
+  !!                          default of one is for increments
+  subroutine diag_sum_add(diag_sum, name, diag, weight)
+
+    implicit none
+
+    type(field_collection_type), intent(inout) :: diag_sum
+    character(len=*),            intent(in)    :: name
+    type(field_type),            intent(in)    :: diag
+    real(kind=r_def), optional,  intent(in)    :: weight
+
+    type(field_type)          :: new_sum
+    type(field_type), pointer :: sum_ptr
+    real(kind=r_def)          :: diag_weight
+
+    diag_weight = 1.0_r_def
+    if (present(weight)) diag_weight = weight
+
+    if (.not. diag_sum%field_exists(name)) then
+      call diag%copy_field_properties(new_sum, name)
+      call invoke( setval_c(new_sum, 0.0_r_def) )
+      call diag_sum%add_field(new_sum)
+    end if
+
+    call diag_sum%get_field(name, sum_ptr)
+    call invoke( inc_X_plus_bY(sum_ptr, diag_weight, diag) )
+
+  end subroutine diag_sum_add
+
+  !> @brief Write the sums and empty the collection
+  !> @param[in,out] diag_sum        Collection of the sums
+  !> @param[in]     exclude_prefix  Optional, sums with names that start with
+  !!                                this are not written, as another routine
+  !!                                writes them
+  subroutine diag_sum_write(diag_sum, exclude_prefix)
+
+    implicit none
+
+    type(field_collection_type), intent(inout) :: diag_sum
+    character(len=*), optional,  intent(in)    :: exclude_prefix
+
+    type(field_collection_iterator_type) :: iterator
+    class(field_parent_type), pointer    :: abstract_field_ptr
+    type(field_type),         pointer    :: sum_ptr
+    logical                              :: skip
+
+    if (diag_sum%get_length() > 0) then
+      call iterator%initialise(diag_sum)
+
+      do
+        if (.not. iterator%has_next()) exit
+
+        abstract_field_ptr => iterator%next()
+        select type(abstract_field_ptr)
+        type is (field_type)
+          sum_ptr => abstract_field_ptr
+        end select
+
+        skip = .false.
+        if (present(exclude_prefix)) then
+          skip = (index(sum_ptr%get_name(), exclude_prefix) == 1)
+        end if
+        if (.not. skip) call sum_ptr%write_field(trim(sum_ptr%get_name()))
+      end do
+    end if
+
+    call diag_sum%clear()
+
+  end subroutine diag_sum_write
+
+end module diag_sum_alg_mod

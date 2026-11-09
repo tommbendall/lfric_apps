@@ -160,8 +160,12 @@ contains
   !!                               the transporting wind is the *difference*
   !!                               in wind from the previous step, rather than
   !!                               the full transport wind.
+  !> @param[in] dt_factor          Optional, multiplies the length of the
+  !!                               transport time step, so that a part of the
+  !!                               stepper's time step is transported
   subroutine initialise(self, config, model_clock, stepper, ref_field_rdef,    &
-                        wind_n_rdef, wind_np1_rdef, outer, cheap_update_step)
+                        wind_n_rdef, wind_np1_rdef, outer, cheap_update_step,  &
+                        dt_factor)
 
     use split_transport_utils_mod,      only: get_dry_config,                  &
                                               get_splitting_name
@@ -186,6 +190,7 @@ contains
     type(field_type),       optional, intent(in)    :: wind_np1_rdef
     integer(kind=i_def),    optional, intent(in)    :: outer
     logical(kind=l_def),    optional, intent(in)    :: cheap_update_step
+    real(kind=r_def),       optional, intent(in)    :: dt_factor
 
     ! Internal variables
     type(r_tran_field_type)            :: wind_flux
@@ -247,6 +252,8 @@ contains
       call log_event( "Unknown stepper passed to transport_controller " //     &
                       "initialise method", LOG_LEVEL_ERROR )
     end select
+
+    if (present(dt_factor)) dt_rtran = dt_rtran*real(dt_factor, r_tran)
 
     self%reference_splitting = splitting(get_dry_config())
 

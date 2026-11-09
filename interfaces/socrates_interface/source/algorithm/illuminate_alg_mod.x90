@@ -17,7 +17,11 @@ use io_config_mod,           only: write_diag, use_xios_io
 use sci_geometric_constants_mod,   &
                              only: get_latitude_fv, get_longitude_fv
 use illuminate_kernel_mod,   only: illuminate_kernel_type
+use illuminate_window_kernel_mod, &
+                             only: illuminate_window_kernel_type
 use timing_mod,              only: start_timing, stop_timing, tik, LPROF
+use orbit_config_mod,        only: spin, hour_angle_inc,                       &
+                                   fixed_zenith_angle, fixed_azimuth_angle
 
 implicit none
 
@@ -27,6 +31,13 @@ private
 ! Contained functions/subroutines
 !------------------------------------------------------------------------------
 public :: illuminate_alg
+public :: illuminate_window_alg
+
+real(r_def), parameter :: seconds_per_day = 86400.0_r_def
+
+! Date used by the most recent call of the illumination kernel
+real(r_def),    save :: last_second_of_day = 0.0_r_def
+logical(l_def), save :: last_date_valid = .false.
 
 contains
 
@@ -114,6 +125,9 @@ subroutine illuminate_alg(config, radiation_fields, timestep, dt)
                  latitude, longitude, timestep, dt, &
                  current_year, day_of_year, second_of_day) )
 
+    last_second_of_day = second_of_day
+    last_date_valid = .true.
+
     if ( LPROF ) call stop_timing( id_alg, 'radiation.illuminate' )
 
     ! Output diagnostics
@@ -145,5 +159,84 @@ subroutine illuminate_alg(config, radiation_fields, timestep, dt)
   first_call = .false.
 
 end subroutine illuminate_alg
+
+!> @brief Mean solar angle and lit fraction over a window of the timestep
+!> @details Uses the date of the latest call of illuminate_alg, so must be
+!!          called after it. Without a previous call, the values for the
+!!          whole timestep are used.
+!> @param[in]     config                Application namelist configuration
+!> @param[in]     radiation_fields      Fields for radiation scheme
+!> @param[in,out] cos_zenith_angle_win  Cosine of the zenith angle in window
+!> @param[in,out] lit_fraction_win      Lit fraction of the window
+!> @param[in]     window_offset         Time from timestep start to window (s)
+!> @param[in]     window_length         Length of the window (s)
+subroutine illuminate_window_alg(                                              &
+    config, radiation_fields, cos_zenith_angle_win, lit_fraction_win,          &
+    window_offset, window_length                                               &
+)
+
+  implicit none
+
+  type(config_type),            intent(in)    :: config
+  type(field_collection_type),  intent(in)    :: radiation_fields
+  type(field_type),             intent(inout) :: cos_zenith_angle_win
+  type(field_type),             intent(inout) :: lit_fraction_win
+  real(kind=r_def),             intent(in)    :: window_offset
+  real(kind=r_def),             intent(in)    :: window_length
+
+  type(mesh_type),   pointer :: mesh
+  type(field_type),  pointer :: latitude
+  type(field_type),  pointer :: longitude
+  type(field_type),  pointer :: cos_zenith_angle
+  type(field_type),  pointer :: lit_fraction
+  type(field_type),  pointer :: sin_stellar_declination_rts
+  type(field_type),  pointer :: stellar_eqn_of_time_rts
+
+  real(kind=r_def)    :: window_start
+  integer(kind=i_def) :: spin_option
+  integer(tik)        :: id_win
+
+  if (LPROF) call start_timing(id_win, 'radiation.illuminate_window')
+
+  call radiation_fields%get_field('cos_zenith_angle', cos_zenith_angle)
+  call radiation_fields%get_field('lit_fraction', lit_fraction)
+
+  call cos_zenith_angle%copy_field_properties(cos_zenith_angle_win)
+  call cos_zenith_angle%copy_field_properties(lit_fraction_win)
+
+  if (last_date_valid) then
+    call radiation_fields%get_field(                                           &
+        'sin_stellar_declination_rts', sin_stellar_declination_rts             &
+    )
+    call radiation_fields%get_field(                                           &
+        'stellar_eqn_of_time_rts', stellar_eqn_of_time_rts                     &
+    )
+
+    mesh => cos_zenith_angle%get_mesh()
+    latitude => get_latitude_fv(config, mesh, W3)
+    longitude => get_longitude_fv(config, mesh, W3)
+
+    window_start = modulo(last_second_of_day + window_offset, seconds_per_day)
+    spin_option = spin
+
+    call invoke(                                                               &
+        illuminate_window_kernel_type(                                         &
+            cos_zenith_angle_win, lit_fraction_win,                            &
+            sin_stellar_declination_rts, stellar_eqn_of_time_rts,              &
+            latitude, longitude,                                               &
+            window_length, window_start, spin_option, hour_angle_inc,          &
+            fixed_zenith_angle, fixed_azimuth_angle                            &
+        )                                                                      &
+    )
+  else
+    call invoke(                                                               &
+        setval_X(cos_zenith_angle_win, cos_zenith_angle),                      &
+        setval_X(lit_fraction_win, lit_fraction)                               &
+    )
+  end if
+
+  if (LPROF) call stop_timing(id_win, 'radiation.illuminate_window')
+
+end subroutine illuminate_window_alg
 
 end module illuminate_alg_mod

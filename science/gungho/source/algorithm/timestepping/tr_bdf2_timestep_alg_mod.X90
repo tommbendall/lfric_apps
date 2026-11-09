@@ -61,6 +61,10 @@ module tr_bdf2_timestep_alg_mod
   use sci_mass_matrix_solver_alg_mod,                                          &
                                   only: mass_matrix_solver_alg
   use ageofair_alg_mod,           only: ageofair_update
+  use bdf2_physics_alg_mod,       only: bdf2_physics
+#ifdef UM_PHYSICS
+  use diag_sum_alg_mod,           only: diag_sum_write
+#endif
   use calc_phys_predictors_alg_mod,                                            &
                                   only: calc_phys_predictors_alg
   use derive_exner_from_eos_alg_mod,                                           &
@@ -781,6 +785,14 @@ contains
     type(field_collection_type) :: adv_tracer_last_outer_dag
     type(field_collection_type) :: con_tracer_all_outer_dag
     type(field_collection_type) :: con_tracer_last_outer_dag
+    ! Tracers that are changed by the BDF physics, so are transported in both
+    ! stages, and the copies of them that are transported
+    type(field_collection_type) :: stage_tracers
+    type(field_collection_type) :: stage_tracers_dag
+    type(field_collection_type) :: stage_tracers_bdf
+    real(kind=r_def), allocatable :: staged_dt
+    ! Sums of the diagnostics of the physics of both stages, if it is in both
+    type(field_collection_type), allocatable :: diag_sum
     logical(kind=l_def)         :: checkpoint_reference_fields
     character(len=str_def)      :: prime_mesh_name
     integer(kind=i_def)         :: lbc_option
@@ -826,6 +838,8 @@ contains
     integer(kind=i_def)              :: tr_bdf2_first_guess
     logical(kind=l_def)              :: tr_physics
     logical(kind=l_def)              :: tr_bdf2_bdf_evap_condense
+    logical(kind=l_def)              :: tr_bdf2_bdf_physics
+    logical(kind=l_def)              :: tr_bdf2_bdf_cloud_balance
     logical(kind=l_def)              :: theta_moist_source
 
     ! Evaporation-condensation at the start of the BDF stage
@@ -886,6 +900,15 @@ contains
     tr_bdf2_bdf_evap_condense =                                                &
         self%config%timestepping%tr_bdf2_bdf_evap_condense()
     theta_moist_source = self%config%formulation%theta_moist_source()
+    tr_bdf2_bdf_physics = (                                                    &
+        self%config%timestepping%tr_bdf2_bdf_physics()                         &
+        .and. use_physics .and. use_wavedynamics                               &
+    )
+    tr_bdf2_bdf_cloud_balance = .false.
+    if (tr_bdf2_bdf_physics) then
+      tr_bdf2_bdf_cloud_balance =                                              &
+          self%config%timestepping%tr_bdf2_bdf_cloud_balance()
+    end if
     tr_physics = (                                                             &
         self%config%timestepping%tr_bdf2_tr_physics()                          &
         .and. use_physics .and. use_wavedynamics                               &
@@ -905,6 +928,15 @@ contains
     end if
     lbc_option = 0
     dt = real(model_clock%get_seconds_per_step(), r_def)
+
+    ! The length of the TR stage, which is the time covered by the physics in
+    ! slow physics. Not allocated if the physics is for the whole timestep
+    if (tr_bdf2_bdf_physics) then
+      allocate(staged_dt)
+      staged_dt = 2.0_r_def*gamma*dt
+      allocate(diag_sum)
+      call diag_sum%initialise(name='diag_sum')
+    end if
 
     if (limited_area .and. use_wavedynamics) then
 
@@ -972,7 +1004,8 @@ contains
           electric_fields, orography_fields, turbulence_fields,                &
           convection_fields, cloud_fields, surface_fields, soil_fields,        &
           snow_fields, chemistry_fields, aerosol_fields, model_clock,          &
-          dt, dtemp_encorr, mesh, twod_mesh                                    &
+          dt, dtemp_encorr, mesh, twod_mesh, staged_dt=staged_dt,              &
+          diag_sum=diag_sum                                                    &
       )
 
       call invoke(                                                             &
@@ -988,6 +1021,16 @@ contains
         )
       end if
     end if ! use_physics
+
+    ! Move the tracers that are changed by the BDF physics out of the
+    ! collections that are transported once, over the whole timestep
+    call stage_tracers%initialise(name='stage_tracers')
+    if (tr_bdf2_bdf_physics) then
+      call setup_stage_tracers(                                                &
+          stage_tracers, cloud_fields, microphysics_fields,                    &
+          adv_tracer_all_outer, adv_tracer_last_outer                          &
+      )
+    end if
 
     call conditional_collection_copy(                                          &
         adv_tracer_all_outer_dag, generic_fields_to_copy=adv_tracer_all_outer, &
@@ -1006,6 +1049,10 @@ contains
         con_tracer_last_outer_dag,                                             &
         generic_fields_to_copy=con_tracer_last_outer,                          &
         field_list=con_tracer_last_outer                                       &
+    )
+    call conditional_collection_copy(                                          &
+        stage_tracers_dag, generic_fields_to_copy=stage_tracers,               &
+        field_list=stage_tracers                                               &
     )
 
     ! ======================================================================== !
@@ -1149,7 +1196,9 @@ contains
                 cheap_update=.false.,                                          &
                 rho_d_n=self%state_dag(igh_d),                                 &
                 rho_d_n_start=self%state_dag(igh_d),                           &
-                total_dry_flux=self%total_dry_flux                             &
+                total_dry_flux=self%total_dry_flux,                            &
+                stage_tracers=stage_tracers,                                   &
+                stage_tracers_in=stage_tracers_dag                             &
         )
 
         if (outer == outer_iterations) then
@@ -1390,6 +1439,32 @@ contains
       )
     end if
 
+    ! Physics that was also called at the start of the TR stage, but now on the
+    ! BDF state and for the length of the BDF stage
+    if (tr_bdf2_bdf_physics) then
+      call bdf2_physics(                                                       &
+          self%config, self%dtheta, mr,                                        &
+          self%state_bdf(igh_t), self%state_bdf(igh_u),                        &
+          self%state_bdf(igh_d), self%state_bdf(igh_p), moist_dyn,             &
+          self%mr_n, self%state_n(igh_t), derived_fields, radiation_fields,    &
+          microphysics_fields, orography_fields, turbulence_fields,            &
+          convection_fields, cloud_fields, surface_fields, aerosol_fields,     &
+          model_clock, dt, tr_bdf2_bdf_cloud_balance, diag_sum                 &
+      )
+#ifdef UM_PHYSICS
+      ! The microphysics has already written its sums
+      call diag_sum_write(diag_sum, exclude_prefix='microphysics__')
+#endif
+      call invoke(                                                             &
+          name="update_state_bdf_from_bdf_physics",                            &
+          inc_X_plus_Y(self%state_bdf(igh_t), self%dtheta)                     &
+      )
+    end if
+    call conditional_collection_copy(                                          &
+        stage_tracers_bdf, generic_fields_to_copy=stage_tracers,               &
+        field_list=stage_tracers                                               &
+    )
+
     ! Note that for mr, the value at the m-level is equal to that at the q-level
     ! so we can just use mr as mr_bdf
     call copy_bundle(mr, self%mr_bdf, nummr)
@@ -1533,7 +1608,9 @@ contains
                   adv_tracer_all_outer, adv_tracer_all_outer_dag,              &
                   adv_tracer_last_outer, adv_tracer_last_outer_dag,            &
                   con_tracer_all_outer, con_tracer_all_outer_dag,              &
-                  con_tracer_last_outer, con_tracer_last_outer_dag             &
+                  con_tracer_last_outer, con_tracer_last_outer_dag,            &
+                  stage_tracers=stage_tracers,                                 &
+                  stage_tracers_in=stage_tracers_bdf                           &
           )
         else if (tr_bdf2_intermediate_transport) then
           ! Moisture and theta use the combined dry flux with the density of
@@ -1854,6 +1931,8 @@ contains
     call adv_tracer_last_outer_dag%clear()
     call con_tracer_all_outer_dag%clear()
     call con_tracer_last_outer_dag%clear()
+    call stage_tracers_dag%clear()
+    call stage_tracers_bdf%clear()
 
     if (transport_ageofair) then
       call con_tracer_last_outer%get_field('ageofair', ageofair)
@@ -1957,10 +2036,77 @@ contains
 
     deallocate(inner_iterations_tr)
     deallocate(inner_iterations_bdf2)
+    if (allocated(staged_dt)) deallocate(staged_dt)
+    if (allocated(diag_sum)) deallocate(diag_sum)
 
     if (LPROF) call stop_timing(id, 'tr_bdf2_timestep_alg')
 
   end subroutine run_step
+
+  !> @brief Collect the tracers that are changed by the BDF physics
+  !> @details The microphysics and PC2 cloud schemes change these fields at the
+  !!          start of the BDF stage, so they are transported in both stages
+  !!          like moisture. They are therefore removed from the collections of
+  !!          tracers that are transported once, over the whole timestep.
+  !> @param[in,out] stage_tracers          Collection of the stage tracers
+  !> @param[in]     cloud_fields           Fields for cloud scheme
+  !> @param[in]     microphysics_fields    Fields for mphys scheme
+  !> @param[in,out] adv_tracer_all_outer   Group of fields to be advected
+  !> @param[in,out] adv_tracer_last_outer  Group of fields to be advected
+  subroutine setup_stage_tracers(                                              &
+          stage_tracers, cloud_fields, microphysics_fields,                    &
+          adv_tracer_all_outer, adv_tracer_last_outer                          &
+  )
+
+    use cloud_config_mod,          only: scheme, scheme_pc2
+    use microphysics_config_mod,   only: l_mcr_precfrac
+    use pure_abstract_field_mod,   only: pure_abstract_field_type
+    use section_choice_config_mod, only: cloud, cloud_um
+
+    implicit none
+
+    type(field_collection_type), intent(inout) :: stage_tracers
+    type(field_collection_type), intent(in)    :: cloud_fields
+    type(field_collection_type), intent(in)    :: microphysics_fields
+    type(field_collection_type), intent(inout) :: adv_tracer_all_outer
+    type(field_collection_type), intent(inout) :: adv_tracer_last_outer
+
+    character(len=str_def), parameter :: cloud_names(3) =                      &
+        [character(len=str_def) :: 'liquid_fraction', 'frozen_fraction',       &
+                                   'bulk_fraction']
+
+    type(field_type),                pointer :: stage_field
+    class(pure_abstract_field_type), pointer :: stage_ptr
+    integer(kind=i_def)                      :: i
+
+    if (cloud == cloud_um .and. scheme == scheme_pc2) then
+      do i = 1, size(cloud_names)
+        call cloud_fields%get_field(trim(cloud_names(i)), stage_field)
+        stage_ptr => stage_field
+        call stage_tracers%add_reference_to_field(stage_ptr)
+        if (adv_tracer_all_outer%field_exists(trim(cloud_names(i)))) then
+          call adv_tracer_all_outer%remove_field(trim(cloud_names(i)))
+        end if
+      end do
+
+      call cloud_fields%get_field('departure_exner_wth', stage_field)
+      stage_ptr => stage_field
+      call stage_tracers%add_reference_to_field(stage_ptr)
+      if (adv_tracer_last_outer%field_exists('departure_exner_wth')) then
+        call adv_tracer_last_outer%remove_field('departure_exner_wth')
+      end if
+    end if
+
+    if (l_mcr_precfrac) then
+      call microphysics_fields%get_field('precfrac', stage_field)
+      stage_ptr => stage_field
+      call stage_tracers%add_reference_to_field(stage_ptr)
+      if (adv_tracer_all_outer%field_exists('precfrac')) then
+        call adv_tracer_all_outer%remove_field('precfrac')
+      end if
+    end if
+
+  end subroutine setup_stage_tracers
 
 
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
