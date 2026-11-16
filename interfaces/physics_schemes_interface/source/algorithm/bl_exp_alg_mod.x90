@@ -33,7 +33,7 @@ module bl_exp_alg_mod
   use um_sizes_init_mod,             only: um_sizes_init
 
   use timing_mod,           only: start_timing, stop_timing, tik, LPROF
-  use log_mod,              only: log_event, LOG_LEVEL_DEBUG
+  use log_mod,              only: log_event, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO
   use mesh_mod,             only: mesh_type
   use model_clock_mod,      only: model_clock_type
 
@@ -41,6 +41,7 @@ module bl_exp_alg_mod
   use io_config_mod,      only: write_diag, use_xios_io
   use bl_exp_diags_mod,   only: initialise_diags_for_bl_exp, &
                                 output_diags_for_bl_exp
+  use print_field_stats_alg_mod,    only: print_field_stats_alg
 
   implicit none
 
@@ -378,6 +379,10 @@ contains
                   inc_X_plus_Y(dmt_mphys, dmr_mphys(imr_ci)) )
     end if
 
+    call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,                  &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,    &
+                               name="bl_exp: theta_before")
+
     ! Switch UM to running i-first on whole domain
     call um_sizes_init(ncells)
     ! Call explicit BL scheme
@@ -434,12 +439,20 @@ contains
       if ( LPROF ) call start_timing( id, 'bl.explicit' )
     end if
 
+    call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,                  &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,    &
+                               name="bl_exp: theta_after_bl_exp_kernel")
+
     ! Calculate explicit momentum diffusion on cell faces
     call invoke(bl_exp_du_kernel_type(4_i_def, tau_w2, tau_land_w2, tau_ssi_w2,&
                                       rhokm_w2, rdz_fd1, u_physics,            &
                                       surf_interp_w2, ngstress_w2, fd_tau_w2,  &
                                       sea_current_w2_ptr,                      &
                                       face_selector_ew, face_selector_ns) )
+
+    call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,                  &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,    &
+                               name="bl_exp: theta_after_bl_exp_du_kernel")
 
     if (l_calc_tau_at_p) then
       call dz_wth%copy_field_properties(rdz_wth)
@@ -465,6 +478,10 @@ contains
                                         sea_v_current_ptr,                     &
                                         face_selector_ew, face_selector_ns) )
     end if
+
+    call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,                  &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,    &
+                               name="bl_exp: theta_after_lctap_kernel")
 
     if ( LPROF ) call stop_timing( id, 'bl.explicit' )
 
