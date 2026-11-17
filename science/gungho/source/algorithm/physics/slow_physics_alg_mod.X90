@@ -26,7 +26,7 @@ module slow_physics_alg_mod
                                        cv_scheme_gregory_rowntree, &
                                        cv_scheme_comorph
   use constants_mod,             only: i_def, r_def, l_def
-  use log_mod,                   only: LOG_LEVEL_INFO
+  use log_mod,                   only: LOG_LEVEL_INFO, log_event
   use lfric_xios_write_mod,      only: write_field_generic
   use mesh_mod,                  only: mesh_type
   use driver_modeldb_mod,        only: modeldb_type
