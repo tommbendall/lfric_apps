@@ -867,6 +867,10 @@ contains
     ! UM explicit boundary layer and Jules surface schemes
     !--------------------------------------------------------------------
     if (boundary_layer == boundary_layer_um ) then
+      call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
+                                 printmin=300.0_r_def, printmax=-300.0_r_def,  &
+                                 name="jules_exp: theta_before")
+
       call jules_exp_alg(modeldb, theta, mr_n,                               &
                          derived_fields, radiation_fields,                   &
                          orography_fields,                                   &

@@ -229,6 +229,10 @@ contains
 
     call log_event( 'slow_physics: Running explicit Boundary layer', LOG_LEVEL_DEBUG )
 
+    call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,                  &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,    &
+                               name="bl_exp: theta_start")
+
     ! Unpack derived fields
     call derived_fields%get_field('exner_in_wth', exner_in_wth)
     call derived_fields%get_field('rho_in_wth', rho_in_wth)
