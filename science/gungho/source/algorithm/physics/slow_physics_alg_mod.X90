@@ -683,6 +683,10 @@ contains
                          rad_this_tstep, rad_inc_this_tstep, &
                          cosp_this_tstep, twod_mesh)
 
+        call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,      &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys rad_cld: theta_after")
+
       !--------------------------------------------------------------------
       ! Socrates illumination scheme: solar position
       !--------------------------------------------------------------------
@@ -711,6 +715,10 @@ contains
                          aerosol_mesh,                                         &
                          aerosol_twod_mesh,                                    &
                          clock%get_step() )
+        call print_field_stats_alg(modeldb%config, theta_aero, LOG_LEVEL_INFO, &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys radaer: theta_after")
+
       end if
       call theta_coarse%field_final()
       call rho_coarse%field_final()
@@ -755,6 +763,10 @@ contains
     !--------------------------------------------------------------------
     if (radiation == radiation_socrates .and. &
         radiation_placement == radiation_placement_slow) then
+        call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,      &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys radiation: theta_before")
+
       call radiation_fields%get_field('dtheta_rad', dtheta_rad)
       call radiation_fields%get_field('dmv_pc2_rad', dmv_pc2_rad)
       ncells = mesh%get_last_edge_cell()
@@ -774,6 +786,10 @@ contains
                           conv_liquid_fraction, conv_frozen_fraction,          &
                           conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number,&
                           dt)
+        call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,      &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys radiation: theta_after")
+
       call um_sizes_init(1_i_def)
       radiation_done = .true. ! Collect this increment later on
       call tile_lw_albedo%field_final()
@@ -788,6 +804,10 @@ contains
       !--------------------------------------------------------------------
       if (cloud == cloud_um .and. scheme == scheme_pc2) then
         ! PC2 code will be called with dtheta_rad as the only forcing.
+        call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,      &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys pc2_rad: theta_before")
+
         call pc2_rad_response_alg(                 & ! Current state
                                    mr_n,           & ! IN
                                    theta,          & ! IN
@@ -802,6 +822,10 @@ contains
                                    dcfl_pc2_rad,   & ! OUT
                                    dbcf_pc2_rad,   & ! OUT
                                    dt )              ! IN
+
+        call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,      &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys pc2_rad: theta_after")
       end if ! (scheme == scheme_pc2)
 
       !--------------------------------------------------------------------
