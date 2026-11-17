@@ -847,18 +847,6 @@ contains
 
       end if
 
-      call pressure_in_wth%field_final()
-      call temperature_in_wth%field_final()
-      call rand_seed%field_final()
-      call n_cloud_layer%field_final()
-      call radiative_cloud_fraction%field_final()
-      call radiative_conv_fraction%field_final()
-      call conv_liquid_fraction%field_final()
-      call conv_frozen_fraction%field_final()
-      call conv_liquid_mmr%field_final()
-      call conv_frozen_mmr%field_final()
-      call conv_frozen_number%field_final()
-
       call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
                                 printmin=300.0_r_def, printmax=-300.0_r_def,   &
                                 name="slow_phys rad: theta_after")
