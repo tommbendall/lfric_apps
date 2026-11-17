@@ -832,6 +832,9 @@ contains
       ! CFMIP Observation Simulator Package (COSP)
       !--------------------------------------------------------------------
       if (cosp_this_tstep) then
+        call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,      &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                  name="slow_phys cosp: theta_before")
         call cosp_alg(modeldb%config,                                      &
                       pressure_in_wth, temperature_in_wth,                 &
                       exner, mr_n, derived_fields, radiation_fields,       &
@@ -840,6 +843,7 @@ contains
                       radiative_cloud_fraction, radiative_conv_fraction,   &
                       conv_liquid_fraction, conv_frozen_fraction,          &
                       conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number)
+        call log_event("COSP finished", LOG_LEVEL_INFO)
 
       end if
 
