@@ -142,7 +142,10 @@ contains
     call print_field_stats_alg(config, rho, LOG_LEVEL_DEBUG, &
                                printmin=1e-8_r_def,          &
                                printmax=2.0_r_def, name='rho')
-    call log_field_minmax(LOG_LEVEL_DEBUG, 'theta', theta)
+
+    call print_field_stats_alg(config, theta, LOG_LEVEL_INFO,                  &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,    &
+                               name="theta_end")
 
     if ( smagorinsky ) then
 

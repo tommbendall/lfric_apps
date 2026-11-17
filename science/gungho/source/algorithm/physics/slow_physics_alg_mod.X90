@@ -413,6 +413,10 @@ contains
     leonard_term_done    = .false.
     evap_condense_done   = .false.
 
+    call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
+                               printmin=300.0_r_def, printmax=-300.0_r_def,  &
+                               name="slow_phys: theta_start")
+
     !--------------------------------------------------------------------
     ! External forcing options
     !--------------------------------------------------------------------
@@ -564,6 +568,11 @@ contains
     call set_bundle_scalar(0.0_r_def, dmr_mphys, nummr)
     if ( microphysics == microphysics_um .and. &
          microphysics_placement == microphysics_placement_slow) then
+
+      call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
+                                printmin=300.0_r_def, printmax=-300.0_r_def,   &
+                                name="slow_phys mphys: theta_before")
+
       if ( microphysics_casim ) then
         call casim_alg( modeldb%config, mr_n, theta, rho,                &
                         derived_fields, microphysics_fields,             &
@@ -584,6 +593,10 @@ contains
       end if
       microphysics_done = .true. ! Collect this increment later on
       call f_arr%field_final()
+
+      call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
+                                printmin=300.0_r_def, printmax=-300.0_r_def,   &
+                                name="slow_phys mphys: theta_after")
     end if
 
     !--------------------------------------------------------------------
@@ -643,6 +656,10 @@ contains
     !--------------------------------------------------------------------
     if (radiation == radiation_socrates .and. &
         radiation_placement == radiation_placement_slow) then
+
+      call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
+                                printmin=300.0_r_def, printmax=-300.0_r_def,   &
+                                name="slow_phys rad: theta_before")
 
       ! Set logicals for the radiation calls to be made this timestep
       rad_this_tstep = (mod(clock%get_step()-1_i_def, n_radstep) == 0)
@@ -799,6 +816,7 @@ contains
                       radiative_cloud_fraction, radiative_conv_fraction,   &
                       conv_liquid_fraction, conv_frozen_fraction,          &
                       conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number)
+
       end if
 
       call pressure_in_wth%field_final()
@@ -813,6 +831,9 @@ contains
       call conv_frozen_mmr%field_final()
       call conv_frozen_number%field_final()
 
+      call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
+                                printmin=300.0_r_def, printmax=-300.0_r_def,   &
+                                name="slow_phys rad: theta_after")
     end if
 
     !--------------------------------------------------------------------
