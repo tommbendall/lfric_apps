@@ -109,7 +109,7 @@ subroutine set_rad_cloud_code( nlayers, &
   do j=1, nlayers
     k = map_wtheta(1) + j
     ! Squeeze large scale cloud into area not filled by convective cloud
-    radiative_cloud_fraction(k) = area_fraction(k) * (1.0_r_def - cca(k))
+    radiative_cloud_fraction(k) = min(area_fraction(k) * (1.0_r_def - cca(k)),1.0_r_def)
     ! Convective cloud amount unaltered
     radiative_conv_fraction(k) = cca(k)
     ! Set liquid fraction of convective cloud using layer temperature
