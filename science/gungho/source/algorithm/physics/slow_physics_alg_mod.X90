@@ -26,13 +26,14 @@ module slow_physics_alg_mod
                                        cv_scheme_gregory_rowntree, &
                                        cv_scheme_comorph
   use constants_mod,             only: i_def, r_def, l_def
-  use log_mod,                   only: LOG_LEVEL_INFO
+  use log_mod,                   only: LOG_LEVEL_INFO, LOG_LEVEL_DEBUG
   use lfric_xios_write_mod,      only: write_field_generic
   use mesh_mod,                  only: mesh_type
   use driver_modeldb_mod,        only: modeldb_type
   use field_parent_mod,          only: write_interface
   use mixing_config_mod,         only: leonard_term
-  use print_field_stats_alg_mod, only: print_field_stats_alg
+  use log_scalar_alg_mod,        only: log_scalar_minmax
+  use log_w2_alg_mod,            only: log_w2_minmax
   use physics_config_mod,        only: microphysics_placement,         &
                                        microphysics_placement_slow,    &
                                        electric_placement,             &
@@ -932,7 +933,6 @@ contains
                             turbulence_fields, derived_fields,  &
                             dt, clock)
       leonard_term_done = .true. ! Collect this increment later on
-
     end if
 
     !--------------------------------------------------------------------
@@ -1187,7 +1187,6 @@ contains
                   inc_X_plus_Y(dtheta, dtheta_tmp), &
                   inc_X_plus_Y(u_latest, du_tmp), &
                   inc_X_plus_Y(du, du_tmp) )
-
     end if
 
     !--------------------------------------------------------------------
@@ -1236,9 +1235,8 @@ contains
     end if ! bl
 #endif
 
-    call print_field_stats_alg( modeldb%config, dtheta, LOG_LEVEL_INFO,    &
-                                printmin=-20.0_r_def, printmax=20.0_r_def, &
-                                name='dtheta slow' )
+    call log_scalar_minmax(modeldb%config, 'dtheta slow', dtheta)
+    call log_w2_minmax(modeldb%config, 'du slow', du)
 
     if ( moisture_formulation /= moisture_formulation_dry ) then
       do i_mr = 1, nummr
