@@ -42,11 +42,12 @@ contains
     integer(kind=i_def)             :: idx
 
     call log_event(message, LOG_LEVEL_INFO)
-    call print_nan_loc_alg(config, field, LOG_LEVEL_INFO, message)
 
     do idx = 1, 32
       call log_scalar_column(message, field, idx)
     end do
+
+    call print_nan_loc_alg(config, field, LOG_LEVEL_INFO, message)
 
   end subroutine log_scalar_minmax
 
