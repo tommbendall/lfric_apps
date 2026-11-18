@@ -11,33 +11,15 @@
 !!        or area scaling applied (that is done later by
 !!        panel_edge_remap_w2h_kernel_mod).
 !!
-!> @details This is the W2H analogue of panel_edge_remap_kernel_mod (the
-!!          scalar W3/Wtheta remap), restricted to the "parl_w2" donor set
-!!          (set 1 in the instructions doc): donor values are taken from the
-!!          same face orientation as the target DoF, and interpolated
-!!          tangential to the panel edge using
-!!          interp_w2h_weights_{x,y} / interp_w2h_indices_{x,y}.
+!!          For each selector-owned W2H face, this kernel interpolates every
+!!          active panel-labelled value using signed donor offsets and the
+!!          computing cell's existing CROSS2D flux stencil. The target face
+!!          orientation is determined separately for each panel label, which
+!!          handles rotated panel edges without changing face ownership.
 !!
-!!          Two independent interpolations are produced, mirroring the x/y
-!!          split used throughout this kernel family:
-!!            - parl_w2_at_w2_x: interpolated S/N (v-type) face values, valid
-!!              near a W or E panel edge. The W/E (u-type) face values of
-!!              this output are simply copied from the input field.
-!!            - parl_w2_at_w2_y: interpolated W/E (u-type) face values, valid
-!!              near a S or N panel edge. The S/N face values of this output
-!!              are simply copied from the input field.
-!!          Away from the relevant edge, the weights already default to the
-!!          identity (see panel_edge_remap_w2h_weights_kernel_mod), so both
-!!          outputs equal the input field everywhere they are not actively
-!!          interpolating a face value.
-!!
-!!          perp_w2_at_w2_{x,y} are the "perp_w2" outputs (set 2 in the
-!!          instructions doc): at each parl_p face (S/N for x, W/E for y) the
-!!          native perpendicular donor DoFs (W and E faces for x, from
-!!          field_for_x; S and N faces for y, from field_for_y) are
-!!          interpolated tangential to the panel edge to each of the face's
-!!          two vertices, using interp_perp_weights_{x,y} /
-!!          interp_perp_indices_{x,y}, and the two results are averaged.
+!!          The perpendicular value is formed from two vertex interpolations
+!!          using the matching panel-labelled weights and offsets. The W3
+!!          staging fields remain x/y placeholders for the later W3 path.
 !!
 !!          parl_p_at_w3_{x,y} is the staging output for the "perp_w2 ->
 !!          W3" donor set (set 3 in the instructions doc). In this phase it
@@ -59,6 +41,7 @@ use argument_mod,          only: arg_type,                                     &
 use fs_continuity_mod,     only: W2h, W3
 use constants_mod,         only: r_def, r_tran, i_def, l_def
 use reference_element_mod, only: W, S, N, E
+use panel_edge_support_mod, only: panel_neighbour, panel_axis_label
 use sci_face_selector_support_mod, only: face_from_face_selector
 
 implicit none
@@ -73,28 +56,23 @@ private
 !!          needed by the Psy layer.
 type, public, extends(kernel_type) :: panel_edge_interpolate_w2h_kernel_type
   private
-  type(arg_type) :: meta_args(26) = (/                                         &
-      arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                         & ! parl_w2_at_w2_x
-      arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                         & ! parl_w2_at_w2_y
-      arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                         & ! perp_w2_at_w2_x
-      arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                         & ! perp_w2_at_w2_y
+    type(arg_type) :: meta_args(21) = (/                                         &
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, W2h),                         & ! parl_w2_at_w2
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, W2h),                         & ! perp_w2_at_w2
       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W3),                          & ! parl_p_at_w3_x (placeholder)
       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W3),                          & ! parl_p_at_w3_y (placeholder)
       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h, STENCIL(CROSS2D)),       & ! field_for_x (area-normalised flux)
       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2h, STENCIL(CROSS2D)),       & ! field_for_y
-      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),   & ! interp_w2h_weights_x
-      arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_5),   & ! interp_w2h_indices_x
-      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),   & ! interp_w2h_weights_y
-      arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_5),   & ! interp_w2h_indices_y
-      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_10),  & ! interp_perp_weights_x
-      arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_10),  & ! interp_perp_indices_x
-      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_10),  & ! interp_perp_weights_y
-      arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_10),  & ! interp_perp_indices_y
+      arg_type(GH_FIELD*3, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_5),   & ! interp_w2h_weights
+      arg_type(GH_FIELD*3, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_5),   & ! interp_w2h_indices
+      arg_type(GH_FIELD*3, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_10),  & ! interp_perp_weights
+      arg_type(GH_FIELD*3, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_10),  & ! interp_perp_indices
       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_9),   & ! interp_w3_weights_x
       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_9),   & ! interp_w3_indices_x
       arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_9),   & ! interp_w3_weights_y
       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_9),   & ! interp_w3_indices_y
       arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3),   & ! panel_edge_dist_W/E/S/N
+      arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_3),   & ! panel_id
       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3),   & ! face_selector_ew
       arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3),   & ! face_selector_ns
       arg_type(GH_SCALAR,  GH_INTEGER, GH_READ),                               & ! depth
@@ -116,14 +94,12 @@ contains
 !> @brief Apply the "parl_w2" Lagrange interpolation to a W2H field near
 !!        cubed-sphere panel edges.
 !> @param[in] nlayers Number of layers
-!> @param[in,out] parl_w2_at_w2_x Interpolated S/N values for the x
-!!                                remap
-!> @param[in,out] parl_w2_at_w2_y Interpolated W/E values for the y
-!!                                remap
-!> @param[in,out] perp_w2_at_w2_x Interpolated perp_w2 values at the S/N
-!!                                faces for the x remap
-!> @param[in,out] perp_w2_at_w2_y Interpolated perp_w2 values at the W/E
-!!                                faces for the y remap
+!> @param[in,out] parl_w2_at_w2_1 Interpolated parl values for panel-axis label 1
+!> @param[in,out] parl_w2_at_w2_2 Interpolated parl values for panel-axis label 2
+!> @param[in,out] parl_w2_at_w2_3 Interpolated parl values for panel-axis label 3
+!> @param[in,out] perp_w2_at_w2_1 Interpolated perp values for panel-axis label 1
+!> @param[in,out] perp_w2_at_w2_2 Interpolated perp values for panel-axis label 2
+!> @param[in,out] perp_w2_at_w2_3 Interpolated perp values for panel-axis label 3
 !> @param[in,out] parl_p_at_w3_x Placeholder (zero) W3 staging output (x)
 !> @param[in,out] parl_p_at_w3_y Placeholder (zero) W3 staging output (y)
 !> @param[in] field_for_x Field to be interpolated in the x direction
@@ -134,16 +110,18 @@ contains
 !> @param[in] wsy_stencil_size Size of field stencil for y (num cells)
 !> @param[in] wsy_max_length Maximum stencil branch length for y
 !> @param[in] wsy_stencil_map DoF map for the field stencil (y)
-!> @param[in] interp_w2h_weights_x Lagrange donor weights for the x remap
-!> @param[in] interp_w2h_indices_x Donor cell indices for the x remap
-!> @param[in] interp_w2h_weights_y Lagrange donor weights for the y remap
-!> @param[in] interp_w2h_indices_y Donor cell indices for the y remap
-!> @param[in] interp_perp_weights_x Lagrange donor weights for the perp_w2
-!!                                x remap (two sets of ndata per face)
-!> @param[in] interp_perp_indices_x Donor cell indices for the perp_w2 x remap
-!> @param[in] interp_perp_weights_y Lagrange donor weights for the perp_w2
-!!                                y remap (two sets of ndata per face)
-!> @param[in] interp_perp_indices_y Donor cell indices for the perp_w2 y remap
+!> @param[in] interp_w2h_weights_1 PARL donor weights for label 1
+!> @param[in] interp_w2h_weights_2 PARL donor weights for label 2
+!> @param[in] interp_w2h_weights_3 PARL donor weights for label 3
+!> @param[in] interp_w2h_indices_1 Signed PARL donor offsets for label 1
+!> @param[in] interp_w2h_indices_2 Signed PARL donor offsets for label 2
+!> @param[in] interp_w2h_indices_3 Signed PARL donor offsets for label 3
+!> @param[in] interp_perp_weights_1 Perpendicular donor weights for label 1
+!> @param[in] interp_perp_weights_2 Perpendicular donor weights for label 2
+!> @param[in] interp_perp_weights_3 Perpendicular donor weights for label 3
+!> @param[in] interp_perp_indices_1 Signed perpendicular donor offsets for label 1
+!> @param[in] interp_perp_indices_2 Signed perpendicular donor offsets for label 2
+!> @param[in] interp_perp_indices_3 Signed perpendicular donor offsets for label 3
 !> @param[in] interp_w3_weights_x Lagrange donor weights for the W3
 !!                               x remap (set 3)
 !> @param[in] interp_w3_indices_x Donor cell indices for the W3 x remap
@@ -154,6 +132,7 @@ contains
 !> @param[in] panel_edge_dist_E Distance of this column to the E panel edge
 !> @param[in] panel_edge_dist_S Distance of this column to the S panel edge
 !> @param[in] panel_edge_dist_N Distance of this column to the N panel edge
+!> @param[in] panel_id Panel ID for this column
 !> @param[in] face_selector_ew East-West face selector, used to ensure
 !!                            each W/E face is only ever written by one of
 !!                            its two neighbouring columns
@@ -186,10 +165,12 @@ contains
 !> @param[in] undf_pid Num DoFs for this partition for panel ID
 !> @param[in] map_pid DoF map for panel ID field
 subroutine panel_edge_interpolate_w2h_code( nlayers,                           &
-                                            parl_w2_at_w2_x,                  &
-                                            parl_w2_at_w2_y,                  &
-                                            perp_w2_at_w2_x,                  &
-                                            perp_w2_at_w2_y,                  &
+                                            parl_w2_at_w2_1,                  &
+                                            parl_w2_at_w2_2,                  &
+                                            parl_w2_at_w2_3,                  &
+                                            perp_w2_at_w2_1,                  &
+                                            perp_w2_at_w2_2,                  &
+                                            perp_w2_at_w2_3,                  &
                                             parl_p_at_w3_x,                   &
                                             parl_p_at_w3_y,                   &
                                             field_for_x,                      &
@@ -200,14 +181,18 @@ subroutine panel_edge_interpolate_w2h_code( nlayers,                           &
                                             wsy_stencil_size,                 &
                                             wsy_max_length,                   &
                                             wsy_stencil_map,                  &
-                                            interp_w2h_weights_x,             &
-                                            interp_w2h_indices_x,             &
-                                            interp_w2h_weights_y,             &
-                                            interp_w2h_indices_y,             &
-                                            interp_perp_weights_x,            &
-                                            interp_perp_indices_x,            &
-                                            interp_perp_weights_y,            &
-                                            interp_perp_indices_y,            &
+                                            interp_w2h_weights_1,             &
+                                            interp_w2h_weights_2,             &
+                                            interp_w2h_weights_3,             &
+                                            interp_w2h_indices_1,             &
+                                            interp_w2h_indices_2,             &
+                                            interp_w2h_indices_3,             &
+                                            interp_perp_weights_1,            &
+                                            interp_perp_weights_2,            &
+                                            interp_perp_weights_3,            &
+                                            interp_perp_indices_1,            &
+                                            interp_perp_indices_2,            &
+                                            interp_perp_indices_3,            &
                                             interp_w3_weights_x,              &
                                             interp_w3_indices_x,              &
                                             interp_w3_weights_y,              &
@@ -216,6 +201,7 @@ subroutine panel_edge_interpolate_w2h_code( nlayers,                           &
                                             panel_edge_dist_E,                &
                                             panel_edge_dist_S,                &
                                             panel_edge_dist_N,                &
+                                            panel_id,                         &
                                             face_selector_ew,                 &
                                             face_selector_ns,                 &
                                             remap_depth,                      &
@@ -254,22 +240,28 @@ subroutine panel_edge_interpolate_w2h_code( nlayers,                           &
   integer(kind=i_def), intent(in)    :: wsx_stencil_map(ndf_w2h, wsx_max_length, 4)
   integer(kind=i_def), intent(in)    :: wsy_stencil_map(ndf_w2h, wsy_max_length, 4)
 
-  real(kind=r_tran),   intent(inout) :: parl_w2_at_w2_x(undf_w2h)
-  real(kind=r_tran),   intent(inout) :: parl_w2_at_w2_y(undf_w2h)
-  real(kind=r_tran),   intent(inout) :: perp_w2_at_w2_x(undf_w2h)
-  real(kind=r_tran),   intent(inout) :: perp_w2_at_w2_y(undf_w2h)
+  real(kind=r_tran),   intent(inout) :: parl_w2_at_w2_1(undf_w2h)
+  real(kind=r_tran),   intent(inout) :: parl_w2_at_w2_2(undf_w2h)
+  real(kind=r_tran),   intent(inout) :: parl_w2_at_w2_3(undf_w2h)
+  real(kind=r_tran),   intent(inout) :: perp_w2_at_w2_1(undf_w2h)
+  real(kind=r_tran),   intent(inout) :: perp_w2_at_w2_2(undf_w2h)
+  real(kind=r_tran),   intent(inout) :: perp_w2_at_w2_3(undf_w2h)
   real(kind=r_tran),   intent(inout) :: parl_p_at_w3_x(undf_w3)
   real(kind=r_tran),   intent(inout) :: parl_p_at_w3_y(undf_w3)
   real(kind=r_tran),   intent(in)    :: field_for_x(undf_w2h)
   real(kind=r_tran),   intent(in)    :: field_for_y(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: interp_w2h_weights_x(undf_ww)
-  integer(kind=i_def), intent(in)    :: interp_w2h_indices_x(undf_ww)
-  real(kind=r_tran),   intent(in)    :: interp_w2h_weights_y(undf_ww)
-  integer(kind=i_def), intent(in)    :: interp_w2h_indices_y(undf_ww)
-  real(kind=r_tran),   intent(in)    :: interp_perp_weights_x(undf_wp)
-  integer(kind=i_def), intent(in)    :: interp_perp_indices_x(undf_wp)
-  real(kind=r_tran),   intent(in)    :: interp_perp_weights_y(undf_wp)
-  integer(kind=i_def), intent(in)    :: interp_perp_indices_y(undf_wp)
+  real(kind=r_tran),   intent(in)    :: interp_w2h_weights_1(undf_ww)
+  real(kind=r_tran),   intent(in)    :: interp_w2h_weights_2(undf_ww)
+  real(kind=r_tran),   intent(in)    :: interp_w2h_weights_3(undf_ww)
+  integer(kind=i_def), intent(in)    :: interp_w2h_indices_1(undf_ww)
+  integer(kind=i_def), intent(in)    :: interp_w2h_indices_2(undf_ww)
+  integer(kind=i_def), intent(in)    :: interp_w2h_indices_3(undf_ww)
+  real(kind=r_tran),   intent(in)    :: interp_perp_weights_1(undf_wp)
+  real(kind=r_tran),   intent(in)    :: interp_perp_weights_2(undf_wp)
+  real(kind=r_tran),   intent(in)    :: interp_perp_weights_3(undf_wp)
+  integer(kind=i_def), intent(in)    :: interp_perp_indices_1(undf_wp)
+  integer(kind=i_def), intent(in)    :: interp_perp_indices_2(undf_wp)
+  integer(kind=i_def), intent(in)    :: interp_perp_indices_3(undf_wp)
   real(kind=r_tran),   intent(in)    :: interp_w3_weights_x(undf_w3w)
   integer(kind=i_def), intent(in)    :: interp_w3_indices_x(undf_w3w)
   real(kind=r_tran),   intent(in)    :: interp_w3_weights_y(undf_w3w)
@@ -278,19 +270,36 @@ subroutine panel_edge_interpolate_w2h_code( nlayers,                           &
   integer(kind=i_def), intent(in)    :: panel_edge_dist_E(undf_pid)
   integer(kind=i_def), intent(in)    :: panel_edge_dist_S(undf_pid)
   integer(kind=i_def), intent(in)    :: panel_edge_dist_N(undf_pid)
+  real(kind=r_def),    intent(in)    :: panel_id(undf_pid)
   integer(kind=i_def), intent(in)    :: face_selector_ew(undf_pid)
   integer(kind=i_def), intent(in)    :: face_selector_ns(undf_pid)
 
   ! Internal variables
   integer(kind=i_def) :: face, pid_idx, nvert
-  integer(kind=i_def) :: ew_sel, ns_sel, j
-  integer(kind=i_def) :: w3_idx, w3w_idx, w2h_idx
+  integer(kind=i_def) :: ew_sel, ns_sel, j, label, target_face
+  integer(kind=i_def) :: w3_idx, w3w_idx, w2h_idx, ww_idx
+  integer(kind=i_def) :: owned_panel, other_panel, other_face, own_label
+  integer(kind=i_def) :: other_label, host_sign, edge_face_dist
+  integer(kind=i_def) :: edge_direction_x, edge_direction_y
+  logical(kind=l_def) :: label_active, skip_perp
   logical(kind=l_def) :: near_panel_edge_x, near_panel_edge_y, near_panel_edge
 
   ! Number of vertical levels to loop over (W2H is layer-based, like W3)
   nvert = nlayers - 1
 
   pid_idx = map_pid(1)
+  owned_panel = INT(panel_id(pid_idx), i_def)
+
+  if (ABS(panel_edge_dist_W(pid_idx)) < ABS(panel_edge_dist_E(pid_idx))) then
+    edge_direction_x = W
+  else
+    edge_direction_x = E
+  end if
+  if (ABS(panel_edge_dist_S(pid_idx)) < ABS(panel_edge_dist_N(pid_idx))) then
+    edge_direction_y = S
+  else
+    edge_direction_y = N
+  end if
 
   near_panel_edge_x = (                                                        &
       ABS(panel_edge_dist_W(pid_idx)) <= remap_depth+1                         &
@@ -336,245 +345,325 @@ subroutine panel_edge_interpolate_w2h_code( nlayers,                           &
     else
       parl_p_at_w3_y(w3_idx : w3_idx+nlayers-1) = -17000_r_tran
     end if
+  end if  ! near_panel_edge
 
-    ew_sel = face_selector_ew(pid_idx)
-    ns_sel = face_selector_ns(pid_idx)
+  ew_sel = face_selector_ew(pid_idx)
+  ns_sel = face_selector_ns(pid_idx)
 
-    ! Loop only over the faces this column owns (per face_selector_ew/ns), so
-    ! that each shared W2H face is interpolated by exactly one of its two
-    ! neighbouring columns (the stored donor indices are only meaningful to
-    ! the column that computed them)
-    do j = 1, ABS(ew_sel) + ABS(ns_sel)
-      face = face_from_face_selector(j, ew_sel, ns_sel)
-      w2h_idx = map_w2h(face)
-      select case (face)
-      case (S, N)
-        if (near_panel_edge_x .or. include_perp_p) then
-          call panel_edge_interpolate_w2h_1d(                                    &
-                  nlayers, parl_w2_at_w2_x, field_for_x, face,                  &
-                  wsx_max_length,                                                &
-                  wsx_stencil_size(S), wsx_stencil_map(:,:,S),                   &
-                  wsx_stencil_size(N), wsx_stencil_map(:,:,N),                   &
-                  interp_w2h_weights_x, interp_w2h_indices_x, ndata,            &
-                  ndf_w2h, undf_w2h, map_w2h,                                       &
-                  ndf_ww, undf_ww, map_ww                                        &
-          )
-        else
-          parl_w2_at_w2_x(w2h_idx : w2h_idx+nlayers-1) = -8100_r_tran
+  do j = 1, ABS(ew_sel) + ABS(ns_sel)
+    face = face_from_face_selector(j, ew_sel, ns_sel)
+    ww_idx = map_ww(face)
+    w2h_idx = map_w2h(face)
+
+    select case (face)
+    case (W)
+      edge_face_dist = panel_edge_dist_W(pid_idx)
+    case (E)
+      edge_face_dist = panel_edge_dist_E(pid_idx)
+    case (S)
+      edge_face_dist = panel_edge_dist_S(pid_idx)
+    case (N)
+      edge_face_dist = panel_edge_dist_N(pid_idx)
+    end select
+
+    other_panel = owned_panel
+    other_face = face
+    if (edge_face_dist == 1) then
+      other_panel = panel_neighbour(owned_panel, face)
+      other_face = face_direction_to_panel(other_panel, owned_panel)
+      if (owned_panel < other_panel) then
+        host_sign = 1_i_def
+      else
+        host_sign = -1_i_def
+      end if
+    else if (face == S .or. face == W) then
+      host_sign = 1_i_def
+    else
+      host_sign = -1_i_def
+    end if
+
+    own_label = panel_axis_label(owned_panel)
+    other_label = panel_axis_label(other_panel)
+    parl_w2_at_w2_1(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
+    parl_w2_at_w2_2(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
+    parl_w2_at_w2_3(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
+    perp_w2_at_w2_1(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
+    perp_w2_at_w2_2(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
+    perp_w2_at_w2_3(w2h_idx:w2h_idx+nlayers-1) = 0.0_r_tran
+
+    do label = 1, 3
+      target_face = face
+      if (label /= own_label) then
+        if (edge_face_dist /= 1 .or. label /= other_label) cycle
+        target_face = other_face
+      end if
+
+      skip_perp = .false.
+      if (include_perp_p) then
+        if (edge_face_dist == 1) then
+          skip_perp = .true.
+        else if ((face == W .or. face == E) .and. near_panel_edge_x) then
+          skip_perp = (label == panel_axis_label(                            &
+              panel_neighbour(owned_panel, edge_direction_x)))
+        else if ((face == S .or. face == N) .and. near_panel_edge_y) then
+          skip_perp = (label == panel_axis_label(                            &
+              panel_neighbour(owned_panel, edge_direction_y)))
         end if
+      end if
 
-        if (near_panel_edge_x) then
-          call panel_edge_interpolate_perp_1d(                                 &
-                  nlayers, perp_w2_at_w2_x, field_for_x, face, W, E,           &
-                  wsx_max_length,                                              &
-                  wsx_stencil_size(S), wsx_stencil_map(:,:,S),                 &
-                  wsx_stencil_size(N), wsx_stencil_map(:,:,N),                 &
-                  interp_perp_weights_x, interp_perp_indices_x, ndata,         &
-                  ndf_w2h, undf_w2h, map_w2h,                                  &
-                  ndf_wp, undf_wp, map_wp                                      &
-          )
-        else
-          perp_w2_at_w2_x(w2h_idx : w2h_idx+nlayers-1) = 0.0_r_tran
+      select case (label)
+      case (1)
+        label_active = ANY(interp_w2h_indices_1(                              &
+          ww_idx:ww_idx+ndata-1) /= 0_i_def)
+        if (label_active) then
+            call interpolate_labelled_face(parl_w2_at_w2_1, perp_w2_at_w2_1,   &
+              target_face, face, host_sign, skip_perp,                         &
+              field_for_x, field_for_y,                                      &
+              wsx_max_length, wsx_stencil_size, wsx_stencil_map,             &
+              wsy_max_length, wsy_stencil_size, wsy_stencil_map,             &
+              interp_w2h_weights_1, interp_w2h_indices_1,                     &
+              interp_perp_weights_1, interp_perp_indices_1,                   &
+              ndata, nlayers, ndf_w2h, undf_w2h, map_w2h,                    &
+              ndf_ww, undf_ww, map_ww, ndf_wp, undf_wp, map_wp)
         end if
-
-      case (W, E)
-        if (near_panel_edge_y .or. include_perp_p) then
-          call panel_edge_interpolate_w2h_1d(                                    &
-                  nlayers, parl_w2_at_w2_y, field_for_y, face,                  &
-                  wsy_max_length,                                                &
-                  wsy_stencil_size(W), wsy_stencil_map(:,:,W),                   &
-                  wsy_stencil_size(E), wsy_stencil_map(:,:,E),                   &
-                  interp_w2h_weights_y, interp_w2h_indices_y, ndata,            &
-                  ndf_w2h, undf_w2h, map_w2h,                                       &
-                  ndf_ww, undf_ww, map_ww                                        &
-          )
-        else
-          parl_w2_at_w2_y(w2h_idx : w2h_idx+nlayers-1) = -8100_r_tran
+      case (2)
+        label_active = ANY(interp_w2h_indices_2(                              &
+          ww_idx:ww_idx+ndata-1) /= 0_i_def)
+        if (label_active) then
+            call interpolate_labelled_face(parl_w2_at_w2_2, perp_w2_at_w2_2,   &
+              target_face, face, host_sign, skip_perp,                         &
+              field_for_x, field_for_y,                                      &
+              wsx_max_length, wsx_stencil_size, wsx_stencil_map,             &
+              wsy_max_length, wsy_stencil_size, wsy_stencil_map,             &
+              interp_w2h_weights_2, interp_w2h_indices_2,                     &
+              interp_perp_weights_2, interp_perp_indices_2,                   &
+              ndata, nlayers, ndf_w2h, undf_w2h, map_w2h,                    &
+              ndf_ww, undf_ww, map_ww, ndf_wp, undf_wp, map_wp)
         end if
-
-        if (near_panel_edge_y) then
-          call panel_edge_interpolate_perp_1d(                                 &
-                  nlayers, perp_w2_at_w2_y, field_for_y, face, S, N,           &
-                  wsy_max_length,                                              &
-                  wsy_stencil_size(W), wsy_stencil_map(:,:,W),                 &
-                  wsy_stencil_size(E), wsy_stencil_map(:,:,E),                 &
-                  interp_perp_weights_y, interp_perp_indices_y, ndata,         &
-                  ndf_w2h, undf_w2h, map_w2h,                                  &
-                  ndf_wp, undf_wp, map_wp                                      &
-          )
-        else
-          perp_w2_at_w2_y(w2h_idx : w2h_idx+nlayers-1) = 0.0_r_tran
+      case (3)
+        label_active = ANY(interp_w2h_indices_3(                              &
+          ww_idx:ww_idx+ndata-1) /= 0_i_def)
+        if (label_active) then
+            call interpolate_labelled_face(parl_w2_at_w2_3, perp_w2_at_w2_3,   &
+              target_face, face, host_sign, skip_perp,                         &
+              field_for_x, field_for_y,                                      &
+              wsx_max_length, wsx_stencil_size, wsx_stencil_map,             &
+              wsy_max_length, wsy_stencil_size, wsy_stencil_map,             &
+              interp_w2h_weights_3, interp_w2h_indices_3,                     &
+              interp_perp_weights_3, interp_perp_indices_3,                   &
+              ndata, nlayers, ndf_w2h, undf_w2h, map_w2h,                    &
+              ndf_ww, undf_ww, map_ww, ndf_wp, undf_wp, map_wp)
         end if
       end select
+
     end do
-  end if  ! near panel edge
+  end do
 
 end subroutine panel_edge_interpolate_w2h_code
 
-!> @brief Private routine to interpolate a single W2H target DoF ("target_df")
-!!        from a donor-cell stencil tangential to the relevant panel edge,
-!!        using the "parl_w2" Lagrange weights/indices (same-orientation
-!!        donors only, no rotation).
-subroutine panel_edge_interpolate_w2h_1d( nlayers,                             &
-                                          interpolated_field, field,          &
-                                          target_df,                          &
-                                          ws_max_length,                      &
-                                          ws_stencil_size_l, ws_stencil_l,     &
-                                          ws_stencil_size_r, ws_stencil_r,     &
-                                          weights, indices, ndata,            &
-                                          ndf_w2h, undf_w2h, map_w2h,            &
-                                          ndf_ww, undf_ww, map_ww             &
-)
+integer(kind=i_def) function face_direction_to_panel(panel, target_panel)      &
+    result(direction)
 
   implicit none
 
-  ! Arguments
-  integer(kind=i_def), intent(in)    :: nlayers
-  integer(kind=i_def), intent(in)    :: target_df
-  integer(kind=i_def), intent(in)    :: ws_stencil_size_l
-  integer(kind=i_def), intent(in)    :: ws_stencil_size_r
-  integer(kind=i_def), intent(in)    :: ws_max_length
-  integer(kind=i_def), intent(in)    :: ndata
-  integer(kind=i_def), intent(in)    :: ndf_ww, undf_ww
-  integer(kind=i_def), intent(in)    :: ndf_w2h, undf_w2h
+  integer(kind=i_def), intent(in) :: panel, target_panel
+  integer(kind=i_def) :: directions(4), i
 
-  integer(kind=i_def), intent(in)    :: map_w2h(ndf_w2h)
-  integer(kind=i_def), intent(in)    :: map_ww(ndf_ww)
-  integer(kind=i_def), intent(in)    :: ws_stencil_l(ndf_w2h, ws_stencil_size_l)
-  integer(kind=i_def), intent(in)    :: ws_stencil_r(ndf_w2h, ws_stencil_size_r)
+  directions = (/ W, S, E, N /)
+  direction = 0_i_def
+  do i = 1, 4
+    if (panel_neighbour(panel, directions(i)) == target_panel) then
+      direction = directions(i)
+      return
+    end if
+  end do
 
-  real(kind=r_tran),   intent(inout) :: interpolated_field(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: field(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: weights(undf_ww)
-  integer(kind=i_def), intent(in)    :: indices(undf_ww)
+end function face_direction_to_panel
 
-  ! Internal variables
-  integer(kind=i_def) :: i
-  integer(kind=i_def) :: w_idx, r_idx, f_idx
+integer(kind=i_def) function opposite_face(direction) result(opposite)
+
+  implicit none
+
+  integer(kind=i_def), intent(in) :: direction
+
+  select case (direction)
+  case (W)
+    opposite = E
+  case (E)
+    opposite = W
+  case (S)
+    opposite = N
+  case (N)
+    opposite = S
+  end select
+
+end function opposite_face
+
+subroutine interpolate_labelled_face(parl_output, perp_output, target_face,   &
+                                     host_face, host_sign, skip_perp,         &
+                                     field_for_x, field_for_y,               &
+                                     wsx_max_length, wsx_stencil_size,       &
+                                     wsx_stencil_map, wsy_max_length,        &
+                                     wsy_stencil_size, wsy_stencil_map,      &
+                                     weights, offsets, perp_weights,         &
+                                     perp_offsets, ndata, nlayers,            &
+                                     ndf_w2h, undf_w2h, map_w2h,             &
+                                     ndf_ww, undf_ww, map_ww,                &
+                                     ndf_wp, undf_wp, map_wp)
+
+  implicit none
+
+  integer(kind=i_def), intent(in) :: target_face, host_face, host_sign
+  logical(kind=l_def), intent(in) :: skip_perp
+  integer(kind=i_def), intent(in) :: wsx_max_length, wsy_max_length
+  integer(kind=i_def), intent(in) :: wsx_stencil_size(4), wsy_stencil_size(4)
+  integer(kind=i_def), intent(in) :: ndata, nlayers
+  integer(kind=i_def), intent(in) :: ndf_w2h, undf_w2h
+  integer(kind=i_def), intent(in) :: ndf_ww, undf_ww, ndf_wp, undf_wp
+  integer(kind=i_def), intent(in) :: map_w2h(ndf_w2h)
+  integer(kind=i_def), intent(in) :: map_ww(ndf_ww), map_wp(ndf_wp)
+  integer(kind=i_def), intent(in) :: wsx_stencil_map(                        &
+      ndf_w2h, wsx_max_length, 4)
+  integer(kind=i_def), intent(in) :: wsy_stencil_map(                        &
+      ndf_w2h, wsy_max_length, 4)
+  real(kind=r_tran), intent(inout) :: parl_output(undf_w2h)
+  real(kind=r_tran), intent(inout) :: perp_output(undf_w2h)
+  real(kind=r_tran), intent(in) :: field_for_x(undf_w2h)
+  real(kind=r_tran), intent(in) :: field_for_y(undf_w2h)
+  real(kind=r_tran), intent(in) :: weights(undf_ww)
+  integer(kind=i_def), intent(in) :: offsets(undf_ww)
+  real(kind=r_tran), intent(in) :: perp_weights(undf_wp)
+  integer(kind=i_def), intent(in) :: perp_offsets(undf_wp)
+
+  if (target_face == S .or. target_face == N) then
+    call interpolate_labelled_face_1d(                                      &
+        parl_output, perp_output, field_for_x, target_face, host_face,        &
+      host_sign, skip_perp,                                                &
+        wsx_max_length, wsx_stencil_size,                                     &
+        wsx_stencil_map, weights, offsets, perp_weights, perp_offsets,        &
+        ndata, nlayers, ndf_w2h, undf_w2h, map_w2h,                          &
+        ndf_ww, undf_ww, map_ww, ndf_wp, undf_wp, map_wp)
+  else
+    call interpolate_labelled_face_1d(                                      &
+        parl_output, perp_output, field_for_y, target_face, host_face,        &
+      host_sign, skip_perp,                                                &
+        wsy_max_length, wsy_stencil_size,                                     &
+        wsy_stencil_map, weights, offsets, perp_weights, perp_offsets,        &
+        ndata, nlayers, ndf_w2h, undf_w2h, map_w2h,                          &
+        ndf_ww, undf_ww, map_ww, ndf_wp, undf_wp, map_wp)
+  end if
+
+end subroutine interpolate_labelled_face
+
+subroutine interpolate_labelled_face_1d(parl_output, perp_output, field,     &
+                                         target_face, host_face, host_sign,   &
+                                         skip_perp,                           &
+                                         ws_max_length,                      &
+                                         ws_stencil_size, ws_stencil_map,     &
+                                         weights, offsets, perp_weights,     &
+                                         perp_offsets, ndata, nlayers,        &
+                                         ndf_w2h, undf_w2h, map_w2h,          &
+                                         ndf_ww, undf_ww, map_ww,             &
+                                         ndf_wp, undf_wp, map_wp)
+
+  implicit none
+
+  integer(kind=i_def), intent(in) :: target_face, host_face, host_sign
+  logical(kind=l_def), intent(in) :: skip_perp
+  integer(kind=i_def), intent(in) :: ws_max_length, ws_stencil_size(4)
+  integer(kind=i_def), intent(in) :: ndata, nlayers
+  integer(kind=i_def), intent(in) :: ndf_w2h, undf_w2h
+  integer(kind=i_def), intent(in) :: ndf_ww, undf_ww, ndf_wp, undf_wp
+  integer(kind=i_def), intent(in) :: map_w2h(ndf_w2h)
+  integer(kind=i_def), intent(in) :: map_ww(ndf_ww), map_wp(ndf_wp)
+  integer(kind=i_def), intent(in) :: ws_stencil_map(                        &
+      ndf_w2h, ws_max_length, 4)
+  real(kind=r_tran), intent(inout) :: parl_output(undf_w2h)
+  real(kind=r_tran), intent(inout) :: perp_output(undf_w2h)
+  real(kind=r_tran), intent(in) :: field(undf_w2h)
+  real(kind=r_tran), intent(in) :: weights(undf_ww)
+  integer(kind=i_def), intent(in) :: offsets(undf_ww)
+  real(kind=r_tran), intent(in) :: perp_weights(undf_wp)
+  integer(kind=i_def), intent(in) :: perp_offsets(undf_wp)
+
+  integer(kind=i_def) :: i, k, source_face, source_face_a, source_face_b
+  integer(kind=i_def) :: w_idx, wp_idx, output_idx, donor_idx, offset
   integer(kind=i_def) :: nvert
-  integer(kind=i_def) :: ncells_in_stencil
-  integer(kind=i_def) :: stencil_1d(2*ws_max_length-1)
 
   nvert = nlayers - 1
+  w_idx = map_ww(host_face)
+  wp_idx = map_wp(host_face)
+  output_idx = map_w2h(host_face)
+  parl_output(output_idx:output_idx+nvert) = 0.0_r_tran
+  perp_output(output_idx:output_idx+nvert) = 0.0_r_tran
 
-  ! -------------------------------------------------------------------------- !
-  ! Create a 1D donor stencil (unify the two branches of the CROSS2D stencil),
-  ! sampling the target's own face orientation, from the donor cells
-  ! -------------------------------------------------------------------------- !
-  ncells_in_stencil = ws_stencil_size_l + ws_stencil_size_r - 1
-
-  stencil_1d(:) = 0
-  do i = 1, ws_stencil_size_l
-    stencil_1d(i) = ws_stencil_l(target_df, i)
-  end do
-  ! Omit 1 from the second part, as the central cell is already included
-  do i = 1, ws_stencil_size_r - 1
-    stencil_1d(i+ws_stencil_size_l) = ws_stencil_r(target_df, i+1)
-  end do
-
-  ! -------------------------------------------------------------------------- !
-  ! Interpolate
-  ! -------------------------------------------------------------------------- !
-  w_idx = map_ww(target_df)
-  r_idx = map_w2h(target_df)
-
-  interpolated_field(r_idx : r_idx+nvert) = 0.0_r_tran
-
-  ! Loop through (multidata) interpolation points
   do i = 0, ndata - 1
-    f_idx = stencil_1d(indices(w_idx+i))
-
-    interpolated_field(r_idx : r_idx+nvert) = interpolated_field(r_idx : r_idx+nvert) &
-      + weights(w_idx+i) * field(f_idx : f_idx+nvert)
+    offset = offsets(w_idx+i)
+    if (offset == 0_i_def) cycle
+    donor_idx = donor_dof(target_face, offset)
+    if (donor_idx == 0_i_def) cycle
+    parl_output(output_idx:output_idx+nvert) =                                &
+        parl_output(output_idx:output_idx+nvert)                              &
+        + weights(w_idx+i) * field(donor_idx:donor_idx+nvert)
   end do
 
-end subroutine panel_edge_interpolate_w2h_1d
+        if (skip_perp) return
 
-!> @brief Private routine to interpolate the perp_w2 value at a single W2H
-!!        target DoF (target_df), tangential to the relevant panel edge. Two
-!!        interpolations are made, from the donor DoFs source_df_a and
-!!        source_df_b to the two vertices of the target face, using the two
-!!        consecutive sets of ndata weights/indices stored for the target,
-!!        and the results are averaged.
-subroutine panel_edge_interpolate_perp_1d( nlayers,                            &
-                                           interpolated_field, field,         &
-                                           target_df,                         &
-                                           source_df_a, source_df_b,          &
-                                           ws_max_length,                     &
-                                           ws_stencil_size_l, ws_stencil_l,    &
-                                           ws_stencil_size_r, ws_stencil_r,    &
-                                           weights, indices, ndata,           &
-                                           ndf_w2h, undf_w2h, map_w2h,        &
-                                           ndf_wp, undf_wp, map_wp            &
-)
+  if (target_face == S .or. target_face == N) then
+    source_face_a = W
+    source_face_b = E
+  else
+    source_face_a = S
+    source_face_b = N
+  end if
 
-  implicit none
-
-  ! Arguments
-  integer(kind=i_def), intent(in)    :: nlayers
-  integer(kind=i_def), intent(in)    :: target_df
-  integer(kind=i_def), intent(in)    :: source_df_a, source_df_b
-  integer(kind=i_def), intent(in)    :: ws_stencil_size_l
-  integer(kind=i_def), intent(in)    :: ws_stencil_size_r
-  integer(kind=i_def), intent(in)    :: ws_max_length
-  integer(kind=i_def), intent(in)    :: ndata
-  integer(kind=i_def), intent(in)    :: ndf_wp, undf_wp
-  integer(kind=i_def), intent(in)    :: ndf_w2h, undf_w2h
-
-  integer(kind=i_def), intent(in)    :: map_w2h(ndf_w2h)
-  integer(kind=i_def), intent(in)    :: map_wp(ndf_wp)
-  integer(kind=i_def), intent(in)    :: ws_stencil_l(ndf_w2h, ws_stencil_size_l)
-  integer(kind=i_def), intent(in)    :: ws_stencil_r(ndf_w2h, ws_stencil_size_r)
-
-  real(kind=r_tran),   intent(inout) :: interpolated_field(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: field(undf_w2h)
-  real(kind=r_tran),   intent(in)    :: weights(undf_wp)
-  integer(kind=i_def), intent(in)    :: indices(undf_wp)
-
-  ! Internal variables
-  integer(kind=i_def) :: i, k
-  integer(kind=i_def) :: w_idx, r_idx, f_idx
-  integer(kind=i_def) :: nvert
-  integer(kind=i_def) :: source_df
-  integer(kind=i_def) :: stencil_1d(2*ws_max_length-1)
-
-  nvert = nlayers - 1
-
-  w_idx = map_wp(target_df)
-  r_idx = map_w2h(target_df)
-
-  interpolated_field(r_idx : r_idx+nvert) = 0.0_r_tran
-
-  ! k = 0: vertex a (donor DoFs source_df_a); k = 1: vertex b (source_df_b)
   do k = 0, 1
     if (k == 0) then
-      source_df = source_df_a
+      source_face = source_face_a
     else
-      source_df = source_df_b
+      source_face = source_face_b
     end if
-
-    ! Create a 1D donor stencil (unify the two branches of the CROSS2D
-    ! stencil), sampling the donor's own face orientation
-    stencil_1d(:) = 0
-    do i = 1, ws_stencil_size_l
-      stencil_1d(i) = ws_stencil_l(source_df, i)
-    end do
-    ! Omit 1 from the second part, as the central cell is already included
-    do i = 1, ws_stencil_size_r - 1
-      stencil_1d(i+ws_stencil_size_l) = ws_stencil_r(source_df, i+1)
-    end do
-
-    ! Loop through (multidata) interpolation points, averaging the two vertices
     do i = 0, ndata - 1
-      f_idx = stencil_1d(indices(w_idx+k*ndata+i))
-
-      interpolated_field(r_idx : r_idx+nvert) =                                &
-        interpolated_field(r_idx : r_idx+nvert)                                &
-        + 0.5_r_tran * weights(w_idx+k*ndata+i) * field(f_idx : f_idx+nvert)
+      offset = perp_offsets(wp_idx+k*ndata+i)
+      if (offset == 0_i_def) cycle
+      donor_idx = donor_dof(source_face, offset)
+      if (donor_idx == 0_i_def) cycle
+      perp_output(output_idx:output_idx+nvert) =                              &
+          perp_output(output_idx:output_idx+nvert)                            &
+          + 0.5_r_tran * perp_weights(wp_idx+k*ndata+i)                       &
+          * field(donor_idx:donor_idx+nvert)
     end do
   end do
 
-end subroutine panel_edge_interpolate_perp_1d
+contains
+
+  integer(kind=i_def) function donor_dof(source_df, donor_offset) result(dof)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: source_df, donor_offset
+    integer(kind=i_def) :: branch, position
+
+    if (donor_offset == host_sign) then
+      dof = map_w2h(source_df)
+      return
+    else if (donor_offset*host_sign < 0_i_def) then
+      branch = host_face
+      position = ABS(donor_offset) + 1
+    else
+      branch = opposite_face(host_face)
+      position = ABS(donor_offset)
+    end if
+
+    if (position > ws_stencil_size(branch)) then
+      dof = 0_i_def
+    else
+      dof = ws_stencil_map(source_df, position, branch)
+    end if
+
+  end function donor_dof
+
+end subroutine interpolate_labelled_face_1d
 
 !> @brief Private routine to interpolate the single W3 cell-centre target
 !!        from a donor-cell stencil tangential to the relevant panel edge,

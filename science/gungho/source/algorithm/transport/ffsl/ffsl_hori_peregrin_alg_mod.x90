@@ -158,8 +158,8 @@ contains
     ! Departure quantities for the PEREGRIN corrected-flux (u - u_hat) 1D SL
     ! panel-edge step: the "_peregrin" analogues of the departure quantities
     ! used by the normal horizontal SL kernels
-    ! (horizontal_linear_sl_kernel_type), one per axis label of the remapped
-    ! eaves
+    ! (horizontal_linear_sl_kernel_type), one per panel-axis label identifying
+    ! the remapped panel value
     type(r_tran_field_type),  pointer :: dep_dist_peregrin_1
     type(r_tran_field_type),  pointer :: dep_dist_peregrin_2
     type(r_tran_field_type),  pointer :: dep_dist_peregrin_3

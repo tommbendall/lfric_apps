@@ -142,8 +142,7 @@ module flux_precomputations_alg_mod
     logical(kind=l_def),      allocatable :: is_computed_stencil_extent_outer(:,:)
 
     ! PEREGRIN departure quantities, horizontal only. The first index is the
-    ! axis label of the panels across the remapped eaves (see
-    ! panel_axis_label), each calculated from the matching remapped flux
+    ! panel-axis label for the eave value stored in each remapped flux.
     type(r_tran_field_type),  allocatable :: dep_dist_peregrin(:,:,:)
     type(r_tran_field_type),  allocatable :: frac_flux_peregrin(:,:,:)
     integer(kind=i_def),      allocatable :: dep_stencil_extent_peregrin(:,:,:)
@@ -2239,15 +2238,16 @@ contains
     dep_stencil_extent = self%get_max_stencil_extent()
 
     ! Remap the reference wind flux near panel edges, using the donor-stencil
-    ! W2H remap. Each remapped flux holds the eaves whose neighbouring panels
-    ! share one axis label. Separate PEREGRIN departure quantities are
-    ! computed from each, rather than combining them into a single field.
+    ! W2H remap. Each labelled value is stored for the panel whose eave it
+    ! represents. Compute separate PEREGRIN departure quantities per label.
     w2_fs => ref_flux%get_function_space()
     do axis = 1, 3
       call ref_flux%copy_field_properties(remapped_flux(axis))
     end do
 
-    call panel_edge_remap_w2h_alg(remapped_flux, ref_flux, dep_stencil_extent)
+    call panel_edge_remap_w2h_alg(                                            &
+      remapped_flux, ref_flux, dep_stencil_extent, .false.                  &
+    )
 
     ndata = 2*dep_stencil_extent + 1
     twod_mesh => mesh_collection%get_mesh(ref_flux%get_mesh(), TWOD)

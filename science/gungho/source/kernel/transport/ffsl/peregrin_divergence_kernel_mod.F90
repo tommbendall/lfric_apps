@@ -38,6 +38,7 @@ module peregrin_divergence_kernel_mod
                                    ANY_DISCONTINUOUS_SPACE_1, &
                                    ANY_DISCONTINUOUS_SPACE_2
   use constants_mod,         only: i_def, r_tran, r_def
+  use reference_element_mod, only: W, E, S, N
   use fs_continuity_mod,     only: W3
   use kernel_mod,            only: kernel_type
 

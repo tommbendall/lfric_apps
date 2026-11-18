@@ -234,7 +234,6 @@ subroutine panel_edge_remap_code( nlayers,                                     &
     ! so it can be detected if it is used
     remapped_in_x(r_idx : r_idx+nvert) = -1900.0_r_tran
   end if
-
   ! Remap at y edge of panel ---------------------------------------------------
   if (compute_y) then
     call panel_edge_remap_1d(                                                  &
@@ -257,7 +256,6 @@ subroutine panel_edge_remap_code( nlayers,                                     &
     ! so it can be detected if it is used
     remapped_in_y(r_idx : r_idx+nvert) = -1900.0_r_tran
   end if
-
 end subroutine panel_edge_remap_code
 
 !> @brief Private routine for remapping a field over a cubed-sphere panel edge

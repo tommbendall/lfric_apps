@@ -45,7 +45,7 @@ module peregrin_eave_sl_kernel_mod
   use fs_continuity_mod,     only: W2H
   use kernel_mod,            only: kernel_type
   use reference_element_mod, only: W, E, S, N
-  use panel_edge_support_mod, only: panel_neighbour, panel_axis_label
+  use panel_edge_support_mod, only: panel_axis_label
 
   implicit none
 
@@ -237,18 +237,15 @@ contains
     integer(kind=i_def) :: stencil_map_cy_1d(-stencil_max_cy:stencil_max_cy)
     logical(kind=l_def) :: do_peregrin, near_edge
     integer(kind=i_def) :: k, nl
-    integer(kind=i_def) :: axis_x_transport, axis_y_transport
+    integer(kind=i_def) :: panel_label
     real(kind=r_tran), pointer :: dep_dist_x_transport(:)
     real(kind=r_tran), pointer :: dep_dist_y_transport(:)
 
     ipanel = INT(panel_id(map_2d(1)), i_def)
 
-    ! The x-transport reads W/E faces, remapped across the S/N panel edge; the
-    ! y-transport reads S/N faces, remapped across the W/E panel edge
-    axis_x_transport = panel_axis_label(panel_neighbour(ipanel, S))
-    axis_y_transport = panel_axis_label(panel_neighbour(ipanel, W))
+    panel_label = panel_axis_label(ipanel)
 
-    select case (axis_x_transport)
+    select case (panel_label)
     case (1)
       dep_dist_x_transport => dep_dist_peregrin_1
     case (2)
@@ -256,15 +253,7 @@ contains
     case default
       dep_dist_x_transport => dep_dist_peregrin_3
     end select
-
-    select case (axis_y_transport)
-    case (1)
-      dep_dist_y_transport => dep_dist_peregrin_1
-    case (2)
-      dep_dist_y_transport => dep_dist_peregrin_2
-    case default
-      dep_dist_y_transport => dep_dist_peregrin_3
-    end select
+    dep_dist_y_transport => dep_dist_x_transport
 
     edge_dist_E = panel_edge_dist_E(map_2d(1))
     edge_dist_W = panel_edge_dist_W(map_2d(1))

@@ -183,7 +183,6 @@ subroutine panel_corner_remap_code( nlayers,                                    
   else
     remapped_in_x(r_idx : r_idx+nvert) = -3900.0_r_tran
   end if
-
   if (compute_y) then
     call panel_corner_remap_region(                                        &
             nlayers,                                                       &
@@ -198,7 +197,6 @@ subroutine panel_corner_remap_code( nlayers,                                    
   else
     remapped_in_y(r_idx : r_idx+nvert) = -3900.0_r_tran
   end if
-
 end subroutine panel_corner_remap_code
 
 !> @brief Private routine for remapping a field around a cubed-sphere panel

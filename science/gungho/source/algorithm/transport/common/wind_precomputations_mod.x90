@@ -1259,11 +1259,11 @@ contains
   end function get_dep_stencil_extent_xy
 
   !> @brief Returns a pointer to the PEREGRIN departure distance calculated
-  !!        from the remapped flux with a given axis label
+  !!        from the remapped flux value for a panel-axis label
   !> @param[in] mesh_id     The ID of the mesh to get the field for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @param[in] axis        Axis label (1 to 3) of the remapped flux
+  !> @param[in] axis        Panel-axis label (1 to 3) identifying the panel value
   !> @return The PEREGRIN departure distance at W2h DoFs
   function get_dep_dist_peregrin(self, mesh_id, splitting, step, axis) result(dep_dist_peregrin)
 
@@ -1285,11 +1285,11 @@ contains
   end function get_dep_dist_peregrin
 
   !> @brief Returns a pointer to the PEREGRIN fractional flux calculated
-  !!        from the remapped flux with a given axis label
+  !!        from the remapped flux value for a panel-axis label
   !> @param[in] mesh_id     The ID of the mesh to get the field for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @param[in] axis        Axis label (1 to 3) of the remapped flux
+  !> @param[in] axis        Panel-axis label (1 to 3) identifying the panel value
   !> @return The PEREGRIN fractional flux at W2h DoFs
   function get_frac_flux_peregrin(self, mesh_id, splitting, step, axis) result(frac_flux_peregrin)
 
@@ -1311,11 +1311,11 @@ contains
   end function get_frac_flux_peregrin
 
   !> @brief Returns the required stencil size for the PEREGRIN departure
-  !!        distances of a given axis label
+  !!        distances for a given panel-axis label
   !> @param[in] mesh_id     The ID of the mesh to get the object for
   !> @param[in] splitting   Enumerator for the splitting type
   !> @param[in] step        Transport step to get the field for
-  !> @param[in] axis        Axis label (1 to 3) of the remapped flux
+  !> @param[in] axis        Panel-axis label (1 to 3) identifying the panel value
   !> @return The required stencil depth
   function get_dep_stencil_extent_peregrin(self, mesh_id, splitting, step, axis) &
                                            result(dep_stencil_extent_peregrin)

@@ -19,21 +19,15 @@
 !!          value that was "parallel" to the native frame picks up a
 !!          "perpendicular" contribution once expressed in the eave frame.
 !!
-!!          Two independent remaps are computed, as before:
-!!            - the "x" remap, triggered by proximity to a W or E panel edge,
-!!              which (in this phase) corrects the S/N (v-type) face values
-!!              of a cell ("parl_p" targets),
-!!            - the "y" remap, triggered by proximity to a S or N panel edge,
-!!              which (in this phase) corrects the W/E (u-type) face values
-!!              of a cell ("parl_p" targets).
+!!          Each selected face is computed for each adjacent panel. The panel
+!!          axis label selects the storage slot, and donor indices store signed
+!!          offsets from the face rather than positions in one cell's stencil.
 !!
 !!          Interpolation and rotation are kept separate, unlike the previous
 !!          version of this kernel:
-!!            - interp_w2h_weights_{x,y} / interp_w2h_indices_{x,y} are PURE
-!!              Lagrange donor-stencil weights, tangential to the panel edge,
-!!              for interpolating a "parl_w2" (same-orientation) donor value
-!!              onto the target DoF's own location,
-!!            - parl_w2_rot_{x,y} / perp_w2_rot_{x,y} are the cos/sin
+!!            - interp_w2h_weights / interp_w2h_indices are PURE Lagrange
+!!              donor-stencil weights for interpolating a "parl_w2" value,
+!!            - parl_w2_rot / perp_w2_rot are the cos/sin
 !!              rotation factors between the native and eave coordinate
 !!              frames, applied separately (by panel_edge_remap_w2h_kernel_mod)
 !!              to the "parl_w2" and "perp_w2" staged values respectively.
@@ -44,7 +38,7 @@
 !!          perp_w2_rot, which is correct but has no effect until a later
 !!          phase supplies a non-zero perp_w2 staged value.
 !!
-!!          interp_perp_weights_{x,y} / interp_perp_indices_{x,y} are the
+!!          interp_perp_weights / interp_perp_indices are the
 !!          weights/indices for the "perp_w2" interpolation. Each parl_p face
 !!          slot (S/N for x, W/E for y) holds two sets of ndata entries, one
 !!          per face vertex. For x the donors are the W DoFs (west vertex) and
@@ -91,6 +85,7 @@ use reference_element_mod,   only: W, S, N, E, SW, SE, NE, NW
 use panel_edge_support_mod,  only: panel_neighbour
 use sci_face_selector_support_mod, only: face_from_face_selector
 use coord_transform_mod,     only: PANEL_ROT_MATRIX
+use panel_edge_support_mod,   only: panel_axis_label
 
 implicit none
 
@@ -103,22 +98,15 @@ private
 !! PSy layer
 type, public, extends(kernel_type) :: panel_edge_remap_w2h_weights_kernel_type
   private
-  type(arg_type) :: meta_args(39) = (/                                         &
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! interp_w2h_weights_x
-       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! interp_w2h_indices_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! interp_w2h_weights_y
-       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! interp_w2h_indices_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! parl_w2_rot_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! perp_w2_rot_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! parl_w2_rot_y
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W2h),                       & ! perp_w2_rot_y
-       ! The perp weights/indices hold, per W2H face slot, two consecutive
-       ! sets of ndata entries: one for each of the two vertices (corners)
-       ! of the face, tangential to the panel edge
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_weights_x
-       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_indices_x
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_weights_y
-       arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_indices_y
+    type(arg_type) :: meta_args(30) = (/                                         &
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! interp_w2h_weights
+      arg_type(GH_FIELD*3, GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! interp_w2h_indices
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, W2h),                       & ! parl_w2_rot
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, W2h),                       & ! perp_w2_rot
+      ! The perp weights/indices hold, per W2H face slot, two consecutive
+      ! sets of ndata entries for the face's two vertices
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_weights
+      arg_type(GH_FIELD*3, GH_INTEGER, GH_WRITE, ANY_DISCONTINUOUS_SPACE_10),& ! interp_perp_indices
        ! NOTE: W1V is not yet a valid function space for GH_FIELD kernel
        ! metadata in PSyclone's LFRic API, so ANY_DISCONTINUOUS_SPACE_7 is
        ! used for this W1V field. It is never read: its only purpose is to
@@ -129,20 +117,20 @@ type, public, extends(kernel_type) :: panel_edge_remap_w2h_weights_kernel_type
        arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, W3),                        & ! interp_w3_indices_x (placeholder)
        arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, W3),                        & ! interp_w3_weights_y (placeholder)
        arg_type(GH_FIELD,   GH_INTEGER, GH_WRITE, W3),                        & ! interp_w3_indices_y (placeholder)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! eave_lon_x (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! eave_lat_x (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! correct_flux_x (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! eave_lon_y (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! eave_lat_y (diagnostic)
-       arg_type(GH_FIELD,   GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! correct_flux_y (diagnostic)
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! eave_lon
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! eave_lat
+      arg_type(GH_FIELD*3, GH_REAL,    GH_WRITE, ANY_DISCONTINUOUS_SPACE_5), & ! correct_flux
        arg_type(GH_FIELD*3, GH_REAL,    GH_READ,  ANY_SPACE_9,                &
                                                         STENCIL(CROSS2D)),     & ! chi
-       arg_type(GH_FIELD*2, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_9), & ! alpha_x, beta_x
-       arg_type(GH_FIELD*2, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_9), & ! alpha_y, beta_y
+      arg_type(GH_FIELD*2, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_9, &
+                    STENCIL(CROSS2D)),     & ! alpha_x, beta_x
+      arg_type(GH_FIELD*2, GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_9, &
+                    STENCIL(CROSS2D)),     & ! alpha_y, beta_y
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  W2),                        & ! dA_at_w2 (diagnostic)
        arg_type(GH_FIELD,   GH_REAL,    GH_READ,  ANY_DISCONTINUOUS_SPACE_3,  &
                                                         STENCIL(CROSS2D)),     & ! panel_id
-       arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! panel_edge_dist_W/E/S/N
+      arg_type(GH_FIELD*4, GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3, &
+                    STENCIL(CROSS2D)),     & ! panel_edge_dist_W/E/S/N
        arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face_selector_ew
        arg_type(GH_FIELD,   GH_INTEGER, GH_READ,  ANY_DISCONTINUOUS_SPACE_3), & ! face_selector_ns
        arg_type(GH_SCALAR,  GH_LOGICAL, GH_READ),                             & ! cubic_remap
@@ -183,23 +171,24 @@ contains
 !> @brief Compute the interpolation weights/indices and rotation factors to
 !!        remap a W2H field across cubed-sphere panel edges.
 !> @param[in]     nlayers               Number of layers
-!> @param[in,out] interp_w2h_weights_x  Lagrange donor weights for the "parl_w2"
-!!                                      interpolation of the x remap
-!> @param[in,out] interp_w2h_indices_x  Donor cell indices for the x remap
-!> @param[in,out] interp_w2h_weights_y  Lagrange donor weights for the "parl_w2"
-!!                                      interpolation of the y remap
-!> @param[in,out] interp_w2h_indices_y  Donor cell indices for the y remap
-!> @param[in,out] parl_w2_rot_x         "parl_w2" rotation factor for the x remap
-!> @param[in,out] perp_w2_rot_x         "perp_w2" rotation factor for the x remap
-!> @param[in,out] parl_w2_rot_y         "parl_w2" rotation factor for the y remap
-!> @param[in,out] perp_w2_rot_y         "perp_w2" rotation factor for the y remap
-!> @param[in,out] interp_perp_weights_x Lagrange donor weights for the "perp_w2"
-!!                                      interpolation to the two vertices of
-!!                                      each parl_p face (x remap); ndata
-!!                                      entries per vertex
-!> @param[in,out] interp_perp_indices_x Donor cell indices for the x remap
-!> @param[in,out] interp_perp_weights_y As interp_perp_weights_x, for the y remap
-!> @param[in,out] interp_perp_indices_y Donor cell indices for the y remap
+!> @param[in,out] interp_w2h_weights_1 Weights for panel-axis label 1
+!> @param[in,out] interp_w2h_weights_2 Weights for panel-axis label 2
+!> @param[in,out] interp_w2h_weights_3 Weights for panel-axis label 3
+!> @param[in,out] interp_w2h_indices_1 Signed donor offsets for label 1
+!> @param[in,out] interp_w2h_indices_2 Signed donor offsets for label 2
+!> @param[in,out] interp_w2h_indices_3 Signed donor offsets for label 3
+!> @param[in,out] parl_w2_rot_1 Parallel rotation factor for label 1
+!> @param[in,out] parl_w2_rot_2 Parallel rotation factor for label 2
+!> @param[in,out] parl_w2_rot_3 Parallel rotation factor for label 3
+!> @param[in,out] perp_w2_rot_1 Perpendicular rotation factor for label 1
+!> @param[in,out] perp_w2_rot_2 Perpendicular rotation factor for label 2
+!> @param[in,out] perp_w2_rot_3 Perpendicular rotation factor for label 3
+!> @param[in,out] interp_perp_weights_1 Perpendicular weights for label 1
+!> @param[in,out] interp_perp_weights_2 Perpendicular weights for label 2
+!> @param[in,out] interp_perp_weights_3 Perpendicular weights for label 3
+!> @param[in,out] interp_perp_indices_1 Signed vertex donor offsets for label 1
+!> @param[in,out] interp_perp_indices_2 Signed vertex donor offsets for label 2
+!> @param[in,out] interp_perp_indices_3 Signed vertex donor offsets for label 3
 !> @param[in]     w1v_nodes             Dummy W1V field, only used to evaluate
 !!                                      basis functions at the W1V nodes
 !> @param[in,out] interp_w3_weights_x   Placeholder (identity/zero) for the
@@ -208,12 +197,15 @@ contains
 !> @param[in,out] interp_w3_weights_y   Placeholder (identity/zero) for the
 !!                                      "parl_p -> W3" staging weights (y)
 !> @param[in,out] interp_w3_indices_y   Placeholder donor indices (y)
-!> @param[in,out] eave_lon_x            Diagnostic: true eave longitude (x remap)
-!> @param[in,out] eave_lat_x            Diagnostic: true eave latitude (x remap)
-!> @param[in,out] correct_flux_x        Diagnostic: analytic "correct" flux (x remap)
-!> @param[in,out] eave_lon_y            Diagnostic: true eave longitude (y remap)
-!> @param[in,out] eave_lat_y            Diagnostic: true eave latitude (y remap)
-!> @param[in,out] correct_flux_y        Diagnostic: analytic "correct" flux (y remap)
+!> @param[in,out] eave_lon_1            Diagnostic eave longitude for label 1
+!> @param[in,out] eave_lon_2            Diagnostic eave longitude for label 2
+!> @param[in,out] eave_lon_3            Diagnostic eave longitude for label 3
+!> @param[in,out] eave_lat_1            Diagnostic eave latitude for label 1
+!> @param[in,out] eave_lat_2            Diagnostic eave latitude for label 2
+!> @param[in,out] eave_lat_3            Diagnostic eave latitude for label 3
+!> @param[in,out] correct_flux_1        Diagnostic analytic flux for label 1
+!> @param[in,out] correct_flux_2        Diagnostic analytic flux for label 2
+!> @param[in,out] correct_flux_3        Diagnostic analytic flux for label 3
 !> @param[in]     chi_1                 Native alpha coordinate field
 !> @param[in]     chi_2                 Native beta coordinate field
 !> @param[in]     chi_3                 Height coordinate field
@@ -300,24 +292,30 @@ contains
 !> @param[in]     map_pid               DoF map for panel ID field
 subroutine panel_edge_remap_w2h_weights_code(                                  &
     nlayers,                                                                   &
-    interp_w2h_weights_x, interp_w2h_indices_x,                                &
-    interp_w2h_weights_y, interp_w2h_indices_y,                                &
-    parl_w2_rot_x, perp_w2_rot_x, parl_w2_rot_y, perp_w2_rot_y,                &
-    interp_perp_weights_x, interp_perp_indices_x,                              &
-    interp_perp_weights_y, interp_perp_indices_y,                              &
+  interp_w2h_weights_1, interp_w2h_weights_2, interp_w2h_weights_3,          &
+  interp_w2h_indices_1, interp_w2h_indices_2, interp_w2h_indices_3,          &
+  parl_w2_rot_1, parl_w2_rot_2, parl_w2_rot_3,                              &
+  perp_w2_rot_1, perp_w2_rot_2, perp_w2_rot_3,                              &
+  interp_perp_weights_1, interp_perp_weights_2, interp_perp_weights_3,        &
+  interp_perp_indices_1, interp_perp_indices_2, interp_perp_indices_3,        &
     w1v_nodes,                                                                 &
     interp_w3_weights_x, interp_w3_indices_x,                                  &
     interp_w3_weights_y, interp_w3_indices_y,                                  &
-    eave_lon_x, eave_lat_x, correct_flux_x,                                    &
-    eave_lon_y, eave_lat_y, correct_flux_y,                                    &
+    eave_lon_1, eave_lon_2, eave_lon_3,                                        &
+    eave_lat_1, eave_lat_2, eave_lat_3,                                        &
+    correct_flux_1, correct_flux_2, correct_flux_3,                            &
     chi_1, chi_2, chi_3,                                                       &
     wx_stencil_size, wx_max_length, wx_stencil_map,                            &
-    alpha_x, beta_x, alpha_y, beta_y,                                          &
+    alpha_x, beta_x, coord_x_stencil_size, coord_x_max_length,                 &
+    coord_x_stencil_map,                                                       &
+    alpha_y, beta_y, coord_y_stencil_size, coord_y_max_length,                 &
+    coord_y_stencil_map,                                                       &
     dA_at_w2,                                                                  &
     panel_id,                                                                  &
     pid_stencil_size, pid_max_length, pid_stencil_map,                         &
     panel_edge_dist_W, panel_edge_dist_E,                                      &
     panel_edge_dist_S, panel_edge_dist_N,                                      &
+    edge_stencil_size, edge_max_length, edge_stencil_map,                      &
     face_selector_ew, face_selector_ns,                                        &
     cubic_remap, remap_depth,                                                  &
     geometry, topology, coord_system, scaled_radius,                           &
@@ -349,6 +347,12 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   integer(kind=i_def), intent(in)    :: pid_stencil_size(4)
   integer(kind=i_def), intent(in)    :: wx_max_length
   integer(kind=i_def), intent(in)    :: pid_max_length
+  integer(kind=i_def), intent(in)    :: coord_x_stencil_size(4)
+  integer(kind=i_def), intent(in)    :: coord_x_max_length
+  integer(kind=i_def), intent(in)    :: coord_y_stencil_size(4)
+  integer(kind=i_def), intent(in)    :: coord_y_max_length
+  integer(kind=i_def), intent(in)    :: edge_stencil_size(4)
+  integer(kind=i_def), intent(in)    :: edge_max_length
   integer(kind=i_def), intent(in)    :: ndf_ww, undf_ww
   integer(kind=i_def), intent(in)    :: ndf_wr, undf_wr
   integer(kind=i_def), intent(in)    :: ndf_wp, undf_wp
@@ -378,6 +382,12 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
   integer(kind=i_def), intent(in)    :: wx_stencil_map(ndf_wx, wx_max_length, 4)
   integer(kind=i_def), intent(in)    :: pid_stencil_map(ndf_pid, pid_max_length, 4)
+    integer(kind=i_def), intent(in)    :: coord_x_stencil_map(                  &
+      ndf_wx_2d, coord_x_max_length, 4)
+    integer(kind=i_def), intent(in)    :: coord_y_stencil_map(                  &
+      ndf_wx_2d, coord_y_max_length, 4)
+    integer(kind=i_def), intent(in)    :: edge_stencil_map(                     &
+      ndf_pid, edge_max_length, 4)
   real(kind=r_def),    intent(in)    :: basis_wx_ww(1, ndf_wx, ndf_ww)
   ! basis_wx_wv is generated because gh_evaluator_targets(2) applies to the
   ! chi func_type too, but is not needed/used: donor node positions are
@@ -392,29 +402,38 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   real(kind=r_def),    intent(in)    :: basis_wx_2d_wv(1, ndf_wx_2d, ndf_wv)
   real(kind=r_def),    intent(in)    :: basis_wx_2d_w3(1, ndf_wx_2d, ndf_w3)
 
-  real(kind=r_tran),   intent(inout) :: interp_w2h_weights_x(undf_ww)
-  integer(kind=i_def), intent(inout) :: interp_w2h_indices_x(undf_ww)
-  real(kind=r_tran),   intent(inout) :: interp_w2h_weights_y(undf_ww)
-  integer(kind=i_def), intent(inout) :: interp_w2h_indices_y(undf_ww)
-  real(kind=r_tran),   intent(inout) :: parl_w2_rot_x(undf_wr)
-  real(kind=r_tran),   intent(inout) :: perp_w2_rot_x(undf_wr)
-  real(kind=r_tran),   intent(inout) :: parl_w2_rot_y(undf_wr)
-  real(kind=r_tran),   intent(inout) :: perp_w2_rot_y(undf_wr)
-  real(kind=r_tran),   intent(inout) :: interp_perp_weights_x(undf_wp)
-  integer(kind=i_def), intent(inout) :: interp_perp_indices_x(undf_wp)
-  real(kind=r_tran),   intent(inout) :: interp_perp_weights_y(undf_wp)
-  integer(kind=i_def), intent(inout) :: interp_perp_indices_y(undf_wp)
+  real(kind=r_tran),   intent(inout) :: interp_w2h_weights_1(undf_ww)
+  real(kind=r_tran),   intent(inout) :: interp_w2h_weights_2(undf_ww)
+  real(kind=r_tran),   intent(inout) :: interp_w2h_weights_3(undf_ww)
+  integer(kind=i_def), intent(inout) :: interp_w2h_indices_1(undf_ww)
+  integer(kind=i_def), intent(inout) :: interp_w2h_indices_2(undf_ww)
+  integer(kind=i_def), intent(inout) :: interp_w2h_indices_3(undf_ww)
+  real(kind=r_tran),   intent(inout) :: parl_w2_rot_1(undf_wr)
+  real(kind=r_tran),   intent(inout) :: parl_w2_rot_2(undf_wr)
+  real(kind=r_tran),   intent(inout) :: parl_w2_rot_3(undf_wr)
+  real(kind=r_tran),   intent(inout) :: perp_w2_rot_1(undf_wr)
+  real(kind=r_tran),   intent(inout) :: perp_w2_rot_2(undf_wr)
+  real(kind=r_tran),   intent(inout) :: perp_w2_rot_3(undf_wr)
+  real(kind=r_tran),   intent(inout) :: interp_perp_weights_1(undf_wp)
+  real(kind=r_tran),   intent(inout) :: interp_perp_weights_2(undf_wp)
+  real(kind=r_tran),   intent(inout) :: interp_perp_weights_3(undf_wp)
+  integer(kind=i_def), intent(inout) :: interp_perp_indices_1(undf_wp)
+  integer(kind=i_def), intent(inout) :: interp_perp_indices_2(undf_wp)
+  integer(kind=i_def), intent(inout) :: interp_perp_indices_3(undf_wp)
   real(kind=r_tran),   intent(in)    :: w1v_nodes(undf_wv)
   real(kind=r_tran),   intent(inout) :: interp_w3_weights_x(undf_w3)
   integer(kind=i_def), intent(inout) :: interp_w3_indices_x(undf_w3)
   real(kind=r_tran),   intent(inout) :: interp_w3_weights_y(undf_w3)
   integer(kind=i_def), intent(inout) :: interp_w3_indices_y(undf_w3)
-  real(kind=r_tran),   intent(inout) :: eave_lon_x(undf_ww)
-  real(kind=r_tran),   intent(inout) :: eave_lat_x(undf_ww)
-  real(kind=r_tran),   intent(inout) :: correct_flux_x(undf_ww)
-  real(kind=r_tran),   intent(inout) :: eave_lon_y(undf_ww)
-  real(kind=r_tran),   intent(inout) :: eave_lat_y(undf_ww)
-  real(kind=r_tran),   intent(inout) :: correct_flux_y(undf_ww)
+  real(kind=r_tran),   intent(inout) :: eave_lon_1(undf_ww)
+  real(kind=r_tran),   intent(inout) :: eave_lon_2(undf_ww)
+  real(kind=r_tran),   intent(inout) :: eave_lon_3(undf_ww)
+  real(kind=r_tran),   intent(inout) :: eave_lat_1(undf_ww)
+  real(kind=r_tran),   intent(inout) :: eave_lat_2(undf_ww)
+  real(kind=r_tran),   intent(inout) :: eave_lat_3(undf_ww)
+  real(kind=r_tran),   intent(inout) :: correct_flux_1(undf_ww)
+  real(kind=r_tran),   intent(inout) :: correct_flux_2(undf_ww)
+  real(kind=r_tran),   intent(inout) :: correct_flux_3(undf_ww)
 
   real(kind=r_def),    intent(in)    :: chi_1(undf_wx)
   real(kind=r_def),    intent(in)    :: chi_2(undf_wx)
@@ -440,8 +459,14 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   integer(kind=i_def) :: df, dfc, i, w2h_idx, wr_idx, wp_idx, w3_idx, pid_idx
   integer(kind=i_def) :: ew_sel, ns_sel, j
   integer(kind=i_def) :: ndata
+  integer(kind=i_def) :: edge_dist(4)
   integer(kind=i_def) :: owned_panel, neighbour_panel
+  integer(kind=i_def) :: other_panel, other_df, host_sign, label
   integer(kind=i_def) :: edge_direction_x, edge_direction_y
+  real(kind=r_def) :: label_weights(4), label_perp_weights(8)
+  real(kind=r_def) :: label_rotation_parallel, label_rotation_perp
+  real(kind=r_def) :: label_eave_lon, label_eave_lat, label_correct_flux
+  integer(kind=i_def) :: label_offsets(4), label_perp_offsets(8)
   logical(kind=l_def) :: near_panel_edge_x, near_panel_edge_y
   real(kind=r_def)    :: stretch_factor
   real(kind=r_def)    :: inverse_rot_matrix(3,3)
@@ -455,13 +480,6 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
   ! Perp interpolation results for the two vertices of a face
   real(kind=r_def)    :: perp_w_a(4), perp_w_b(4)
   integer(kind=i_def) :: perp_id_a(4), perp_id_b(4)
-
-  ! Rotation-factor results, for the currently active direction (x or y)
-  real(kind=r_def)    :: rotation_parallel, rotation_perp
-
-  ! Diagnostic eave lon/lat and analytic "correct" flux, for the currently
-  ! active direction (x or y)
-  real(kind=r_def)    :: eave_lon_val, eave_lat_val, correct_flux_val
 
   to_rotate = get_to_rotate()
   to_stretch = get_to_stretch()
@@ -479,6 +497,8 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
 
   ew_sel = face_selector_ew(pid_idx)
   ns_sel = face_selector_ns(pid_idx)
+  edge_dist = (/ panel_edge_dist_W(pid_idx), panel_edge_dist_E(pid_idx),      &
+                 panel_edge_dist_S(pid_idx), panel_edge_dist_N(pid_idx) /)
 
   ! ======================================================================== !
   ! Set 3: "parl_p donors -> W3 centre targets" interpolation weights/
@@ -546,13 +566,8 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
     end do
   end if
 
-  ! Loop only over the faces this column owns (per face_selector_ew/ns), so
-  ! that each shared W2H face is written by exactly one of its two
-  ! neighbouring columns. Both the x and y rotation/interpolation entries
-  ! are now computed at every owned face, independently gated by proximity
-  ! to the relevant panel edge, so that each target DoF gets a real value
-  ! for whichever remap(s) it participates in as a parl_p or perp_p target
-  ! (Sec 2.3/Phase 3 of the instructions doc)
+  ! Compute each selected face from both adjacent panels so either selector
+  ! owner produces the same labelled values.
   do j = 1, ABS(ew_sel) + ABS(ns_sel)
     df = face_from_face_selector(j, ew_sel, ns_sel)
 
@@ -560,134 +575,173 @@ subroutine panel_edge_remap_w2h_weights_code(                                  &
     wr_idx = map_wr(df)
     wp_idx = map_wp(df)
 
-    near_panel_edge_x = (                                                     &
-        ABS(panel_edge_dist_W(pid_idx)) <= remap_depth                       &
-        .or. ABS(panel_edge_dist_E(pid_idx)) <= remap_depth                  &
-    )
-    if (ABS(panel_edge_dist_W(pid_idx)) < ABS(panel_edge_dist_E(pid_idx))) then
-      edge_direction_x = W
-    else
-      edge_direction_x = E
+    other_panel = owned_panel
+    other_df = opposite_face(df)
+    if (pid_stencil_size(df) >= 2) then
+      other_panel = int(panel_id(pid_stencil_map(1, 2, df)), i_def)
+      if (other_panel /= owned_panel) then
+        other_df = face_direction_to_panel(other_panel, owned_panel)
+      end if
     end if
 
-    near_panel_edge_y = (                                                     &
-        ABS(panel_edge_dist_S(pid_idx)) <= remap_depth                       &
-        .or. ABS(panel_edge_dist_N(pid_idx)) <= remap_depth                  &
-    )
-    if (ABS(panel_edge_dist_S(pid_idx)) < ABS(panel_edge_dist_N(pid_idx))) then
-      edge_direction_y = S
+    if (other_panel /= owned_panel) then
+      if (owned_panel < other_panel) then
+        host_sign = 1_i_def
+      else
+        host_sign = -1_i_def
+      end if
     else
-      edge_direction_y = N
+      if (df == S .or. df == W) then
+        host_sign = 1_i_def
+      else
+        host_sign = -1_i_def
+      end if
     end if
 
-    ! ---- x direction (triggered by a W or E panel edge) ----
-    if (near_panel_edge_x) then
-      neighbour_panel = panel_neighbour(owned_panel, edge_direction_x)
+    do label = 1, 3
+      label_weights = 0.0_r_def
+      label_offsets = 0_i_def
+      label_perp_weights = 0.0_r_def
+      label_perp_offsets = 0_i_def
+      label_rotation_parallel = 1.0_r_def
+      label_rotation_perp = 0.0_r_def
+      label_eave_lon = 0.0_r_def
+      label_eave_lat = 0.0_r_def
+      label_correct_flux = 0.0_r_def
 
-      call compute_lagrange_weights(df, df, .true., neighbour_panel,          &
-                                     lagrange_w, lagrange_id)
-      call compute_rotation_factors(df, .true., neighbour_panel,              &
-                                     rotation_parallel, rotation_perp,        &
-                                     eave_lon_val, eave_lat_val,              &
-                                     correct_flux_val)
+      if (label == panel_axis_label(owned_panel)) then
+        call compute_labelled_side(                                           &
+            df, owned_panel, .false., host_sign, label_weights, label_offsets,&
+            label_perp_weights, label_perp_offsets,                          &
+            label_rotation_parallel, label_rotation_perp,                    &
+            label_eave_lon, label_eave_lat, label_correct_flux               &
+        )
+      else if (other_panel /= owned_panel .and.                               &
+               label == panel_axis_label(other_panel)) then
+        call compute_labelled_side(                                           &
+            other_df, other_panel, .true., host_sign, label_weights,          &
+            label_offsets, label_perp_weights, label_perp_offsets,            &
+            label_rotation_parallel, label_rotation_perp,                    &
+            label_eave_lon, label_eave_lat, label_correct_flux               &
+        )
+      end if
 
-      do i = 1, ndata
-        interp_w2h_weights_x(w2h_idx+i-1) = REAL(lagrange_w(i), r_tran)
-        interp_w2h_indices_x(w2h_idx+i-1) = lagrange_id(i)
-      end do
-      parl_w2_rot_x(wr_idx) = REAL(rotation_parallel, r_tran)
-      perp_w2_rot_x(wr_idx) = REAL(rotation_perp, r_tran)
-      call store_perp_weights(.true., df, neighbour_panel, .true.)
-
-      eave_lon_x(w2h_idx) = REAL(eave_lon_val, r_tran)
-      eave_lat_x(w2h_idx) = REAL(eave_lat_val, r_tran)
-      correct_flux_x(w2h_idx) = REAL(correct_flux_val, r_tran)
-    else
-      interp_w2h_weights_x(w2h_idx) = 1.0_r_tran
-      interp_w2h_indices_x(w2h_idx) = 1
-      do i = 2, ndata
-        interp_w2h_weights_x(w2h_idx+i-1) = 0.0_r_tran
-        interp_w2h_indices_x(w2h_idx+i-1) = 1
-      end do
-      parl_w2_rot_x(wr_idx) = 1.0_r_tran
-      perp_w2_rot_x(wr_idx) = 0.0_r_tran
-      eave_lon_x(w2h_idx) = 0.0_r_tran
-      eave_lat_x(w2h_idx) = 0.0_r_tran
-      correct_flux_x(w2h_idx) = 0.0_r_tran
-      call store_perp_weights(.true., df, owned_panel, .false.)
-    end if
-
-    ! ---- y direction (triggered by a S or N panel edge) ----
-    if (near_panel_edge_y) then
-      neighbour_panel = panel_neighbour(owned_panel, edge_direction_y)
-
-      call compute_lagrange_weights(df, df, .false., neighbour_panel,         &
-                                     lagrange_w, lagrange_id)
-      call compute_rotation_factors(df, .false., neighbour_panel,             &
-                                     rotation_parallel, rotation_perp,        &
-                                     eave_lon_val, eave_lat_val,              &
-                                     correct_flux_val)
-
-      do i = 1, ndata
-        interp_w2h_weights_y(w2h_idx+i-1) = REAL(lagrange_w(i), r_tran)
-        interp_w2h_indices_y(w2h_idx+i-1) = lagrange_id(i)
-      end do
-      parl_w2_rot_y(wr_idx) = REAL(rotation_parallel, r_tran)
-      perp_w2_rot_y(wr_idx) = REAL(rotation_perp, r_tran)
-      call store_perp_weights(.false., df, neighbour_panel, .true.)
-
-      eave_lon_y(w2h_idx) = REAL(eave_lon_val, r_tran)
-      eave_lat_y(w2h_idx) = REAL(eave_lat_val, r_tran)
-      correct_flux_y(w2h_idx) = REAL(correct_flux_val, r_tran)
-
-    else
-      interp_w2h_weights_y(w2h_idx) = 1.0_r_tran
-      interp_w2h_indices_y(w2h_idx) = 1
-      do i = 2, ndata
-        interp_w2h_weights_y(w2h_idx+i-1) = 0.0_r_tran
-        interp_w2h_indices_y(w2h_idx+i-1) = 1
-      end do
-      parl_w2_rot_y(wr_idx) = 1.0_r_tran
-      perp_w2_rot_y(wr_idx) = 0.0_r_tran
-      eave_lon_y(w2h_idx) = 0.0_r_tran
-      eave_lat_y(w2h_idx) = 0.0_r_tran
-      correct_flux_y(w2h_idx) = 0.0_r_tran
-      call store_perp_weights(.false., df, owned_panel, .false.)
-    end if
+      call store_labelled_fields(label, w2h_idx, wr_idx, wp_idx,              &
+          label_weights, label_offsets, label_perp_weights,                   &
+          label_perp_offsets, label_rotation_parallel, label_rotation_perp,   &
+          label_eave_lon, label_eave_lat, label_correct_flux)
+    end do
 
   end do  ! faces
 
 contains
 
-  !-----------------------------------------------------------------------------
-  !> @brief Compute and store the "perp_w2" interpolation weights/indices for a
-  !!        W2H face slot of the current column. A parl_p face (S/N for the x
-  !!        remap, W/E for the y remap) takes its perpendicular value as the
-  !!        average of two interpolations, one to each of the face's two
-  !!        vertices, tangential to the panel edge. For the x remap the
-  !!        donors are the W face DoFs (west vertex) and E face DoFs (east
-  !!        vertex); for the y remap the S face DoFs (south vertex) and N face
-  !!        DoFs (north vertex). If "active" is .false., or the face is not a
-  !!        parl_p face for this direction, zero weights are stored.
-  subroutine store_perp_weights(is_x_direction, target_df, swapped_panel, active)
+  subroutine compute_labelled_side(target_df, target_panel, target_across,    &
+                                   host_sign, weights, offsets,               &
+                                   perp_weights, perp_offsets,                &
+                                   parallel_factor, perp_factor,              &
+                                   eave_lon, eave_lat, correct_flux)
 
     implicit none
 
-    logical(kind=l_def), intent(in) :: is_x_direction
-    integer(kind=i_def), intent(in) :: target_df
-    integer(kind=i_def), intent(in) :: swapped_panel
-    logical(kind=l_def), intent(in) :: active
+    integer(kind=i_def), intent(in) :: target_df, target_panel, host_sign
+    logical(kind=l_def), intent(in) :: target_across
+    real(kind=r_def), intent(out) :: weights(4), perp_weights(8)
+    integer(kind=i_def), intent(out) :: offsets(4), perp_offsets(8)
+    real(kind=r_def), intent(out) :: parallel_factor, perp_factor
+    real(kind=r_def), intent(out) :: eave_lon, eave_lat, correct_flux
 
-    integer(kind=i_def) :: corner_a, corner_b, source_a, source_b, k
-    logical(kind=l_def) :: is_parl_p_face
+    integer(kind=i_def) :: side_edge_dist(4), side_edge_idx
+    integer(kind=i_def) :: edge_direction, swapped_panel
+    logical(kind=l_def) :: is_x_direction, near_panel_edge
+
+    weights = 0.0_r_def
+    offsets = 0_i_def
+    perp_weights = 0.0_r_def
+    perp_offsets = 0_i_def
+    parallel_factor = 1.0_r_def
+    perp_factor = 0.0_r_def
+    eave_lon = 0.0_r_def
+    eave_lat = 0.0_r_def
+    correct_flux = 0.0_r_def
+
+    is_x_direction = (target_df == S .or. target_df == N)
+    if (target_across) then
+      if (edge_stencil_size(df) < 2) return
+      if (is_x_direction) then
+        if (coord_x_stencil_size(df) < 2) return
+      else
+        if (coord_y_stencil_size(df) < 2) return
+      end if
+      side_edge_idx = edge_stencil_map(1, 2, df)
+      side_edge_dist = (/ panel_edge_dist_W(side_edge_idx),                  &
+                          panel_edge_dist_E(side_edge_idx),                  &
+                          panel_edge_dist_S(side_edge_idx),                  &
+                          panel_edge_dist_N(side_edge_idx) /)
+    else
+      side_edge_dist = edge_dist
+    end if
+
+    if (is_x_direction) then
+      if (ABS(side_edge_dist(1)) < ABS(side_edge_dist(2))) then
+        edge_direction = W
+      else
+        edge_direction = E
+      end if
+      near_panel_edge = MIN(ABS(side_edge_dist(1)), ABS(side_edge_dist(2)))    &
+                        <= remap_depth
+    else
+      if (ABS(side_edge_dist(3)) < ABS(side_edge_dist(4))) then
+        edge_direction = S
+      else
+        edge_direction = N
+      end if
+      near_panel_edge = MIN(ABS(side_edge_dist(3)), ABS(side_edge_dist(4)))    &
+                        <= remap_depth
+    end if
+
+    if (.not. near_panel_edge) return
+
+    swapped_panel = panel_neighbour(target_panel, edge_direction)
+    call compute_lagrange_weights(target_df, target_df, is_x_direction,        &
+        swapped_panel, lagrange_w, lagrange_id,                                &
+        target_panel_arg=target_panel, host_face=df, host_sign=host_sign,      &
+        target_across=target_across)
+    if (ANY(lagrange_id(1:ndata) == 0_i_def)) return
+    weights(1:ndata) = lagrange_w(1:ndata)
+    offsets(1:ndata) = lagrange_id(1:ndata)
+
+    call compute_rotation_factors(target_df, is_x_direction, swapped_panel,   &
+        target_panel, df, target_across, parallel_factor, perp_factor,        &
+        eave_lon, eave_lat, correct_flux)
+
+    call compute_perp_weights(target_df, is_x_direction, target_panel,        &
+      swapped_panel, edge_direction, host_sign, target_across)
+    perp_weights(1:ndata) = perp_w_a(1:ndata)
+    perp_weights(ndata+1:2*ndata) = perp_w_b(1:ndata)
+    perp_offsets(1:ndata) = perp_id_a(1:ndata)
+    perp_offsets(ndata+1:2*ndata) = perp_id_b(1:ndata)
+
+  end subroutine compute_labelled_side
+
+  subroutine compute_perp_weights(target_df, is_x_direction, target_panel,    &
+                                  swapped_panel, edge_direction, host_sign,   &
+                                  target_across)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: target_df, target_panel
+    integer(kind=i_def), intent(in) :: swapped_panel, edge_direction, host_sign
+    logical(kind=l_def), intent(in) :: is_x_direction, target_across
+
+    integer(kind=i_def) :: corner_a, corner_b, source_a, source_b
 
     perp_w_a = 0.0_r_def
     perp_w_b = 0.0_r_def
-    perp_id_a = 1
-    perp_id_b = 1
+    perp_id_a = 0_i_def
+    perp_id_b = 0_i_def
 
     if (is_x_direction) then
-      is_parl_p_face = (target_df == S .or. target_df == N)
       source_a = W
       source_b = E
       if (target_df == S) then
@@ -698,7 +752,6 @@ contains
         corner_b = NE
       end if
     else
-      is_parl_p_face = (target_df == W .or. target_df == E)
       source_a = S
       source_b = N
       if (target_df == W) then
@@ -710,32 +763,113 @@ contains
       end if
     end if
 
-    if (active .and. is_parl_p_face) then
-      call compute_lagrange_weights(corner_a - SW + 1, source_a,               &
-                                     is_x_direction, swapped_panel,            &
-                                     perp_w_a, perp_id_a,                      &
-                                     is_corner_target=.true.)
-      call compute_lagrange_weights(corner_b - SW + 1, source_b,               &
-                                     is_x_direction, swapped_panel,            &
-                                     perp_w_b, perp_id_b,                      &
-                                     is_corner_target=.true.)
-    end if
+    call compute_lagrange_weights(corner_a - SW + 1, source_a,                &
+        is_x_direction, swapped_panel, perp_w_a, perp_id_a,                    &
+        is_corner_target=.true., target_panel_arg=target_panel,                &
+        host_face=df, host_sign=host_sign, target_across=target_across)
+    call compute_lagrange_weights(corner_b - SW + 1, source_b,                &
+        is_x_direction, swapped_panel, perp_w_b, perp_id_b,                    &
+        is_corner_target=.true., target_panel_arg=target_panel,                &
+        host_face=df, host_sign=host_sign, target_across=target_across)
+  end subroutine compute_perp_weights
 
-    do k = 1, ndata
-      if (is_x_direction) then
-        interp_perp_weights_x(wp_idx+k-1) = REAL(perp_w_a(k), r_tran)
-        interp_perp_indices_x(wp_idx+k-1) = perp_id_a(k)
-        interp_perp_weights_x(wp_idx+ndata+k-1) = REAL(perp_w_b(k), r_tran)
-        interp_perp_indices_x(wp_idx+ndata+k-1) = perp_id_b(k)
-      else
-        interp_perp_weights_y(wp_idx+k-1) = REAL(perp_w_a(k), r_tran)
-        interp_perp_indices_y(wp_idx+k-1) = perp_id_a(k)
-        interp_perp_weights_y(wp_idx+ndata+k-1) = REAL(perp_w_b(k), r_tran)
-        interp_perp_indices_y(wp_idx+ndata+k-1) = perp_id_b(k)
+  subroutine store_labelled_fields(label, weights_idx, rotation_idx, perp_idx,&
+                                   weights, offsets, perp_weights,            &
+                                   perp_offsets, parallel_factor, perp_factor,&
+                                   eave_lon, eave_lat, correct_flux)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: label, weights_idx, rotation_idx, perp_idx
+    real(kind=r_def), intent(in) :: weights(4), perp_weights(8)
+    integer(kind=i_def), intent(in) :: offsets(4), perp_offsets(8)
+    real(kind=r_def), intent(in) :: parallel_factor, perp_factor
+    real(kind=r_def), intent(in) :: eave_lon, eave_lat, correct_flux
+
+    select case (label)
+    case (1)
+      interp_w2h_weights_1(weights_idx:weights_idx+ndata-1) =                  &
+          REAL(weights(1:ndata), r_tran)
+      interp_w2h_indices_1(weights_idx:weights_idx+ndata-1) =                  &
+          offsets(1:ndata)
+      parl_w2_rot_1(rotation_idx) = REAL(parallel_factor, r_tran)
+      perp_w2_rot_1(rotation_idx) = REAL(perp_factor, r_tran)
+      interp_perp_weights_1(perp_idx:perp_idx+2*ndata-1) =                    &
+          REAL(perp_weights(1:2*ndata), r_tran)
+      interp_perp_indices_1(perp_idx:perp_idx+2*ndata-1) =                    &
+          perp_offsets(1:2*ndata)
+      eave_lon_1(weights_idx) = REAL(eave_lon, r_tran)
+      eave_lat_1(weights_idx) = REAL(eave_lat, r_tran)
+      correct_flux_1(weights_idx) = REAL(correct_flux, r_tran)
+    case (2)
+      interp_w2h_weights_2(weights_idx:weights_idx+ndata-1) =                  &
+          REAL(weights(1:ndata), r_tran)
+      interp_w2h_indices_2(weights_idx:weights_idx+ndata-1) =                  &
+          offsets(1:ndata)
+      parl_w2_rot_2(rotation_idx) = REAL(parallel_factor, r_tran)
+      perp_w2_rot_2(rotation_idx) = REAL(perp_factor, r_tran)
+      interp_perp_weights_2(perp_idx:perp_idx+2*ndata-1) =                    &
+          REAL(perp_weights(1:2*ndata), r_tran)
+      interp_perp_indices_2(perp_idx:perp_idx+2*ndata-1) =                    &
+          perp_offsets(1:2*ndata)
+      eave_lon_2(weights_idx) = REAL(eave_lon, r_tran)
+      eave_lat_2(weights_idx) = REAL(eave_lat, r_tran)
+      correct_flux_2(weights_idx) = REAL(correct_flux, r_tran)
+    case (3)
+      interp_w2h_weights_3(weights_idx:weights_idx+ndata-1) =                  &
+          REAL(weights(1:ndata), r_tran)
+      interp_w2h_indices_3(weights_idx:weights_idx+ndata-1) =                  &
+          offsets(1:ndata)
+      parl_w2_rot_3(rotation_idx) = REAL(parallel_factor, r_tran)
+      perp_w2_rot_3(rotation_idx) = REAL(perp_factor, r_tran)
+      interp_perp_weights_3(perp_idx:perp_idx+2*ndata-1) =                    &
+          REAL(perp_weights(1:2*ndata), r_tran)
+      interp_perp_indices_3(perp_idx:perp_idx+2*ndata-1) =                    &
+          perp_offsets(1:2*ndata)
+      eave_lon_3(weights_idx) = REAL(eave_lon, r_tran)
+      eave_lat_3(weights_idx) = REAL(eave_lat, r_tran)
+      correct_flux_3(weights_idx) = REAL(correct_flux, r_tran)
+    end select
+
+  end subroutine store_labelled_fields
+
+  integer(kind=i_def) function face_direction_to_panel(panel, target_panel)    &
+      result(direction)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: panel, target_panel
+    integer(kind=i_def) :: directions(4), k
+
+    directions = (/ W, S, E, N /)
+    direction = 0_i_def
+    do k = 1, 4
+      if (panel_neighbour(panel, directions(k)) == target_panel) then
+        direction = directions(k)
+        return
       end if
     end do
 
-  end subroutine store_perp_weights
+  end function face_direction_to_panel
+
+  integer(kind=i_def) function opposite_face(direction) result(opposite)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: direction
+
+    select case (direction)
+    case (W)
+      opposite = E
+    case (E)
+      opposite = W
+    case (S)
+      opposite = N
+    case (N)
+      opposite = S
+    end select
+
+  end function opposite_face
 
   !-----------------------------------------------------------------------------
   !> @brief Compute the Lagrange donor-stencil interpolation weights/indices
@@ -756,7 +890,8 @@ contains
   !!        regardless of the target.
   subroutine compute_lagrange_weights(target_df, source_df, is_x_direction,    &
                                        swapped_panel, wgt, id, is_corner_target,&
-                                       is_w3_target)
+                                       is_w3_target, target_panel_arg,         &
+                                       host_face, host_sign, target_across)
 
     implicit none
 
@@ -768,14 +903,22 @@ contains
     integer(kind=i_def), intent(out) :: id(4)
     logical(kind=l_def), intent(in), optional :: is_corner_target
     logical(kind=l_def), intent(in), optional :: is_w3_target
+    integer(kind=i_def), intent(in), optional :: target_panel_arg
+    integer(kind=i_def), intent(in), optional :: host_face, host_sign
+    logical(kind=l_def), intent(in), optional :: target_across
 
     integer(kind=i_def) :: branch_l, branch_r
-    integer(kind=i_def) :: i
+    integer(kind=i_def) :: i, panel_for_target
     integer(kind=i_def) :: wx_size_l, wx_size_r
     integer(kind=i_def) :: pid_size_l, pid_size_r
     integer(kind=i_def) :: ncells_in_stencil
+    integer(kind=i_def) :: stencil_extent, other_branch, stencil_branch
+    integer(kind=i_def) :: stencil_position, offset, candidate_count
+    integer(kind=i_def) :: coord_idx
     integer(kind=i_def) :: wx_stencil_1d(ndf_wx, 2*wx_max_length-1)
     integer(kind=i_def) :: pid_stencil_1d(2*pid_max_length-1)
+    integer(kind=i_def) :: donor_offsets(2*wx_max_length-1)
+    integer(kind=i_def) :: selected_index(4)
     real(kind=r_def)    :: x1(2*wx_max_length-1), dx(2*wx_max_length-1)
     real(kind=r_def)    :: abh(3), xyz(3), h_dummy
     real(kind=r_def)    :: alpha_owned, beta_owned
@@ -815,8 +958,60 @@ contains
       pid_stencil_1d(i+pid_size_l) = pid_stencil_map(1,i+1,branch_r)
     end do
 
+    panel_for_target = owned_panel
+    if (present(target_panel_arg)) panel_for_target = target_panel_arg
+
+    if (present(host_face)) then
+      other_branch = opposite_face(host_face)
+      stencil_extent = MIN(                                                &
+          MIN(wx_stencil_size(host_face), wx_stencil_size(other_branch)),  &
+          MIN(pid_stencil_size(host_face), pid_stencil_size(other_branch)) &
+      ) - 1
+      candidate_count = 0
+      wx_stencil_1d = 0_i_def
+      pid_stencil_1d = 0_i_def
+      donor_offsets = 0_i_def
+      do offset = -stencil_extent, stencil_extent
+        if (offset == 0) cycle
+        if (offset == host_sign) then
+          stencil_branch = 0_i_def
+          stencil_position = 1_i_def
+        else if (offset*host_sign < 0_i_def) then
+          stencil_branch = host_face
+          stencil_position = ABS(offset) + 1
+        else
+          stencil_branch = other_branch
+          stencil_position = ABS(offset)
+        end if
+        if (stencil_branch == 0_i_def) then
+          panel_of_donor = int(panel_id(map_pid(1)), i_def)
+          if (panel_of_donor /= panel_for_target) cycle
+          candidate_count = candidate_count + 1
+          wx_stencil_1d(:, candidate_count) = map_wx
+          pid_stencil_1d(candidate_count) = map_pid(1)
+        else
+          if (stencil_position > wx_stencil_size(stencil_branch) .or.        &
+              stencil_position > pid_stencil_size(stencil_branch)) cycle
+          panel_of_donor = int(                                             &
+              panel_id(pid_stencil_map(1, stencil_position, stencil_branch)), &
+              i_def)
+          if (panel_of_donor /= panel_for_target) cycle
+          candidate_count = candidate_count + 1
+          wx_stencil_1d(:, candidate_count) =                                &
+              wx_stencil_map(:, stencil_position, stencil_branch)
+          pid_stencil_1d(candidate_count) =                                  &
+              pid_stencil_map(1, stencil_position, stencil_branch)
+        end if
+        donor_offsets(candidate_count) = offset
+      end do
+      ncells_in_stencil = candidate_count
+      wgt = 0.0_r_def
+      id = 0_i_def
+      if (candidate_count < ndata) return
+    end if
+
     ! Direction of interpolation (alpha or beta), based on owned/swapped panels
-    panel_edge = 10*owned_panel + swapped_panel
+    panel_edge = 10*panel_for_target + swapped_panel
     select case (panel_edge)
     case (15, 26, 34, 43, 51, 62)
       interp_dir = interp_dir_alpha
@@ -836,37 +1031,59 @@ contains
     if (present(is_w3_target) .and. is_w3_target) then
       if (is_x_direction) then
         do dfc = 1, ndf_wx_2d
-          abh(1) = abh(1) + alpha_x(map_wx_2d(dfc))*basis_wx_2d_w3(1,dfc,target_df)
-          abh(2) = abh(2) + beta_x(map_wx_2d(dfc))*basis_wx_2d_w3(1,dfc,target_df)
+          coord_idx = map_wx_2d(dfc)
+          abh(1) = abh(1) + alpha_x(coord_idx)*basis_wx_2d_w3(1,dfc,target_df)
+          abh(2) = abh(2) + beta_x(coord_idx)*basis_wx_2d_w3(1,dfc,target_df)
         end do
       else
         do dfc = 1, ndf_wx_2d
-          abh(1) = abh(1) + alpha_y(map_wx_2d(dfc))*basis_wx_2d_w3(1,dfc,target_df)
-          abh(2) = abh(2) + beta_y(map_wx_2d(dfc))*basis_wx_2d_w3(1,dfc,target_df)
+          coord_idx = map_wx_2d(dfc)
+          abh(1) = abh(1) + alpha_y(coord_idx)*basis_wx_2d_w3(1,dfc,target_df)
+          abh(2) = abh(2) + beta_y(coord_idx)*basis_wx_2d_w3(1,dfc,target_df)
         end do
       end if
     else if (present(is_corner_target) .and. is_corner_target) then
       if (is_x_direction) then
         do dfc = 1, ndf_wx_2d
-          abh(1) = abh(1) + alpha_x(map_wx_2d(dfc))*basis_wx_2d_wv(1,dfc,target_df)
-          abh(2) = abh(2) + beta_x(map_wx_2d(dfc))*basis_wx_2d_wv(1,dfc,target_df)
+          coord_idx = map_wx_2d(dfc)
+          if (present(target_across)) then
+            if (target_across) coord_idx =                                  &
+                coord_x_stencil_map(dfc, 2, host_face)
+          end if
+          abh(1) = abh(1) + alpha_x(coord_idx)*basis_wx_2d_wv(1,dfc,target_df)
+          abh(2) = abh(2) + beta_x(coord_idx)*basis_wx_2d_wv(1,dfc,target_df)
         end do
       else
         do dfc = 1, ndf_wx_2d
-          abh(1) = abh(1) + alpha_y(map_wx_2d(dfc))*basis_wx_2d_wv(1,dfc,target_df)
-          abh(2) = abh(2) + beta_y(map_wx_2d(dfc))*basis_wx_2d_wv(1,dfc,target_df)
+          coord_idx = map_wx_2d(dfc)
+          if (present(target_across)) then
+            if (target_across) coord_idx =                                  &
+                coord_y_stencil_map(dfc, 2, host_face)
+          end if
+          abh(1) = abh(1) + alpha_y(coord_idx)*basis_wx_2d_wv(1,dfc,target_df)
+          abh(2) = abh(2) + beta_y(coord_idx)*basis_wx_2d_wv(1,dfc,target_df)
         end do
       end if
     else
       if (is_x_direction) then
         do dfc = 1, ndf_wx_2d
-          abh(1) = abh(1) + alpha_x(map_wx_2d(dfc))*basis_wx_2d_ww(1,dfc,target_df)
-          abh(2) = abh(2) + beta_x(map_wx_2d(dfc))*basis_wx_2d_ww(1,dfc,target_df)
+          coord_idx = map_wx_2d(dfc)
+          if (present(target_across)) then
+            if (target_across) coord_idx =                                  &
+                coord_x_stencil_map(dfc, 2, host_face)
+          end if
+          abh(1) = abh(1) + alpha_x(coord_idx)*basis_wx_2d_ww(1,dfc,target_df)
+          abh(2) = abh(2) + beta_x(coord_idx)*basis_wx_2d_ww(1,dfc,target_df)
         end do
       else
         do dfc = 1, ndf_wx_2d
-          abh(1) = abh(1) + alpha_y(map_wx_2d(dfc))*basis_wx_2d_ww(1,dfc,target_df)
-          abh(2) = abh(2) + beta_y(map_wx_2d(dfc))*basis_wx_2d_ww(1,dfc,target_df)
+          coord_idx = map_wx_2d(dfc)
+          if (present(target_across)) then
+            if (target_across) coord_idx =                                  &
+                coord_y_stencil_map(dfc, 2, host_face)
+          end if
+          abh(1) = abh(1) + alpha_y(coord_idx)*basis_wx_2d_ww(1,dfc,target_df)
+          abh(2) = abh(2) + beta_y(coord_idx)*basis_wx_2d_ww(1,dfc,target_df)
         end do
       end if
     end if
@@ -875,7 +1092,7 @@ contains
             abh(1), abh(2), unit_radius, swapped_panel, xyz(1), xyz(2), xyz(3) &
     )
     call xyz2alphabetar(                                                       &
-            xyz(1), xyz(2), xyz(3), owned_panel, abh(1), abh(2), h_dummy       &
+            xyz(1), xyz(2), xyz(3), panel_for_target, abh(1), abh(2), h_dummy  &
     )
     x0 = abh(interp_dir)
 
@@ -886,7 +1103,7 @@ contains
 
       panel_of_donor = int(panel_id(pid_stencil_1d(i)), i_def)
 
-      if ( owned_panel /= panel_of_donor ) then
+      if ( panel_for_target /= panel_of_donor ) then
         x1(i) = LARGE_REAL_POSITIVE
       else
         abh = 0.0_r_def
@@ -894,7 +1111,8 @@ contains
           call chi2xyz(                                                        &
                   chi_1(wx_stencil_1d(dfc,i)),                                 &
                   chi_2(wx_stencil_1d(dfc,i)),                                 &
-                  unit_radius, owned_panel, geometry, topology, coord_system,  &
+                  unit_radius, panel_for_target, geometry, topology,           &
+                  coord_system,                                                &
                   scaled_radius, xyz(1), xyz(2), xyz(3)                       &
           )
           if (to_rotate) then
@@ -904,7 +1122,7 @@ contains
             xyz = inverse_schmidt_transform_xyz(xyz, stretch_factor)
           end if
           call xyz2alphabetar(                                                 &
-                  xyz(1), xyz(2), xyz(3), owned_panel,                        &
+                  xyz(1), xyz(2), xyz(3), panel_for_target,                   &
                   alpha_owned, beta_owned, h_dummy                            &
           )
           abh(1) = abh(1) + alpha_owned * basis_wx_ww(1,dfc,source_df)
@@ -915,13 +1133,15 @@ contains
     end do
 
     ! Lagrange interpolation weights and donor indices
-    dx = ABS(x1 - x0)
+    dx = LARGE_REAL_POSITIVE
+    dx(1:ncells_in_stencil) = ABS(x1(1:ncells_in_stencil) - x0)
     id1 = MINLOC(dx(1:ncells_in_stencil), 1)
     dx(id1) = LARGE_REAL_POSITIVE
     id2 = MINLOC(dx(1:ncells_in_stencil), 1)
 
     wgt = 0.0_r_def
     id = 1
+    selected_index = 1_i_def
 
     if (cubic_remap) then
       dx(id2) = LARGE_REAL_POSITIVE
@@ -942,16 +1162,19 @@ contains
             * (x0 - x1(id2))/(x1(id4) - x1(id2))                               &
             * (x0 - x1(id3))/(x1(id4) - x1(id3))
 
-      id(1) = id1
-      id(2) = id2
-      id(3) = id3
-      id(4) = id4
+      selected_index = (/ id1, id2, id3, id4 /)
     else
       wgt(1) = (x0 - x1(id2))/(x1(id1) - x1(id2))
       wgt(2) = (x0 - x1(id1))/(x1(id2) - x1(id1))
 
-      id(1) = id1
-      id(2) = id2
+      selected_index(1:2) = (/ id1, id2 /)
+    end if
+
+    if (present(host_face)) then
+      id = 0_i_def
+      id(1:ndata) = donor_offsets(selected_index(1:ndata))
+    else
+      id = selected_index
     end if
 
   end subroutine compute_lagrange_weights
@@ -1012,7 +1235,8 @@ contains
   !!        face is of the other (alpha/beta) type. Also computes the analytic
   !!        solid-body-rotation flux through the eave face, for diagnostics.
   subroutine compute_rotation_factors(target_df, is_x_direction,               &
-                                       neighbour_panel_id,                     &
+                                       neighbour_panel_id, target_panel,       &
+                                       host_face, target_across,              &
                                        parallel_factor, perp_factor,           &
                                        eave_lon_out, eave_lat_out,             &
                                        correct_flux_out)
@@ -1022,6 +1246,8 @@ contains
     integer(kind=i_def), intent(in)  :: target_df
     logical(kind=l_def), intent(in)  :: is_x_direction
     integer(kind=i_def), intent(in)  :: neighbour_panel_id
+    integer(kind=i_def), intent(in)  :: target_panel, host_face
+    logical(kind=l_def), intent(in)  :: target_across
     real(kind=r_def),    intent(out) :: parallel_factor, perp_factor
     real(kind=r_def),    intent(out) :: eave_lon_out, eave_lat_out
     real(kind=r_def),    intent(out) :: correct_flux_out
@@ -1042,13 +1268,18 @@ contains
     chi_2_df = 0.0_r_def
     chi_3_df = 0.0_r_def
     do dfc = 1, ndf_wx
-      chi_1_df = chi_1_df + chi_1(map_wx(dfc)) * basis_wx_ww(1, dfc, target_df)
-      chi_2_df = chi_2_df + chi_2(map_wx(dfc)) * basis_wx_ww(1, dfc, target_df)
-      chi_3_df = chi_3_df + chi_3(map_wx(dfc)) * basis_wx_ww(1, dfc, target_df)
+      if (target_across) then
+        idx = wx_stencil_map(dfc, 2, host_face)
+      else
+        idx = map_wx(dfc)
+      end if
+      chi_1_df = chi_1_df + chi_1(idx) * basis_wx_ww(1, dfc, target_df)
+      chi_2_df = chi_2_df + chi_2(idx) * basis_wx_ww(1, dfc, target_df)
+      chi_3_df = chi_3_df + chi_3(idx) * basis_wx_ww(1, dfc, target_df)
     end do
 
     call chi2xyz(                                                              &
-        chi_1_df, chi_2_df, chi_3_df, owned_panel,                             &
+        chi_1_df, chi_2_df, chi_3_df, target_panel,                            &
         geometry, topology, coord_system, scaled_radius,                       &
         xyz(1), xyz(2), xyz(3)                                                 &
     )
@@ -1059,20 +1290,28 @@ contains
       xyz = inverse_schmidt_transform_xyz(xyz, stretch_factor)
     end if
     call xyz2alphabetar(                                                       &
-        xyz(1), xyz(2), xyz(3), owned_panel, alpha_native, beta_native, r      &
+      xyz(1), xyz(2), xyz(3), target_panel, alpha_native, beta_native, r     &
     )
 
     alpha_eave = 0.0_r_def
     beta_eave = 0.0_r_def
     if (is_x_direction) then
       do dfc = 1, ndf_wx_2d
-        idx = map_wx_2d(dfc)
+        if (target_across) then
+          idx = coord_x_stencil_map(dfc, 2, host_face)
+        else
+          idx = map_wx_2d(dfc)
+        end if
         alpha_eave = alpha_eave + alpha_x(idx) * basis_wx_2d_ww(1, dfc, target_df)
         beta_eave = beta_eave + beta_x(idx) * basis_wx_2d_ww(1, dfc, target_df)
       end do
     else
       do dfc = 1, ndf_wx_2d
-        idx = map_wx_2d(dfc)
+        if (target_across) then
+          idx = coord_y_stencil_map(dfc, 2, host_face)
+        else
+          idx = map_wx_2d(dfc)
+        end if
         alpha_eave = alpha_eave + alpha_y(idx) * basis_wx_2d_ww(1, dfc, target_df)
         beta_eave = beta_eave + beta_y(idx) * basis_wx_2d_ww(1, dfc, target_df)
       end do
@@ -1084,7 +1323,7 @@ contains
         xyz(1), xyz(2), xyz(3)                                                 &
     )
     call xyz2alphabetar(                                                       &
-        xyz(1), xyz(2), xyz(3), owned_panel, alpha_own, beta_own, r            &
+      xyz(1), xyz(2), xyz(3), target_panel, alpha_own, beta_own, r           &
     )
 
     ! True eave lon/lat, obtained by applying the same rotate/stretch
@@ -1099,14 +1338,14 @@ contains
     call xyz2ll(eave_xyz_true(1), eave_xyz_true(2), eave_xyz_true(3),          &
                 eave_lon_out, eave_lat_out)
 
-    call compute_face_normals(alpha_own, beta_own, owned_panel,                &
+    call compute_face_normals(alpha_own, beta_own, target_panel,               &
                               n_alpha_own, n_beta_own)
     call compute_face_normals(alpha_eave, beta_eave, neighbour_panel_id,       &
                               n_alpha_nbr, n_beta_nbr)
 
     ! On rotated panel edges the extended mesh is rotated, so the eave face
     ! stored in an S/N slot is an alpha-type face (and W/E slots beta-type)
-    select case (10*owned_panel + neighbour_panel_id)
+    select case (10*target_panel + neighbour_panel_id)
     case (14, 23, 35, 46, 52, 61, 16, 25, 32, 41, 53, 64)
       rotated_edge = .true.
     case default
@@ -1152,7 +1391,7 @@ contains
     ! the position above)
     normal_llr = cart2sphere_vector(eave_xyz_true, n_q)
     correct_flux_out = s_axis * s_q * u0 * COS(eave_lat_out) * normal_llr(1) * dt &
-                        * dA_at_w2(map_w2(target_df))
+              * dA_at_w2(map_w2(host_face))
 
   end subroutine compute_rotation_factors
 
