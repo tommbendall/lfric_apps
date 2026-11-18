@@ -67,6 +67,7 @@ module slow_physics_alg_mod
                                        convection, convection_um,            &
                                        cloud, cloud_um, cloud_evap_condense, &
                                        external_forcing
+  use log_scalar_alg_mod, only: log_scalar_minmax
 
   ! Derived Types
   use field_mod,                 only: field_type
@@ -845,6 +846,10 @@ contains
                       conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number)
         call log_event("COSP finished", LOG_LEVEL_INFO)
 
+      end if
+
+      if (clock%get_step() > 298959) then
+        call log_scalar_minmax(modeldb%config, "slow_phys: theta", theta)
       end if
 
       call print_field_stats_alg(modeldb%config, theta, LOG_LEVEL_INFO,        &
