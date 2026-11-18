@@ -31,7 +31,7 @@ contains
 
   subroutine log_scalar_minmax(config, message, field)
 
-    use print_field_stats_alg_mod,    only: print_field_stats_alg
+    use print_nan_loc_alg_mod, only: print_nan_loc_alg
 
     implicit none
 
@@ -42,6 +42,7 @@ contains
     integer(kind=i_def)             :: idx
 
     call log_event(message, LOG_LEVEL_INFO)
+    call print_nan_loc_alg(config, field, LOG_LEVEL_INFO, message)
 
     do idx = 1, 32
       call log_scalar_column(message, field, idx)
