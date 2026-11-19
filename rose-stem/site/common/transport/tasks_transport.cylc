@@ -243,6 +243,256 @@
         "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v yz all linear hadley",
     }) %}
 
+{# ############### #}
+{# PEREGRIN Tasks   #}
+{# ############### #}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl-C48" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi","panel_edge_remap","diag_freq_1","null_vertical"],
+        "resolution": "C48",
+        "DT": 2400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl-C48_rot1" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi","panel_edge_remap","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot1",
+        "DT": 2400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl-C48_rot2" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi","panel_edge_remap","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot2",
+        "DT": 2400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_peregrin-C48" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi","panel_edge_remap","peregrin_on","diag_freq_1","null_vertical"],
+        "resolution": "C48",
+        "DT": 2400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_peregrin-C48_rot1" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi","panel_edge_remap","peregrin_on","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot1",
+        "DT": 2400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_peregrin-C48_rot2" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi","panel_edge_remap","peregrin_on","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot2",
+        "DT": 2400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_bigcfl-C48" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi_bigcfl","panel_edge_remap","diag_freq_1","null_vertical"],
+        "resolution": "C48",
+        "DT": 14400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_bigcfl-C48_rot1" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi_bigcfl","panel_edge_remap","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot1",
+        "DT": 14400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_bigcfl-C48_rot2" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi_bigcfl","panel_edge_remap","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot2",
+        "DT": 14400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_bigcfl_peregrin-C48" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi_bigcfl","panel_edge_remap","peregrin_on","diag_freq_1","null_vertical"],
+        "resolution": "C48",
+        "DT": 14400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_bigcfl_peregrin-C48_rot1" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi_bigcfl","panel_edge_remap","peregrin_on","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot1",
+        "DT": 14400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "sbr_hori_cos_phi_ffsl_bigcfl_peregrin-C48_rot2" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["sbr_hori_cos_phi_bigcfl","panel_edge_remap","peregrin_on","diag_freq_1","null_vertical"],
+        "resolution": "C48_rot2",
+        "DT": 14400,
+        "tsteps": 1,
+        "mpi_parts": 6,
+        "use_xios": false,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "errors.py diagTransport $NODAL_DATA_DIR rho:theta:tracer_con:tracer_adv:m_v T000001 -1 -91 0 0.01 $PLOT_DIR",
+    }) %}
+
+{% elif task_ns.conf_name == "deformation_2d_cylinder_ffsl_bigcfl_peregrin-C48" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["deformation_2d_bigcfl","slotted_cylinder_2d","panel_edge_remap","peregrin_on","null_vertical"],
+        "resolution": "C48",
+        "DT": 9600,
+        "tsteps": 108,
+        "mpi_parts": 12,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v xy all linear deformation",
+    }) %}
+
+{% elif task_ns.conf_name == "deformation_2d_cylinder_ffsl_bigcfl_peregrin-C48_rot1" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["deformation_2d_bigcfl","slotted_cylinder_2d","panel_edge_remap","peregrin_on","null_vertical"],
+        "resolution": "C48_rot1",
+        "DT": 9600,
+        "tsteps": 108,
+        "mpi_parts": 12,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v xy all linear deformation",
+    }) %}
+
+{% elif task_ns.conf_name == "deformation_2d_cylinder_ffsl_bigcfl_peregrin-C48_rot2" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["deformation_2d_bigcfl","slotted_cylinder_2d","panel_edge_remap","peregrin_on","null_vertical"],
+        "resolution": "C48_rot2",
+        "DT": 9600,
+        "tsteps": 108,
+        "mpi_parts": 12,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR theta:tracer_con:tracer_adv:m_v xy all linear deformation",
+    }) %}
+
+{% elif task_ns.conf_name == "divergent_2d_cylinder_ffsl_bigcfl_peregrin-C48" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["divergent_2d_bigcfl","slotted_cylinder_2d","panel_edge_remap","peregrin_on","null_vertical"],
+        "resolution": "C48",
+        "DT": 12960,
+        "tsteps": 80,
+        "mpi_parts": 12,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR rho:theta:tracer_con:tracer_adv:constant:m_v xy all linear divergent",
+    }) %}
+
+{% elif task_ns.conf_name == "divergent_2d_cylinder_ffsl_bigcfl_peregrin-C48_rot1" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["divergent_2d_bigcfl","slotted_cylinder_2d","panel_edge_remap","peregrin_on","null_vertical"],
+        "resolution": "C48_rot1",
+        "DT": 12960,
+        "tsteps": 80,
+        "mpi_parts": 12,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR rho:theta:tracer_con:tracer_adv:constant:m_v xy all linear divergent",
+    }) %}
+
+{% elif task_ns.conf_name == "divergent_2d_cylinder_ffsl_bigcfl_peregrin-C48_rot2" %}
+
+    {% do task_dict.update({
+        "opt_confs": ["divergent_2d_bigcfl","slotted_cylinder_2d","panel_edge_remap","peregrin_on","null_vertical"],
+        "resolution": "C48_rot2",
+        "DT": 12960,
+        "tsteps": 80,
+        "mpi_parts": 12,
+        "wallclock": 20,
+        "kgo_checks": [],
+        "plot_str": "spherical_and_vertical_slice_ugrid_plot.py $NODAL_DATA_DIR/lfric_diag.nc $PLOT_DIR rho:theta:tracer_con:tracer_adv:constant:m_v xy all linear divergent",
+    }) %}
+
 {# ############# #}
 {# Generic Tasks #}
 {# ############# #}

@@ -54,17 +54,16 @@ def read_nodal_data(filestem, ncomp, comp):
         print("Warning: No files found to plot")
     else:
 
+        data_frames = []
         for f in dirlist:
 
             tmp_data = pd.read_csv(f, header=None, names=col_names, skiprows=1,
                                    comment=']', dtype=col_types, sep='\s+')
+            data_frames.append(tmp_data)
 
-            # For compatibility between different pandas versions on old and
-            # new meto systems, use this try-except
-            try:
-                all_data = all_data._append(tmp_data)
-            except AttributeError:
-                all_data = all_data.append(tmp_data)
+        # pd.concat works across old and new pandas versions, unlike the
+        # removed DataFrame.append/_append methods
+        all_data = pd.concat(data_frames, ignore_index=True)
 
         # Select full or half levels for vector fields, if required
         if ncomp == 3:  # vector field

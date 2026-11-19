@@ -2,6 +2,8 @@
 ! (C) Crown copyright 2024 Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! GitHub Copilot.
 !-----------------------------------------------------------------------------
 !
 !> @brief Provides various runtime-constants for transport schemes.
@@ -23,9 +25,12 @@ module transport_constants_mod
                                                 get_panel_id,                  &
                                                 get_extended_coordinates,      &
                                                 get_height_fv,                 &
-                                                get_dz_w3
+                                                get_dz_w3,                     &
+                                                get_face_selector_ew,          &
+                                                get_face_selector_ns,          &
+                                                get_dA_at_w2
   use field_mod,                          only: field_type
-  use fs_continuity_mod,                  only: W2, W2H, W2V, W3, Wtheta
+  use fs_continuity_mod,                  only: W2, W2H, W2V, W3, Wtheta, W1V
   use function_space_collection_mod,      only: function_space_collection
   use function_space_mod,                 only: function_space_type
   use integer_field_mod,                  only: integer_field_type
@@ -105,10 +110,41 @@ module transport_constants_mod
   type(inventory_by_local_mesh_type), target :: panel_edge_dist_inventory
   type(inventory_by_local_mesh_type), target :: panel_edge_coords_x_inventory
   type(inventory_by_local_mesh_type), target :: panel_edge_coords_y_inventory
+  type(inventory_by_local_mesh_type), target :: panel_anticlockwise_corner_coords_inventory
+  type(inventory_by_local_mesh_type), target :: panel_clockwise_corner_coords_inventory
   type(inventory_by_local_mesh_type), target :: panel_edge_weights_x_inventory
   type(inventory_by_local_mesh_type), target :: panel_edge_weights_y_inventory
   type(inventory_by_local_mesh_type), target :: panel_edge_indices_x_inventory
   type(inventory_by_local_mesh_type), target :: panel_edge_indices_y_inventory
+  type(inventory_by_local_mesh_type), target :: panel_corner_weights_x_inventory
+  type(inventory_by_local_mesh_type), target :: panel_corner_weights_y_inventory
+  type(inventory_by_local_mesh_type), target :: panel_corner_indices_x_inventory
+  type(inventory_by_local_mesh_type), target :: panel_corner_indices_y_inventory
+
+  ! Weights/indices for remapping a W2H flux/wind field near panel edges.
+  ! "interp_w2h" is the pure Lagrange "parl_w2" donor interpolation (set 1);
+  ! "parl_w2_rot"/"perp_w2_rot" are the native/eave-frame rotation factors;
+  ! "interp_perp" is the "perp_w2" donor interpolation to the two vertices of
+  ! each parl_p face (two sets of ndata entries per face);
+  ! "interp_w3" is the (currently identity/zero placeholder)
+  ! staging interpolation for set 3 (see W2H_REMAP_REWRITE_INSTRUCTIONS.md)
+  type(inventory_by_local_mesh_type), target :: interp_w2h_weights_inventory
+  type(inventory_by_local_mesh_type), target :: interp_w2h_indices_inventory
+  type(inventory_by_local_mesh_type), target :: parl_w2_rot_inventory
+  type(inventory_by_local_mesh_type), target :: perp_w2_rot_inventory
+  type(inventory_by_local_mesh_type), target :: interp_perp_weights_inventory
+  type(inventory_by_local_mesh_type), target :: interp_perp_indices_inventory
+  type(inventory_by_local_mesh_type), target :: interp_w3_weights_x_inventory
+  type(inventory_by_local_mesh_type), target :: interp_w3_indices_x_inventory
+  type(inventory_by_local_mesh_type), target :: interp_w3_weights_y_inventory
+  type(inventory_by_local_mesh_type), target :: interp_w3_indices_y_inventory
+
+  ! Diagnostic fields for the panel_edge_remap_w2h eave remap: TEMPORARY,
+  ! remove once the remap has been validated against the analytic
+  ! solid-body-rotation solution (see repo memory swift_peregrin_w2h_diagnostics.md)
+  type(inventory_by_local_mesh_type), target :: panel_edge_remap_w2h_eave_lon_inventory
+  type(inventory_by_local_mesh_type), target :: panel_edge_remap_w2h_eave_lat_inventory
+  type(inventory_by_local_mesh_type), target :: panel_edge_remap_w2h_correct_flux_inventory
 
   ! Relating to redundant computations in transport
   type(inventory_by_local_mesh_type), target :: halo_mask_x_inventory
@@ -142,10 +178,29 @@ module transport_constants_mod
   public :: get_panel_edge_dist
   public :: get_panel_edge_coords_x
   public :: get_panel_edge_coords_y
+  public :: get_panel_anticlockwise_corner_coords
+  public :: get_panel_clockwise_corner_coords
   public :: get_panel_edge_weights_x
   public :: get_panel_edge_weights_y
   public :: get_panel_edge_indices_x
   public :: get_panel_edge_indices_y
+  public :: get_panel_corner_weights_x
+  public :: get_panel_corner_weights_y
+  public :: get_panel_corner_indices_x
+  public :: get_panel_corner_indices_y
+  public :: get_interp_w2h_weights
+  public :: get_interp_w2h_indices
+  public :: get_parl_w2_rot
+  public :: get_perp_w2_rot
+  public :: get_interp_perp_weights
+  public :: get_interp_perp_indices
+  public :: get_interp_w3_weights_x
+  public :: get_interp_w3_indices_x
+  public :: get_interp_w3_weights_y
+  public :: get_interp_w3_indices_y
+  public :: get_panel_edge_remap_w2h_eave_lon
+  public :: get_panel_edge_remap_w2h_eave_lat
+  public :: get_panel_edge_remap_w2h_correct_flux
   public :: get_hori_w3_mol_coeffs
   public :: get_vert_w3_mol_coeffs
   public :: get_reversible_vert_w3_mol_coeffs
@@ -161,7 +216,10 @@ module transport_constants_mod
   private :: initialise_remap_on_extended_mesh
   private :: compute_panel_edge_dists
   private :: compute_panel_edge_coords
+  private :: compute_panel_corner_coords
   private :: compute_panel_edge_weights
+  private :: compute_panel_corner_weights
+  private :: compute_panel_edge_remap_w2h_weights
   private :: compute_halo_masks
   private :: compute_third_dl_dz
 
@@ -325,7 +383,6 @@ contains
   subroutine compute_panel_edge_coords(mesh)
 
     use panel_edge_coords_kernel_mod,  only: panel_edge_coords_kernel_type
-    use transport_config_mod,          only: ffsl_inner_order, ffsl_outer_order
 
     implicit none
 
@@ -362,7 +419,9 @@ contains
     fs => chi(1)%get_function_space()
     panel_id => get_panel_id(mesh)
     field_depth = mesh%get_halo_depth()
-    depth = MAX(ffsl_inner_order, ffsl_outer_order)
+    ! Populate extended coordinates to the full field halo depth so remapping
+    ! can be requested consistently up to this depth.
+    depth = field_depth
 
     call panel_edge_coords_x_inventory%add_field_array(                        &
         panel_edge_coords_x, fs, 2, local_mesh, halo_depth=field_depth         &
@@ -381,6 +440,79 @@ contains
 
   end subroutine compute_panel_edge_coords
 
+  !> @brief Computes the coordinates of cubed-sphere panels, extended around
+  !!        panel corners into the two neighbouring panels that meet there
+  !> @param[in] mesh Mesh object to compute the coordinates for
+  subroutine compute_panel_corner_coords(mesh)
+
+    use panel_corner_coords_kernel_mod,  only: panel_corner_coords_kernel_type
+
+    implicit none
+
+    type(mesh_type), pointer, intent(in) :: mesh
+
+    integer(kind=i_def)                   :: stencil_extent, field_depth
+    type(mesh_type),              pointer :: twod_mesh
+    type(local_mesh_type),        pointer :: local_mesh
+    type(function_space_type),    pointer :: fs
+    type(integer_field_type),     pointer :: panel_edge_dist(:)
+    type(field_type),             pointer :: panel_anticlockwise_corner_coords(:)
+    type(field_type),             pointer :: panel_clockwise_corner_coords(:)
+    type(field_type),             pointer :: panel_edge_coords_x(:)
+    type(field_type),             pointer :: panel_edge_coords_y(:)
+    type(field_type),             pointer :: chi(:)
+    type(field_type),             pointer :: panel_id
+    integer(kind=tik)                     :: id
+
+    panel_edge_dist => get_panel_edge_dist(mesh%get_id())
+
+    if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
+
+    ! Initialise inventories if they haven't already been
+    if (.not. panel_anticlockwise_corner_coords_inventory%is_initialised()) then
+      call panel_anticlockwise_corner_coords_inventory%initialise(             &
+              name="panel_anticlockwise_corner_coords"                         &
+      )
+    end if
+    if (.not. panel_clockwise_corner_coords_inventory%is_initialised()) then
+      call panel_clockwise_corner_coords_inventory%initialise(                 &
+              name="panel_clockwise_corner_coords"                             &
+      )
+    end if
+
+    local_mesh => mesh%get_local_mesh()
+    twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+    chi => get_coordinates(mesh)
+    fs => chi(1)%get_function_space()
+    panel_id => get_panel_id(mesh)
+    stencil_extent = mesh%get_halo_depth()
+    field_depth = mesh%get_halo_depth()
+    panel_edge_coords_x => get_panel_edge_coords_x(mesh%get_id())
+    panel_edge_coords_y => get_panel_edge_coords_y(mesh%get_id())
+
+    call panel_anticlockwise_corner_coords_inventory%add_field_array(          &
+        panel_anticlockwise_corner_coords, fs, 2, local_mesh,                  &
+        halo_depth=stencil_extent                                              &
+    )
+    call panel_clockwise_corner_coords_inventory%add_field_array(              &
+        panel_clockwise_corner_coords, fs, 2, local_mesh,                      &
+        halo_depth=stencil_extent                                              &
+    )
+
+    call invoke(                                                               &
+        panel_corner_coords_kernel_type(                                       &
+            panel_anticlockwise_corner_coords, panel_clockwise_corner_coords,  &
+            panel_edge_coords_x, panel_edge_coords_y,                          &
+            panel_id, panel_edge_dist, stencil_extent, field_depth             &
+        )                                                                      &
+    )
+
+    if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
+
+  end subroutine compute_panel_corner_coords
+
+
+  !> @brief Computes the Peregrin weights
   !> @brief Compute weights and indices for remapping fields to neighbouring
   !!        panels at the edges of cubed-sphere mesh panels
   !> @param[in] mesh_id  ID of mesh to compute weights and indices on
@@ -432,15 +564,15 @@ contains
     !                   only going 1 or 2 cells onto the neighbouring panel,
     !                   then a stencil extent of 3 or 4 should cover all
     !                   overlapping cells
-    ! - remap_depth:    specifies to what halo depth the remapping is done,
-    !                   which is equal to the horizontal order. When the kernel
-    !                   is called at depths greater than this, nothing happens
+    ! - remap_depth:    specifies to what halo depth the remapping is done.
+    !                   Set to full halo depth so weights/indices are available
+    !                   whenever remapping is requested up to that depth.
     ! - max_halo_depth: the full depth of halos, which is used to set the size
     !                   of the weights. These are set to full size to match the
     !                   transported fields, and the kernel is looped over to
     !                   this depth, so the weights are set clean for this depth
     max_halo_depth = mesh%get_halo_depth()
-    remap_depth = MAX(ffsl_inner_order, ffsl_outer_order)
+    remap_depth = max_halo_depth
     if (panel_edge_high_order) then
       cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
       ndata = 4  ! Need 4 points for cubic remapping
@@ -493,6 +625,317 @@ contains
     if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
 
   end subroutine compute_panel_edge_weights
+
+  !> @brief Compute weights and indices for remapping a scalar field near the
+  !!        corners of cubed-sphere panels
+  !> @param[in] mesh_id  ID of mesh to compute weights and indices on
+  subroutine compute_panel_corner_weights(mesh_id)
+
+    use panel_corner_weights_kernel_mod, only: panel_corner_weights_kernel_type
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+
+    type(mesh_type),           pointer :: mesh
+    type(mesh_type),           pointer :: twod_mesh
+    type(local_mesh_type),     pointer :: local_mesh
+    type(r_tran_field_type),   pointer :: panel_corner_weights_x
+    type(r_tran_field_type),   pointer :: panel_corner_weights_y
+    type(integer_field_type),  pointer :: panel_corner_indices_x
+    type(integer_field_type),  pointer :: panel_corner_indices_y
+    type(integer_field_type),  pointer :: panel_edge_dist(:)
+    type(field_type),          pointer :: chi(:)
+    type(field_type),          pointer :: panel_id
+    type(field_type),          pointer :: panel_anticlockwise_corner_coords(:)
+    type(field_type),          pointer :: panel_clockwise_corner_coords(:)
+    type(function_space_type), pointer :: w3_fs
+
+    integer(kind=i_def), parameter :: ndata = 4
+    integer(kind=i_def) :: max_halo_depth, remap_depth, region_depth
+    integer(kind=tik)   :: id
+
+    if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+    twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+
+    chi => get_coordinates(mesh)
+    panel_id => get_panel_id(mesh)
+    panel_edge_dist => get_panel_edge_dist(mesh_id)
+    panel_anticlockwise_corner_coords => get_panel_anticlockwise_corner_coords(mesh_id)
+    panel_clockwise_corner_coords => get_panel_clockwise_corner_coords(mesh_id)
+
+    ! The region stencil depth must match the one used in panel_corner_remap_alg
+    max_halo_depth = mesh%get_halo_depth()
+    remap_depth = max_halo_depth
+    region_depth = max_halo_depth
+
+    w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3, ndata)
+
+    if (.not. panel_corner_weights_x_inventory%is_initialised()) then
+      call panel_corner_weights_x_inventory%initialise(name="panel_corner_weights_x")
+    end if
+    if (.not. panel_corner_weights_y_inventory%is_initialised()) then
+      call panel_corner_weights_y_inventory%initialise(name="panel_corner_weights_y")
+    end if
+    if (.not. panel_corner_indices_x_inventory%is_initialised()) then
+      call panel_corner_indices_x_inventory%initialise(name="panel_corner_indices_x")
+    end if
+    if (.not. panel_corner_indices_y_inventory%is_initialised()) then
+      call panel_corner_indices_y_inventory%initialise(name="panel_corner_indices_y")
+    end if
+
+    call panel_corner_weights_x_inventory%add_field(                           &
+            panel_corner_weights_x, w3_fs, local_mesh, halo_depth=max_halo_depth &
+    )
+    call panel_corner_weights_y_inventory%add_field(                           &
+            panel_corner_weights_y, w3_fs, local_mesh, halo_depth=max_halo_depth &
+    )
+    call panel_corner_indices_x_inventory%add_field(                           &
+            panel_corner_indices_x, w3_fs, local_mesh, halo_depth=max_halo_depth &
+    )
+    call panel_corner_indices_y_inventory%add_field(                           &
+            panel_corner_indices_y, w3_fs, local_mesh, halo_depth=max_halo_depth &
+    )
+
+    call invoke( panel_corner_weights_kernel_type(                             &
+                      panel_corner_weights_x, panel_corner_weights_y,         &
+                      panel_corner_indices_x, panel_corner_indices_y,         &
+                      chi, region_depth,                                      &
+                      panel_anticlockwise_corner_coords, panel_clockwise_corner_coords, &
+                      panel_id, region_depth,                                 &
+                      panel_edge_dist, remap_depth ) )
+
+    if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
+
+  end subroutine compute_panel_corner_weights
+
+  !> @brief Compute weights and indices for remapping a W2H flux/wind field
+  !!        to neighbouring panels at the edges of the cubed-sphere mesh
+  !> @param[in] mesh_id  ID of mesh to compute weights and indices on
+  subroutine compute_panel_edge_remap_w2h_weights(mesh_id)
+
+    use planet_config_mod,      only: scaled_radius
+    use transport_config_mod,   only: ffsl_inner_order,                        &
+                                      ffsl_outer_order
+    use initial_wind_config_mod,   only: u0
+    use timestepping_config_mod,   only: dt
+    use panel_edge_remap_w2h_weights_kernel_mod,                               &
+                                 only: panel_edge_remap_w2h_weights_kernel_type
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+
+    type(mesh_type),           pointer :: mesh
+    type(mesh_type),           pointer :: twod_mesh
+    type(local_mesh_type),     pointer :: local_mesh
+    type(function_space_type), pointer :: w2h_fs
+    type(function_space_type), pointer :: w2h_fs_rot
+    type(function_space_type), pointer :: w1v_fs
+    type(function_space_type), pointer :: wp_fs
+    type(function_space_type), pointer :: w3_fs
+    type(r_tran_field_type),  pointer :: interp_w2h_weights(:)
+    type(integer_field_type), pointer :: interp_w2h_indices(:)
+    type(r_tran_field_type),  pointer :: parl_w2_rot(:)
+    type(r_tran_field_type),  pointer :: perp_w2_rot(:)
+    type(r_tran_field_type),  pointer :: interp_perp_weights(:)
+    type(integer_field_type), pointer :: interp_perp_indices(:)
+    type(r_tran_field_type)           :: w1v_nodes
+    type(r_tran_field_type),  pointer :: interp_w3_weights_x
+    type(integer_field_type), pointer :: interp_w3_indices_x
+    type(r_tran_field_type),  pointer :: interp_w3_weights_y
+    type(integer_field_type), pointer :: interp_w3_indices_y
+    type(r_tran_field_type),  pointer :: eave_lon(:)
+    type(r_tran_field_type),  pointer :: eave_lat(:)
+    type(r_tran_field_type),  pointer :: correct_flux(:)
+    type(field_type),         pointer :: dA_at_w2
+    type(field_type),         pointer :: chi(:)
+    type(field_type),         pointer :: panel_edge_coords_x(:)
+    type(field_type),         pointer :: panel_edge_coords_y(:)
+    type(field_type),         pointer :: panel_id
+    type(integer_field_type), pointer :: panel_edge_dist(:)
+    type(integer_field_type), pointer :: face_selector_ew
+    type(integer_field_type), pointer :: face_selector_ns
+
+    integer(kind=i_def) :: ndata
+    integer(kind=i_def) :: max_halo_depth, cross_depth, remap_depth
+    integer(kind=tik)   :: id
+    logical(kind=l_def) :: high_order
+    logical(kind=l_def) :: include_perp_p
+
+    if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
+
+    ! TODO: separate out linear and cubic coefficients
+    high_order = .false.
+    ! Feature flag for the "perp_p" target DoFs (Phase 3 of the
+    ! W2H_REMAP_REWRITE_INSTRUCTIONS.md rewrite)
+    include_perp_p = .true.
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+    twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+
+    ! Same depth conventions as compute_panel_edge_weights above
+    max_halo_depth = mesh%get_halo_depth()
+    remap_depth = max_halo_depth
+    if (high_order) then
+      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
+      ndata = 4  ! Need 4 points for cubic remapping
+    else
+      ! Corner remapping can need the opposite panel's inward donor.
+      cross_depth = MAX(2_i_def, MAX(ffsl_inner_order, ffsl_outer_order))
+      ndata = 2  ! Need 2 points for linear remapping
+    end if
+
+    w2h_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W2H, ndata)
+    w2h_fs_rot => function_space_collection%get_fs(twod_mesh, 0, 0, W2H)
+    w1v_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W1V)
+    wp_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W2H, 2*ndata)
+    w3_fs => function_space_collection%get_fs(twod_mesh, 0, 0, W3, ndata)
+
+    if (.not. interp_w2h_weights_inventory%is_initialised()) then
+      call interp_w2h_weights_inventory%initialise(name="interp_w2h_weights")
+    end if
+    if (.not. interp_w2h_indices_inventory%is_initialised()) then
+      call interp_w2h_indices_inventory%initialise(name="interp_w2h_indices")
+    end if
+    if (.not. parl_w2_rot_inventory%is_initialised()) then
+      call parl_w2_rot_inventory%initialise(name="parl_w2_rot")
+    end if
+    if (.not. perp_w2_rot_inventory%is_initialised()) then
+      call perp_w2_rot_inventory%initialise(name="perp_w2_rot")
+    end if
+    if (.not. interp_perp_weights_inventory%is_initialised()) then
+      call interp_perp_weights_inventory%initialise(name="interp_perp_weights")
+    end if
+    if (.not. interp_perp_indices_inventory%is_initialised()) then
+      call interp_perp_indices_inventory%initialise(name="interp_perp_indices")
+    end if
+    if (.not. interp_w3_weights_x_inventory%is_initialised()) then
+      call interp_w3_weights_x_inventory%initialise(name="interp_w3_weights_x")
+    end if
+    if (.not. interp_w3_indices_x_inventory%is_initialised()) then
+      call interp_w3_indices_x_inventory%initialise(name="interp_w3_indices_x")
+    end if
+    if (.not. interp_w3_weights_y_inventory%is_initialised()) then
+      call interp_w3_weights_y_inventory%initialise(name="interp_w3_weights_y")
+    end if
+    if (.not. interp_w3_indices_y_inventory%is_initialised()) then
+      call interp_w3_indices_y_inventory%initialise(name="interp_w3_indices_y")
+    end if
+    if (.not. panel_edge_remap_w2h_eave_lon_inventory%is_initialised()) then
+      call panel_edge_remap_w2h_eave_lon_inventory%initialise(                &
+          name="panel_edge_remap_w2h_eave_lon"                               &
+      )
+    end if
+    if (.not. panel_edge_remap_w2h_eave_lat_inventory%is_initialised()) then
+      call panel_edge_remap_w2h_eave_lat_inventory%initialise(                &
+          name="panel_edge_remap_w2h_eave_lat"                               &
+      )
+    end if
+    if (.not. panel_edge_remap_w2h_correct_flux_inventory%is_initialised()) then
+      call panel_edge_remap_w2h_correct_flux_inventory%initialise(            &
+          name="panel_edge_remap_w2h_correct_flux"                           &
+      )
+    end if
+
+    ! Create fields in the inventories
+    call interp_w2h_weights_inventory%add_field_array(                         &
+        interp_w2h_weights, w2h_fs, 3, local_mesh,                             &
+        halo_depth=max_halo_depth                                               &
+    )
+    call interp_w2h_indices_inventory%add_field_array(                         &
+        interp_w2h_indices, w2h_fs, 3, local_mesh,                             &
+        halo_depth=max_halo_depth                                               &
+    )
+    call parl_w2_rot_inventory%add_field_array(                                &
+        parl_w2_rot, w2h_fs_rot, 3, local_mesh,                                &
+        halo_depth=max_halo_depth                                               &
+    )
+    call perp_w2_rot_inventory%add_field_array(                                &
+        perp_w2_rot, w2h_fs_rot, 3, local_mesh,                                &
+        halo_depth=max_halo_depth                                               &
+    )
+    call interp_perp_weights_inventory%add_field_array(                        &
+        interp_perp_weights, wp_fs, 3, local_mesh,                             &
+        halo_depth=max_halo_depth                                               &
+    )
+    call interp_perp_indices_inventory%add_field_array(                        &
+        interp_perp_indices, wp_fs, 3, local_mesh,                             &
+        halo_depth=max_halo_depth                                               &
+    )
+    call interp_w3_weights_x_inventory%add_field(                             &
+            interp_w3_weights_x, w3_fs, local_mesh, halo_depth=max_halo_depth  &
+    )
+    call interp_w3_indices_x_inventory%add_field(                             &
+            interp_w3_indices_x, w3_fs, local_mesh, halo_depth=max_halo_depth  &
+    )
+    call interp_w3_weights_y_inventory%add_field(                             &
+            interp_w3_weights_y, w3_fs, local_mesh, halo_depth=max_halo_depth  &
+    )
+    call interp_w3_indices_y_inventory%add_field(                             &
+            interp_w3_indices_y, w3_fs, local_mesh, halo_depth=max_halo_depth  &
+    )
+    call panel_edge_remap_w2h_eave_lon_inventory%add_field_array(              &
+        eave_lon, w2h_fs, 3, local_mesh, halo_depth=max_halo_depth             &
+    )
+    call panel_edge_remap_w2h_eave_lat_inventory%add_field_array(              &
+        eave_lat, w2h_fs, 3, local_mesh, halo_depth=max_halo_depth             &
+    )
+    call panel_edge_remap_w2h_correct_flux_inventory%add_field_array(          &
+        correct_flux, w2h_fs, 3, local_mesh, halo_depth=max_halo_depth         &
+    )
+
+    ! Get pointers to the geometric fields the kernel needs. panel_edge_coords_x/y
+    ! are 2-component (alpha, beta) field arrays already computed for the
+    ! scalar remap, and reused here directly as the "alpha_x, beta_x" and
+    ! "alpha_y, beta_y" arguments expected by the kernel
+    chi => get_coordinates(mesh)
+    panel_id => get_panel_id(mesh)
+    panel_edge_dist => get_panel_edge_dist(mesh_id)
+    panel_edge_coords_x => get_panel_edge_coords_x(mesh_id)
+    panel_edge_coords_y => get_panel_edge_coords_y(mesh_id)
+    dA_at_w2 => get_dA_at_w2(mesh)
+    face_selector_ew => get_face_selector_ew(mesh)
+    face_selector_ns => get_face_selector_ns(mesh)
+
+    ! Dummy W1V field: only provides the W1V nodes for basis evaluation in
+    ! the weights kernel, its values are never read
+    call w1v_nodes%initialise(w1v_fs, name='w1v_nodes')
+    call invoke( setval_c(w1v_nodes, 0.0_r_tran) )
+
+    ! Away from panel edges (or on non-spherical/non-periodic meshes, where
+    ! panel_edge_dist is set to a large negative number), the kernel falls
+    ! back to the identity remap internally, so no separate geometry/topology
+    ! branch is needed here
+    call invoke( panel_edge_remap_w2h_weights_kernel_type(                     &
+                    interp_w2h_weights, interp_w2h_indices,                   &
+                    parl_w2_rot, perp_w2_rot,                                 &
+                    interp_perp_weights, interp_perp_indices,                 &
+                    w1v_nodes,                                                &
+                    interp_w3_weights_x, interp_w3_indices_x,                 &
+                    interp_w3_weights_y, interp_w3_indices_y,                 &
+                    eave_lon, eave_lat, correct_flux,                         &
+                    chi, cross_depth,                                         &
+                    panel_edge_coords_x, cross_depth,                         &
+                    panel_edge_coords_y, cross_depth,                         &
+                    dA_at_w2,                                                 &
+                    panel_id, cross_depth,                                    &
+                    panel_edge_dist, cross_depth,                             &
+                    face_selector_ew, face_selector_ns,                       &
+                    high_order,                                               &
+                    remap_depth,                                              &
+                    geometry, topology, coord_system,                        &
+                    scaled_radius,                                            &
+                    u0, dt)                                                   &
+    )
+
+    if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
+
+  end subroutine compute_panel_edge_remap_w2h_weights
 
   !> @brief Compute masks for indicating which cells are in the X and Y halos
   !> @param[in] mesh_id  ID of mesh to compute masks on
@@ -1411,6 +1854,77 @@ contains
 
   end function get_panel_edge_coords_y
 
+  !> @brief Returns a pointer to the "extended" panel coordinates for cells
+  !!        near cubed-sphere panel corners, following the anticlockwise route
+  !!        around the corner (viewed from outside the sphere)
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The anticlockwise corner-extended coordinates
+  function get_panel_anticlockwise_corner_coords(mesh_id) result(panel_corner_coords)
+
+    implicit none
+
+    integer(kind=i_def),             intent(in) :: mesh_id
+    type(mesh_type),                    pointer :: mesh
+    type(local_mesh_type),              pointer :: local_mesh
+    type(field_type),                   pointer :: panel_corner_coords(:)
+    logical(kind=l_def)                         :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    ! Initialise inventory if this is the first time getting this constant
+    if (.not. panel_anticlockwise_corner_coords_inventory%is_initialised()) then
+      call panel_anticlockwise_corner_coords_inventory%initialise(           &
+              name="panel_anticlockwise_corner_coords")
+    end if
+
+    constant_exists = panel_anticlockwise_corner_coords_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_corner_coords(mesh)
+    end if
+
+    ! Return existing constant
+    call panel_anticlockwise_corner_coords_inventory%get_field_array(local_mesh, panel_corner_coords)
+
+  end function get_panel_anticlockwise_corner_coords
+
+  !> @brief Returns a pointer to the "extended" panel coordinates for cells
+  !!        near cubed-sphere panel corners, following the clockwise route
+  !!        around the corner (viewed from outside the sphere)
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return The clockwise corner-extended coordinates
+  function get_panel_clockwise_corner_coords(mesh_id) result(panel_corner_coords)
+
+    implicit none
+
+    integer(kind=i_def),             intent(in) :: mesh_id
+    type(mesh_type),                    pointer :: mesh
+    type(local_mesh_type),              pointer :: local_mesh
+    type(field_type),                   pointer :: panel_corner_coords(:)
+    logical(kind=l_def)                         :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    ! Initialise inventory if this is the first time getting this constant
+    if (.not. panel_clockwise_corner_coords_inventory%is_initialised()) then
+      call panel_clockwise_corner_coords_inventory%initialise(                 &
+              name="panel_clockwise_corner_coords")
+    end if
+
+    constant_exists = panel_clockwise_corner_coords_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_corner_coords(mesh)
+    end if
+
+    ! Return existing constant
+    call panel_clockwise_corner_coords_inventory%get_field_array(local_mesh, panel_corner_coords)
+
+  end function get_panel_clockwise_corner_coords
+
+
   !> @brief Returns a pointer to the weights for remapping fields near the
   !!        edges of cubed-sphere panels
   !> @param[in] mesh_id The ID of the mesh to get the object for
@@ -1510,6 +2024,68 @@ contains
 
   end function get_panel_edge_indices_x
 
+  !> @brief Returns a pointer to the weights for remapping fields near the
+  !!        corners of cubed-sphere panels
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return Weights for remapping fields neighbouring cubed-sphere panel corners
+  function get_panel_corner_weights_x(mesh_id) result(panel_corner_weights)
+
+    implicit none
+
+    integer(kind=i_def),             intent(in) :: mesh_id
+    type(mesh_type),                    pointer :: mesh
+    type(local_mesh_type),              pointer :: local_mesh
+    type(r_tran_field_type),            pointer :: panel_corner_weights
+    logical(kind=l_def)                         :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. panel_corner_weights_x_inventory%is_initialised()) then
+      call panel_corner_weights_x_inventory%initialise(name="panel_corner_weights_x")
+    end if
+
+    constant_exists = panel_corner_weights_x_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_corner_weights(mesh_id)
+    end if
+
+    call panel_corner_weights_x_inventory%get_field(local_mesh, panel_corner_weights)
+
+  end function get_panel_corner_weights_x
+
+  !> @brief Returns a pointer to the weights for remapping fields near the
+  !!        corners of cubed-sphere panels
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return Weights for remapping fields neighbouring cubed-sphere panel corners
+  function get_panel_corner_weights_y(mesh_id) result(panel_corner_weights)
+
+    implicit none
+
+    integer(kind=i_def),             intent(in) :: mesh_id
+    type(mesh_type),                    pointer :: mesh
+    type(local_mesh_type),              pointer :: local_mesh
+    type(r_tran_field_type),            pointer :: panel_corner_weights
+    logical(kind=l_def)                         :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. panel_corner_weights_y_inventory%is_initialised()) then
+      call panel_corner_weights_y_inventory%initialise(name="panel_corner_weights_y")
+    end if
+
+    constant_exists = panel_corner_weights_y_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_corner_weights(mesh_id)
+    end if
+
+    call panel_corner_weights_y_inventory%get_field(local_mesh, panel_corner_weights)
+
+  end function get_panel_corner_weights_y
+
   !> @brief Returns a pointer to the indices for remapping fields near the
   !!        edges of cubed-sphere panels
   !> @param[in] mesh_id The ID of the mesh to get the object for
@@ -1542,6 +2118,377 @@ contains
     call panel_edge_indices_y_inventory%get_field(local_mesh, panel_edge_indices)
 
   end function get_panel_edge_indices_y
+
+  !> @brief Returns a pointer to the indices for remapping fields near the
+  !!        corners of cubed-sphere panels
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return Indices for remapping fields neighbouring cubed-sphere panel corners
+  function get_panel_corner_indices_x(mesh_id) result(panel_corner_indices)
+
+    implicit none
+
+    integer(kind=i_def),             intent(in) :: mesh_id
+    type(mesh_type),                    pointer :: mesh
+    type(local_mesh_type),              pointer :: local_mesh
+    type(integer_field_type),           pointer :: panel_corner_indices
+    logical(kind=l_def)                         :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. panel_corner_indices_x_inventory%is_initialised()) then
+      call panel_corner_indices_x_inventory%initialise(name="panel_corner_indices_x")
+    end if
+
+    constant_exists = panel_corner_indices_x_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_corner_weights(mesh_id)
+    end if
+
+    call panel_corner_indices_x_inventory%get_field(local_mesh, panel_corner_indices)
+
+  end function get_panel_corner_indices_x
+
+  !> @brief Returns a pointer to the indices for remapping fields near the
+  !!        corners of cubed-sphere panels
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return Indices for remapping fields neighbouring cubed-sphere panel corners
+  function get_panel_corner_indices_y(mesh_id) result(panel_corner_indices)
+
+    implicit none
+
+    integer(kind=i_def),             intent(in) :: mesh_id
+    type(mesh_type),                    pointer :: mesh
+    type(local_mesh_type),              pointer :: local_mesh
+    type(integer_field_type),           pointer :: panel_corner_indices
+    logical(kind=l_def)                         :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. panel_corner_indices_y_inventory%is_initialised()) then
+      call panel_corner_indices_y_inventory%initialise(name="panel_corner_indices_y")
+    end if
+
+    constant_exists = panel_corner_indices_y_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_corner_weights(mesh_id)
+    end if
+
+    call panel_corner_indices_y_inventory%get_field(local_mesh, panel_corner_indices)
+
+  end function get_panel_corner_indices_y
+
+  !> @brief Returns the W2H remap fields for all three remap directions
+  function get_interp_w2h_weights(mesh_id) result(weights)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: weights(:)
+
+    call get_r_tran_field_array(                                           &
+        interp_w2h_weights_inventory, "interp_w2h_weights", mesh_id, weights &
+    )
+
+  end function get_interp_w2h_weights
+
+  function get_interp_w2h_indices(mesh_id) result(indices)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(integer_field_type), pointer :: indices(:)
+
+    call get_integer_field_array(                                           &
+        interp_w2h_indices_inventory, "interp_w2h_indices", mesh_id, indices &
+    )
+
+  end function get_interp_w2h_indices
+
+  function get_parl_w2_rot(mesh_id) result(rot)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: rot(:)
+
+    call get_r_tran_field_array(                                               &
+        parl_w2_rot_inventory, "parl_w2_rot", mesh_id, rot                    &
+    )
+
+  end function get_parl_w2_rot
+
+  function get_perp_w2_rot(mesh_id) result(rot)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: rot(:)
+
+    call get_r_tran_field_array(                                               &
+        perp_w2_rot_inventory, "perp_w2_rot", mesh_id, rot                    &
+    )
+
+  end function get_perp_w2_rot
+
+  function get_interp_perp_weights(mesh_id) result(weights)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: weights(:)
+
+    call get_r_tran_field_array(                                               &
+        interp_perp_weights_inventory, "interp_perp_weights", mesh_id, weights &
+    )
+
+  end function get_interp_perp_weights
+
+  function get_interp_perp_indices(mesh_id) result(indices)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(integer_field_type), pointer :: indices(:)
+
+    call get_integer_field_array(                                               &
+        interp_perp_indices_inventory, "interp_perp_indices", mesh_id, indices &
+    )
+
+  end function get_interp_perp_indices
+
+  subroutine get_r_tran_field_array(real_field_inventory, inventory_name,     &
+                                    mesh_id, real_fields)
+
+    implicit none
+
+    type(inventory_by_local_mesh_type), intent(inout) :: real_field_inventory
+    character(len=*), intent(in) :: inventory_name
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer, intent(out) :: real_fields(:)
+
+    type(mesh_type), pointer :: mesh
+    type(local_mesh_type), pointer :: local_mesh
+    logical(kind=l_def) :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. real_field_inventory%is_initialised()) then
+      call real_field_inventory%initialise(name=inventory_name)
+    end if
+
+    constant_exists = real_field_inventory%paired_object_exists(local_mesh%get_id())
+    if (.not. constant_exists) then
+      call compute_panel_edge_remap_w2h_weights(mesh_id)
+    end if
+
+    call real_field_inventory%get_field_array(local_mesh, real_fields)
+
+  end subroutine get_r_tran_field_array
+
+  subroutine get_integer_field_array(integer_field_inventory, inventory_name, &
+                                      mesh_id, integer_fields)
+
+    implicit none
+
+    type(inventory_by_local_mesh_type), intent(inout) :: integer_field_inventory
+    character(len=*), intent(in) :: inventory_name
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(integer_field_type), pointer, intent(out) :: integer_fields(:)
+
+    type(mesh_type), pointer :: mesh
+    type(local_mesh_type), pointer :: local_mesh
+    logical(kind=l_def) :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. integer_field_inventory%is_initialised()) then
+      call integer_field_inventory%initialise(name=inventory_name)
+    end if
+
+    constant_exists = integer_field_inventory%paired_object_exists(local_mesh%get_id())
+    if (.not. constant_exists) then
+      call compute_panel_edge_remap_w2h_weights(mesh_id)
+    end if
+
+    call integer_field_inventory%get_field_array(local_mesh, integer_fields)
+
+  end subroutine get_integer_field_array
+
+  !> @brief Returns a pointer to the (currently identity/zero placeholder)
+  !!        "parl_p -> W3" staging donor weights for the x remap
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return "parl_p -> W3" staging donor weights for the x remap
+  function get_interp_w3_weights_x(mesh_id) result(weights)
+
+    implicit none
+
+    integer(kind=i_def),      intent(in) :: mesh_id
+    type(mesh_type),             pointer :: mesh
+    type(local_mesh_type),       pointer :: local_mesh
+    type(r_tran_field_type),     pointer :: weights
+    logical(kind=l_def)                  :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. interp_w3_weights_x_inventory%is_initialised()) then
+      call interp_w3_weights_x_inventory%initialise(name="interp_w3_weights_x")
+    end if
+
+    constant_exists =                                                          &
+      interp_w3_weights_x_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_edge_remap_w2h_weights(mesh_id)
+    end if
+
+    call interp_w3_weights_x_inventory%get_field(local_mesh, weights)
+
+  end function get_interp_w3_weights_x
+
+  !> @brief Returns a pointer to the (currently identity/zero placeholder)
+  !!        "parl_p -> W3" staging donor indices for the x remap
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return "parl_p -> W3" staging donor indices for the x remap
+  function get_interp_w3_indices_x(mesh_id) result(indices)
+
+    implicit none
+
+    integer(kind=i_def),      intent(in) :: mesh_id
+    type(mesh_type),             pointer :: mesh
+    type(local_mesh_type),       pointer :: local_mesh
+    type(integer_field_type),    pointer :: indices
+    logical(kind=l_def)                  :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. interp_w3_indices_x_inventory%is_initialised()) then
+      call interp_w3_indices_x_inventory%initialise(name="interp_w3_indices_x")
+    end if
+
+    constant_exists =                                                          &
+      interp_w3_indices_x_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_edge_remap_w2h_weights(mesh_id)
+    end if
+
+    call interp_w3_indices_x_inventory%get_field(local_mesh, indices)
+
+  end function get_interp_w3_indices_x
+
+  !> @brief Returns a pointer to the (currently identity/zero placeholder)
+  !!        "parl_p -> W3" staging donor weights for the y remap
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return "parl_p -> W3" staging donor weights for the y remap
+  function get_interp_w3_weights_y(mesh_id) result(weights)
+
+    implicit none
+
+    integer(kind=i_def),      intent(in) :: mesh_id
+    type(mesh_type),             pointer :: mesh
+    type(local_mesh_type),       pointer :: local_mesh
+    type(r_tran_field_type),     pointer :: weights
+    logical(kind=l_def)                  :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. interp_w3_weights_y_inventory%is_initialised()) then
+      call interp_w3_weights_y_inventory%initialise(name="interp_w3_weights_y")
+    end if
+
+    constant_exists =                                                          &
+      interp_w3_weights_y_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_edge_remap_w2h_weights(mesh_id)
+    end if
+
+    call interp_w3_weights_y_inventory%get_field(local_mesh, weights)
+
+  end function get_interp_w3_weights_y
+
+  !> @brief Returns a pointer to the (currently identity/zero placeholder)
+  !!        "parl_p -> W3" staging donor indices for the y remap
+  !> @param[in] mesh_id The ID of the mesh to get the object for
+  !> @return "parl_p -> W3" staging donor indices for the y remap
+  function get_interp_w3_indices_y(mesh_id) result(indices)
+
+    implicit none
+
+    integer(kind=i_def),      intent(in) :: mesh_id
+    type(mesh_type),             pointer :: mesh
+    type(local_mesh_type),       pointer :: local_mesh
+    type(integer_field_type),    pointer :: indices
+    logical(kind=l_def)                  :: constant_exists
+
+    mesh => mesh_collection%get_mesh(mesh_id)
+    local_mesh => mesh%get_local_mesh()
+
+    if (.not. interp_w3_indices_y_inventory%is_initialised()) then
+      call interp_w3_indices_y_inventory%initialise(name="interp_w3_indices_y")
+    end if
+
+    constant_exists =                                                          &
+      interp_w3_indices_y_inventory%paired_object_exists(local_mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_panel_edge_remap_w2h_weights(mesh_id)
+    end if
+
+    call interp_w3_indices_y_inventory%get_field(local_mesh, indices)
+
+  end function get_interp_w3_indices_y
+
+  function get_panel_edge_remap_w2h_eave_lon(mesh_id) result(eave_lon)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: eave_lon(:)
+
+    call get_r_tran_field_array(                                               &
+        panel_edge_remap_w2h_eave_lon_inventory,                               &
+        "panel_edge_remap_w2h_eave_lon", mesh_id, eave_lon                    &
+    )
+
+  end function get_panel_edge_remap_w2h_eave_lon
+
+  function get_panel_edge_remap_w2h_eave_lat(mesh_id) result(eave_lat)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: eave_lat(:)
+
+    call get_r_tran_field_array(                                               &
+        panel_edge_remap_w2h_eave_lat_inventory,                               &
+        "panel_edge_remap_w2h_eave_lat", mesh_id, eave_lat                    &
+    )
+
+  end function get_panel_edge_remap_w2h_eave_lat
+
+  function get_panel_edge_remap_w2h_correct_flux(mesh_id) result(correct_flux)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: mesh_id
+    type(r_tran_field_type), pointer :: correct_flux(:)
+
+    call get_r_tran_field_array(                                               &
+        panel_edge_remap_w2h_correct_flux_inventory,                           &
+        "panel_edge_remap_w2h_correct_flux", mesh_id, correct_flux           &
+    )
+
+  end function get_panel_edge_remap_w2h_correct_flux
 
   ! ========================================================================== !
   ! GETTERS FOR PERFORMING REDUNDANT COMPUTATIONS
@@ -2364,10 +3311,21 @@ contains
     call panel_edge_dist_inventory%clear()
     call panel_edge_coords_x_inventory%clear()
     call panel_edge_coords_y_inventory%clear()
+    call panel_anticlockwise_corner_coords_inventory%clear()
+    call panel_clockwise_corner_coords_inventory%clear()
     call panel_edge_weights_x_inventory%clear()
     call panel_edge_weights_y_inventory%clear()
     call panel_edge_indices_x_inventory%clear()
     call panel_edge_indices_y_inventory%clear()
+    call interp_w2h_weights_inventory%clear()
+    call interp_w2h_indices_inventory%clear()
+    call parl_w2_rot_inventory%clear()
+    call perp_w2_rot_inventory%clear()
+    call interp_perp_weights_inventory%clear()
+    call interp_perp_indices_inventory%clear()
+    call panel_edge_remap_w2h_eave_lon_inventory%clear()
+    call panel_edge_remap_w2h_eave_lat_inventory%clear()
+    call panel_edge_remap_w2h_correct_flux_inventory%clear()
     call halo_mask_x_inventory%clear()
     call halo_mask_y_inventory%clear()
     call hori_wt_mol_coeffs_inventory%clear()

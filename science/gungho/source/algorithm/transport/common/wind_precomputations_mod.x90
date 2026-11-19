@@ -2,6 +2,8 @@
 ! (c) Crown copyright 2025 Met Office. All rights reserved.
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! GitHub Copilot.
 !-----------------------------------------------------------------------------
 !> @brief Defines the "wind precomputation" object, used in transport schemes
 !> @details This module controls the pre-computation of various fields relating
@@ -136,6 +138,9 @@ module wind_precomputations_alg_mod
     procedure, public  :: get_dep_lowest_k
     procedure, public  :: get_dep_highest_k
     procedure, public  :: get_dep_stencil_extent_xy
+    procedure, public  :: get_dep_dist_peregrin
+    procedure, public  :: get_frac_flux_peregrin
+    procedure, public  :: get_dep_stencil_extent_peregrin
     procedure, public  :: get_adv_unity_x
     procedure, public  :: get_adv_unity_y
     procedure, public  :: get_adv_unity_z
@@ -1252,6 +1257,86 @@ contains
     end if
 
   end function get_dep_stencil_extent_xy
+
+  !> @brief Returns a pointer to the PEREGRIN departure distance calculated
+  !!        from the remapped flux value for a panel-axis label
+  !> @param[in] mesh_id     The ID of the mesh to get the field for
+  !> @param[in] splitting   Enumerator for the splitting type
+  !> @param[in] step        Transport step to get the field for
+  !> @param[in] axis        Panel-axis label (1 to 3) identifying the panel value
+  !> @return The PEREGRIN departure distance at W2h DoFs
+  function get_dep_dist_peregrin(self, mesh_id, splitting, step, axis) result(dep_dist_peregrin)
+
+    implicit none
+
+    class(wind_precomputations_type), target, intent(inout) :: self
+    integer(kind=i_def),                      intent(in)    :: mesh_id
+    integer(kind=i_def),                      intent(in)    :: splitting
+    integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def),                      intent(in)    :: axis
+    type(r_tran_field_type),                  pointer       :: dep_dist_peregrin
+    type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
+    integer(kind=i_def)                                     :: flux_step
+
+    split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
+    flux_step = 1  ! Horizontal step is designated as step 1
+    dep_dist_peregrin => split_ffsl_precomp%get_dep_dist_peregrin(mesh_id, flux_step, axis)
+
+  end function get_dep_dist_peregrin
+
+  !> @brief Returns a pointer to the PEREGRIN fractional flux calculated
+  !!        from the remapped flux value for a panel-axis label
+  !> @param[in] mesh_id     The ID of the mesh to get the field for
+  !> @param[in] splitting   Enumerator for the splitting type
+  !> @param[in] step        Transport step to get the field for
+  !> @param[in] axis        Panel-axis label (1 to 3) identifying the panel value
+  !> @return The PEREGRIN fractional flux at W2h DoFs
+  function get_frac_flux_peregrin(self, mesh_id, splitting, step, axis) result(frac_flux_peregrin)
+
+    implicit none
+
+    class(wind_precomputations_type), target, intent(inout) :: self
+    integer(kind=i_def),                      intent(in)    :: mesh_id
+    integer(kind=i_def),                      intent(in)    :: splitting
+    integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def),                      intent(in)    :: axis
+    type(r_tran_field_type),                  pointer       :: frac_flux_peregrin
+    type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
+    integer(kind=i_def)                                     :: flux_step
+
+    split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
+    flux_step = 1  ! Horizontal step is designated as step 1
+    frac_flux_peregrin => split_ffsl_precomp%get_frac_flux_peregrin(mesh_id, flux_step, axis)
+
+  end function get_frac_flux_peregrin
+
+  !> @brief Returns the required stencil size for the PEREGRIN departure
+  !!        distances for a given panel-axis label
+  !> @param[in] mesh_id     The ID of the mesh to get the object for
+  !> @param[in] splitting   Enumerator for the splitting type
+  !> @param[in] step        Transport step to get the field for
+  !> @param[in] axis        Panel-axis label (1 to 3) identifying the panel value
+  !> @return The required stencil depth
+  function get_dep_stencil_extent_peregrin(self, mesh_id, splitting, step, axis) &
+                                           result(dep_stencil_extent_peregrin)
+
+    implicit none
+
+    class(wind_precomputations_type), target, intent(inout) :: self
+    integer(kind=i_def),                      intent(in)    :: mesh_id
+    integer(kind=i_def),                      intent(in)    :: splitting
+    integer(kind=i_def),                      intent(in)    :: step
+    integer(kind=i_def),                      intent(in)    :: axis
+    integer(kind=i_def)                                     :: dep_stencil_extent_peregrin
+    type(flux_precomputations_type),          pointer       :: split_ffsl_precomp
+    integer(kind=i_def)                                     :: flux_step
+
+    split_ffsl_precomp => self%get_split_ffsl_precomputations(splitting, step)
+    flux_step = 1  ! Horizontal step is designated as step 1
+    dep_stencil_extent_peregrin =                                              &
+        split_ffsl_precomp%get_dep_stencil_extent_peregrin(mesh_id, flux_step, axis)
+
+  end function get_dep_stencil_extent_peregrin
 
   !> @brief Returns a pointer to vertical departure distances used to calculate
   !!        the Courant number

@@ -20,6 +20,7 @@ public :: crosses_panel_edge
 public :: crosses_rotated_panel_edge
 public :: rotated_panel_neighbour
 public :: panel_neighbour
+public :: panel_axis_label
 
 integer(kind=i_def), parameter :: FAR_AWAY = 10000
 
@@ -99,7 +100,7 @@ function crosses_panel_edge(edge_dist_left, edge_dist_right,                   &
       .and. ABS(rotated_panel_neighbour(panel_id, face_dir)) > 0
   end if
 
-  ! 3) There is a panel edge somewhere in the stencil. Now departure if the
+  ! 3) There is a panel edge somewhere in the stencil. Now determine if the
   !    calculation will involve crossing the panel edge
   if (consider_left .or. consider_right) then
 
@@ -258,6 +259,28 @@ function panel_neighbour(panel_id, direction) result(neighbour)
   end select
 
 end function panel_neighbour
+
+!> @brief Label (1, 2 or 3) of the axis a panel lies on: panels 1 and 3 give 1,
+!!        panels 2 and 4 give 2, and panels 5 and 6 give 3
+!> @param[in]  panel_id    The ID of the panel
+!> @return                 The axis label
+function panel_axis_label(panel_id) result(label)
+
+  implicit none
+
+  integer(kind=i_def), intent(in) :: panel_id
+  integer(kind=i_def)             :: label
+
+  select case (panel_id)
+  case (1, 3)
+    label = 1
+  case (2, 4)
+    label = 2
+  case default
+    label = 3
+  end select
+
+end function panel_axis_label
 
 
 !> @details Determines whether crossing an edge of a cubed sphere panel edge

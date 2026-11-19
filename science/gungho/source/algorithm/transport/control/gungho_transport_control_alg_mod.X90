@@ -70,7 +70,8 @@ contains
                                             vertical_monotone_order, &
                                             special_edges_monotone,  &
                                             ffsl_splitting,          &
-                                            ffsl_vertical_order
+                                            ffsl_vertical_order,     &
+                                            swift_peregrin
 
     implicit none
 
@@ -114,7 +115,8 @@ contains
                                                     log_space(i),               &
                                                     reversible(i),              &
                                                     ffsl_splitting(i),          &
-                                                    ffsl_vertical_order(i) )
+                                                    ffsl_vertical_order(i),     &
+                                                    swift_peregrin(i) )
 
       call transport_metadata_collection%set_transport_metadata(transport_metadata)
 

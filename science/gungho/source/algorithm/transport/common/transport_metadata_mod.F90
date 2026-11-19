@@ -35,6 +35,7 @@ module transport_metadata_mod
     logical(kind=l_def)    :: reversible ! Use a reversible transport scheme
     integer(kind=i_def)    :: ffsl_splitting ! Which FFSL splitting to use
     integer(kind=i_def)    :: ffsl_vertical_order ! Which FFSL order to use for vertical reconstructions
+    logical(kind=l_def)    :: swift_peregrin ! Use PEREGRIN panel-edge treatment in the SWIFT scheme
 
     ! Stored internal values, allowing some options to be temporarily changed
     integer(kind=i_def)    :: true_equation_form
@@ -64,6 +65,7 @@ module transport_metadata_mod
     procedure, public :: get_reversible
     procedure, public :: get_ffsl_splitting
     procedure, public :: get_ffsl_vertical_order
+    procedure, public :: get_swift_peregrin
     procedure, public :: update_metadata
     procedure, public :: reset_metadata
 
@@ -91,7 +93,8 @@ contains
                                             log_space,                       &
                                             reversible,                      &
                                             ffsl_splitting,                  &
-                                            ffsl_vertical_order)             &
+                                            ffsl_vertical_order,             &
+                                            swift_peregrin)                  &
                                             result(self)
 
     implicit none
@@ -114,6 +117,7 @@ contains
     logical(kind=l_def),    intent(in) :: reversible
     integer(kind=i_def),    intent(in) :: ffsl_splitting
     integer(kind=i_def),    intent(in) :: ffsl_vertical_order
+    logical(kind=l_def),    intent(in) :: swift_peregrin
 
     self%fname                   = trim(fname)
     self%equation_form           = equation_form
@@ -131,6 +135,7 @@ contains
     self%reversible              = reversible
     self%ffsl_splitting          = ffsl_splitting
     self%ffsl_vertical_order     = ffsl_vertical_order
+    self%swift_peregrin          = swift_peregrin
 
     ! Set stored true values
     self%true_equation_form = equation_form
@@ -399,6 +404,20 @@ contains
     ffsl_vertical_order = self%ffsl_vertical_order
 
   end function get_ffsl_vertical_order
+
+  !> @brief Get the swift_peregrin option
+  !> @param[in] self     The transport_metadata object
+  !> @return             The swift_peregrin switch
+  function get_swift_peregrin(self) result(swift_peregrin)
+
+    implicit none
+
+    class(transport_metadata_type), intent(in) :: self
+    logical(kind=l_def)                        :: swift_peregrin
+
+    swift_peregrin = self%swift_peregrin
+
+  end function get_swift_peregrin
 
   !> @brief Update the metadata based on the outer loop
   !> @details Updates the metadata options for this outer loop, for instance

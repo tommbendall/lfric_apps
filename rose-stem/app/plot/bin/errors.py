@@ -108,6 +108,7 @@ def make_figure(plotpath, field, component, timestep, plotlong, plotlat,
             dz[i, :] = zi[lat, i, :]
 
         fig = plt.figure(figsize=(10, 5))
+        print('NANMAX(ABS(DZ))', np.nanmax(np.abs(dz)))
         cf = plt.contourf(xi*r2d, yi/1000.0, dz, cc, cmap=c_map)
         plt.colorbar(cf,  cmap=c_map)
         cl = plt.contour(xi * r2d, yi / 1000.0, dz, cc, linewidths=0.5,
@@ -132,6 +133,7 @@ def make_figure(plotpath, field, component, timestep, plotlong, plotlat,
             dz[i, :] = zi[i, int(plotlong), :]
 
         fig = plt.figure(figsize=(10, 5))
+        print('NANMAX(ABS(DZ))', np.nanmax(np.abs(dz)))
         cf = plt.contourf(xi*r2d, yi/1000.0, dz, cc, cmap=c_map)
         plt.colorbar(cf,  cmap=c_map)
         cl = plt.contour(xi * r2d, yi / 1000.0, dz, cc, linewidths=0.5,
@@ -153,6 +155,7 @@ def make_figure(plotpath, field, component, timestep, plotlong, plotlat,
         ax1 = slice_fig.add_subplot(2, 1, 1)
         xi, yi = np.meshgrid(x2d, y2d)
         dz = zi[:, :, int(plotlevel)]
+        print('NANMAX(ABS(DZ))', np.nanmax(np.abs(dz)))
         cf = ax1.contourf(xi*r2d, yi*r2d, dz, cc, cmap=c_map)
         plt.colorbar(cf, cmap=c_map)
         cl = ax1.contour(xi * r2d, yi * r2d, dz, cc, linewidths=0.5,
@@ -164,6 +167,7 @@ def make_figure(plotpath, field, component, timestep, plotlong, plotlat,
         ax2 = slice_fig.add_subplot(2, 1, 2)
         xi, yi = np.meshgrid(x2d, y2d)
         dz = zp[:, :, int(plotlevel)]
+        print('NANMAX(ABS(DZ))', np.nanmax(np.abs(dz)))
         cf = ax2.contourf(xi*r2d, yi*r2d, dz, ccp, cmap=c_map)
         plt.colorbar(cf, cmap=c_map)
         cl = ax2.contour(xi * r2d, yi * r2d, dz, ccp, linewidths=0.5,

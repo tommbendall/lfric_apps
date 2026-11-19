@@ -1,0 +1,308 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Test the PEREGRIN advective-form divergence kernel
+
+module peregrin_divergence_kernel_mod_test
+
+  use constants_mod, only : i_def, r_tran, r_def
+  use funit
+
+  implicit none
+
+  private
+
+  public :: test_all
+
+contains
+
+  !------------------------------------------------------------------
+  !> @brief Test peregrin_divergence_code. Uses nlayers=2 throughout, so
+  !!        that the per-level MERGE onto flux_edge_downwind near a panel
+  !!        edge can be checked (one level downwind of the edge, one not).
+  @Test
+  subroutine test_all( )
+
+    use, intrinsic :: iso_fortran_env,   only: real64
+    use peregrin_divergence_kernel_mod,  only: peregrin_divergence_code
+
+    implicit none
+
+    real(kind=r_tran), parameter :: tol = 1.0e-12_r_tran   ! r_tran 64-bit
+    real(kind=r_tran)            :: answer, use_tol
+
+    integer(kind=i_def), parameter :: nlayers = 2
+    integer(kind=i_def), parameter :: ndf_w3  = 1
+    integer(kind=i_def), parameter :: ndf_w2h = 4
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_w3  = ndf_w3*nlayers
+    integer(kind=i_def), parameter :: undf_w2h = ndf_w2h*nlayers
+    integer(kind=i_def), parameter :: undf_pid = 1
+
+    integer(kind=i_def), dimension(ndf_w3)  :: map_w3
+    integer(kind=i_def), dimension(ndf_w2h) :: map_w2h
+    integer(kind=i_def), dimension(ndf_pid) :: map_pid
+
+    real(kind=r_tran), dimension(undf_w3)  :: field_x
+    real(kind=r_tran), dimension(undf_w3)  :: field_y
+    real(kind=r_tran), dimension(undf_w3)  :: field_n
+    real(kind=r_tran), dimension(undf_w3)  :: dry_mass_x
+    real(kind=r_tran), dimension(undf_w3)  :: dry_mass_y
+    real(kind=r_tran), dimension(undf_w3)  :: dry_mass_n
+    real(kind=r_tran), dimension(undf_w2h) :: flux
+    real(kind=r_tran), dimension(undf_w2h) :: flux_edge_downwind
+    real(kind=r_tran), dimension(undf_w2h) :: dep_dist
+    real(kind=r_def),    dimension(undf_pid) :: panel_id
+    integer(kind=i_def), dimension(undf_pid) :: panel_edge_dist_W
+    integer(kind=i_def), dimension(undf_pid) :: panel_edge_dist_E
+    integer(kind=i_def), dimension(undf_pid) :: panel_edge_dist_S
+    integer(kind=i_def), dimension(undf_pid) :: panel_edge_dist_N
+
+    real(kind=r_tran) :: dt
+
+    ! Set up maps: W2h dofs are 1=W, 2=S, 3=E, 4=N, each spanning nlayers
+    map_w3(1) = 1
+    map_w2h(:) = (/ 1, 3, 5, 7 /)
+    map_pid(1) = 1
+
+    ! Get correct tolerance
+    if ( r_tran == real64 ) then
+      use_tol = tol
+    else
+      use_tol = 1.0e-6_r_tran
+    end if
+
+    ! Common data used in every test below
+    field_n(:)    = (/ 10.0_r_tran, 20.0_r_tran /)
+    dry_mass_n(:) = (/ 2.0_r_tran,  2.0_r_tran /)
+    dry_mass_x(:) = (/ 2.0_r_tran,  2.0_r_tran /)
+    dry_mass_y(:) = (/ 2.0_r_tran,  2.0_r_tran /)
+    panel_id(:)   = 1.0_r_def
+    dt = 1.0_r_tran
+
+    ! flux(W,S,E,N), each 2 levels
+    flux(1:2) = (/ 1.0_r_tran, 1.0_r_tran /)  ! W
+    flux(3:4) = (/ 0.5_r_tran, 0.5_r_tran /)  ! S
+    flux(5:6) = (/ 3.0_r_tran, 3.0_r_tran /)  ! E
+    flux(7:8) = (/ 2.5_r_tran, 2.5_r_tran /)  ! N
+
+    ! Garbage values: should never be read unless the relevant edge_dist == 1
+    flux_edge_downwind(:) = -999.0_r_tran
+    dep_dist(:) = 0.0_r_tran
+
+    !-------------------------------------------------------------------------
+    ! TEST 1: Not near any panel edge -> plain finite difference, no MERGE
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(1) = 0
+    panel_edge_dist_E(1) = 0
+    panel_edge_dist_S(1) = 0
+    panel_edge_dist_N(1) = 0
+
+    field_x(:) = 0.0_r_tran
+    field_y(:) = 0.0_r_tran
+
+    call peregrin_divergence_code( nlayers,             &
+                                   field_x,             &
+                                   field_y,             &
+                                   field_n,             &
+                                   flux,                &
+                                   flux_edge_downwind,  &
+                                   dry_mass_x,          &
+                                   dry_mass_y,          &
+                                   dry_mass_n,          &
+                                   dep_dist,            &
+                                   panel_id,            &
+                                   panel_edge_dist_W,   &
+                                   panel_edge_dist_E,   &
+                                   panel_edge_dist_S,   &
+                                   panel_edge_dist_N,   &
+                                   dt,                  &
+                                   ndf_w3,              &
+                                   undf_w3,             &
+                                   map_w3,              &
+                                   ndf_w2h,             &
+                                   undf_w2h,            &
+                                   map_w2h,             &
+                                   ndf_pid,             &
+                                   undf_pid,            &
+                                   map_pid )
+
+    ! field_x = (field_n*dry_mass_n - dt*(E-W)) / dry_mass_x
+    answer = 9.0_r_tran
+    @assertEqual(answer, field_x(1), use_tol)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_x(2), use_tol)
+    ! field_y = (field_n*dry_mass_n - dt*(N-S)) / dry_mass_y
+    answer = 9.0_r_tran
+    @assertEqual(answer, field_y(1), use_tol)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_y(2), use_tol)
+
+    !-------------------------------------------------------------------------
+    ! TEST 2: Immediately adjacent to eastern edge, per-level MERGE onto
+    ! flux_edge_downwind for the level downwind of the edge (dep_dist <= 0)
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(1) = 0
+    panel_edge_dist_E(1) = 1
+    panel_edge_dist_S(1) = 0
+    panel_edge_dist_N(1) = 0
+
+    dep_dist(:) = 0.0_r_tran
+    dep_dist(5) = -1.0_r_tran  ! E, level 1: downwind -> use flux_edge_downwind
+    dep_dist(6) =  1.0_r_tran  ! E, level 2: not downwind -> use flux
+    flux_edge_downwind(5:6) = (/ 7.0_r_tran, 8.0_r_tran /)
+
+    field_x(:) = 0.0_r_tran
+    field_y(:) = 0.0_r_tran
+
+    call peregrin_divergence_code( nlayers,             &
+                                   field_x,             &
+                                   field_y,             &
+                                   field_n,             &
+                                   flux,                &
+                                   flux_edge_downwind,  &
+                                   dry_mass_x,          &
+                                   dry_mass_y,          &
+                                   dry_mass_n,          &
+                                   dep_dist,            &
+                                   panel_id,            &
+                                   panel_edge_dist_W,   &
+                                   panel_edge_dist_E,   &
+                                   panel_edge_dist_S,   &
+                                   panel_edge_dist_N,   &
+                                   dt,                  &
+                                   ndf_w3,              &
+                                   undf_w3,             &
+                                   map_w3,              &
+                                   ndf_w2h,             &
+                                   undf_w2h,            &
+                                   map_w2h,             &
+                                   ndf_pid,             &
+                                   undf_pid,            &
+                                   map_pid )
+
+    ! Level 1: e_face = flux_edge_downwind(E) = 7.0, w_face = flux(W) = 1.0
+    answer = 7.0_r_tran
+    @assertEqual(answer, field_x(1), use_tol)
+    ! Level 2: e_face = flux(E) = 3.0 (unchanged, as in TEST 1)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_x(2), use_tol)
+    ! field_y untouched by the eastern edge
+    answer = 9.0_r_tran
+    @assertEqual(answer, field_y(1), use_tol)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_y(2), use_tol)
+
+    !-------------------------------------------------------------------------
+    ! TEST 3: Immediately adjacent to western edge, per-level MERGE onto
+    ! flux_edge_downwind for the level downwind of the edge (dep_dist >= 0)
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(1) = 1
+    panel_edge_dist_E(1) = 0
+    panel_edge_dist_S(1) = 0
+    panel_edge_dist_N(1) = 0
+
+    dep_dist(:) = 0.0_r_tran
+    dep_dist(1) =  1.0_r_tran  ! W, level 1: downwind -> use flux_edge_downwind
+    dep_dist(2) = -1.0_r_tran  ! W, level 2: not downwind -> use flux
+    flux_edge_downwind(1:2) = (/ 4.0_r_tran, 5.0_r_tran /)
+
+    field_x(:) = 0.0_r_tran
+    field_y(:) = 0.0_r_tran
+
+    call peregrin_divergence_code( nlayers,             &
+                                   field_x,             &
+                                   field_y,             &
+                                   field_n,             &
+                                   flux,                &
+                                   flux_edge_downwind,  &
+                                   dry_mass_x,          &
+                                   dry_mass_y,          &
+                                   dry_mass_n,          &
+                                   dep_dist,            &
+                                   panel_id,            &
+                                   panel_edge_dist_W,   &
+                                   panel_edge_dist_E,   &
+                                   panel_edge_dist_S,   &
+                                   panel_edge_dist_N,   &
+                                   dt,                  &
+                                   ndf_w3,              &
+                                   undf_w3,             &
+                                   map_w3,              &
+                                   ndf_w2h,             &
+                                   undf_w2h,            &
+                                   map_w2h,             &
+                                   ndf_pid,             &
+                                   undf_pid,            &
+                                   map_pid )
+
+    ! Level 1: w_face = flux_edge_downwind(W) = 4.0, e_face = flux(E) = 3.0
+    answer = 10.5_r_tran
+    @assertEqual(answer, field_x(1), use_tol)
+    ! Level 2: w_face = flux(W) = 1.0 (unchanged, as in TEST 1)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_x(2), use_tol)
+
+    !-------------------------------------------------------------------------
+    ! TEST 4: Immediately adjacent to both northern and southern edges,
+    ! per-level MERGE onto flux_edge_downwind in the y direction
+    !-------------------------------------------------------------------------
+    panel_edge_dist_W(1) = 0
+    panel_edge_dist_E(1) = 0
+    panel_edge_dist_S(1) = 1
+    panel_edge_dist_N(1) = 1
+
+    dep_dist(:) = 0.0_r_tran
+    dep_dist(7) =  1.0_r_tran  ! N, level 1: downwind -> use flux_edge_downwind
+    dep_dist(8) = -1.0_r_tran  ! N, level 2: not downwind -> use flux
+    dep_dist(3) = -1.0_r_tran  ! S, level 1: downwind -> use flux_edge_downwind
+    dep_dist(4) =  1.0_r_tran  ! S, level 2: not downwind -> use flux
+    flux_edge_downwind(7:8) = (/ 6.0_r_tran, 7.0_r_tran /)
+    flux_edge_downwind(3:4) = (/ 0.2_r_tran, 0.3_r_tran /)
+
+    field_x(:) = 0.0_r_tran
+    field_y(:) = 0.0_r_tran
+
+    call peregrin_divergence_code( nlayers,             &
+                                   field_x,             &
+                                   field_y,             &
+                                   field_n,             &
+                                   flux,                &
+                                   flux_edge_downwind,  &
+                                   dry_mass_x,          &
+                                   dry_mass_y,          &
+                                   dry_mass_n,          &
+                                   dep_dist,            &
+                                   panel_id,            &
+                                   panel_edge_dist_W,   &
+                                   panel_edge_dist_E,   &
+                                   panel_edge_dist_S,   &
+                                   panel_edge_dist_N,   &
+                                   dt,                  &
+                                   ndf_w3,              &
+                                   undf_w3,             &
+                                   map_w3,              &
+                                   ndf_w2h,             &
+                                   undf_w2h,            &
+                                   map_w2h,             &
+                                   ndf_pid,             &
+                                   undf_pid,            &
+                                   map_pid )
+
+    ! field_x unaffected by N/S edges (matches TEST 1 baseline)
+    answer = 9.0_r_tran
+    @assertEqual(answer, field_x(1), use_tol)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_x(2), use_tol)
+    ! Level 1: n_face = flux_edge_downwind(N) = 6.0, s_face = flux_edge_downwind(S) = 0.2
+    answer = 7.1_r_tran
+    @assertEqual(answer, field_y(1), use_tol)
+    ! Level 2: n_face = flux(N) = 2.5, s_face = flux(S) = 0.5 (unchanged, as in TEST 1)
+    answer = 19.0_r_tran
+    @assertEqual(answer, field_y(2), use_tol)
+
+  end subroutine test_all
+
+end module peregrin_divergence_kernel_mod_test

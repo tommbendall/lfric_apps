@@ -1,0 +1,222 @@
+!-----------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-----------------------------------------------------------------------------
+!> @brief Test the PEREGRIN panel semi-Lagrangian kernel
+
+module peregrin_eave_sl_kernel_mod_test
+
+  use constants_mod, only : i_def, r_def, r_tran
+
+  implicit none
+
+contains
+
+  !------------------------------------------------------------------
+
+  @Test
+  subroutine peregrin_eave_sl_kernel_test( )
+
+    use, intrinsic :: iso_fortran_env,  only: real64
+    use funit
+    use peregrin_eave_sl_kernel_mod, only: peregrin_eave_sl_code
+
+    implicit none
+
+    real(kind=r_tran), parameter :: tol = 1.0e-12_r_tran   ! r_tran 64-bit
+    real(kind=r_tran)            :: answer, use_tol
+
+    integer(kind=i_def), parameter :: nlayers     = 1
+    integer(kind=i_def), parameter :: ndf_wf      = 1
+    integer(kind=i_def), parameter :: ndf_w2h     = 4
+    integer(kind=i_def), parameter :: ndf_2d      = 1
+    integer(kind=i_def), parameter :: stencil_max = 3
+    integer(kind=i_def), parameter :: undf_w2h    = ndf_w2h
+    integer(kind=i_def), parameter :: undf_wf     = ndf_wf*nlayers*(1 + 4*(stencil_max-1))
+    integer(kind=i_def), parameter :: undf_2d     = ndf_2d
+
+    integer(kind=i_def), dimension(ndf_wf)                :: map_wf
+    integer(kind=i_def), dimension(ndf_w2h)               :: map_w2h
+    integer(kind=i_def), dimension(ndf_2d)                :: map_2d
+    integer(kind=i_def), dimension(4)                     :: stencil_sizes_x
+    integer(kind=i_def), dimension(4)                     :: stencil_sizes_y
+    integer(kind=i_def), dimension(4)                     :: stencil_sizes_rx
+    integer(kind=i_def), dimension(4)                     :: stencil_sizes_ry
+    integer(kind=i_def), dimension(ndf_wf,stencil_max,4)  :: stencil_map_x
+    integer(kind=i_def), dimension(ndf_wf,stencil_max,4)  :: stencil_map_y
+    integer(kind=i_def), dimension(ndf_wf,stencil_max,4)  :: stencil_map_rx
+    integer(kind=i_def), dimension(ndf_wf,stencil_max,4)  :: stencil_map_ry
+
+    real(kind=r_tran),   dimension(undf_wf)  :: field_xp
+    real(kind=r_tran),   dimension(undf_wf)  :: field_yp
+    real(kind=r_tran),   dimension(undf_wf)  :: field_x
+    real(kind=r_tran),   dimension(undf_wf)  :: field_y
+    real(kind=r_tran),   dimension(undf_wf)  :: remapped_field_x_in_x
+    real(kind=r_tran),   dimension(undf_wf)  :: remapped_field_y_in_y
+    real(kind=r_tran),   dimension(undf_w2h) :: dep_dist_peregrin_x
+    real(kind=r_tran),   dimension(undf_w2h) :: dep_dist_peregrin_y
+    real(kind=r_def),    dimension(undf_2d)  :: panel_id
+    integer(kind=i_def), dimension(undf_2d)  :: panel_edge_dist_W
+    integer(kind=i_def), dimension(undf_2d)  :: panel_edge_dist_E
+    integer(kind=i_def), dimension(undf_2d)  :: panel_edge_dist_S
+    integer(kind=i_def), dimension(undf_2d)  :: panel_edge_dist_N
+
+    ! Stencil map layout:
+    !         | 9 |
+    !         | 8 |
+    ! | 3 | 2 | 1 | 6 | 7 |
+    !         | 4 |
+    !         | 5 |
+
+    ! Set up maps. W2H dofs: W=1, S=2, E=3, N=4 (reference_element_mod convention).
+    map_wf(1)  = 1
+    map_2d(1)  = 1
+    map_w2h(:) = (/ 1, 2, 3, 4 /)
+
+    stencil_sizes_x(:)  = stencil_max
+    stencil_sizes_y(:)  = stencil_max
+    stencil_sizes_rx(:) = stencil_max
+    stencil_sizes_ry(:) = stencil_max
+
+    ! All four stencil maps identical: branches W(1):1,2,3 S(2):1,4,5 E(3):1,6,7 N(4):1,8,9
+    stencil_map_x(:,:,:)  = reshape((/ 1,2,3, 1,4,5, 1,6,7, 1,8,9 /), [1,stencil_max,4])
+    stencil_map_y(:,:,:)  = reshape((/ 1,2,3, 1,4,5, 1,6,7, 1,8,9 /), [1,stencil_max,4])
+    stencil_map_rx(:,:,:) = reshape((/ 1,2,3, 1,4,5, 1,6,7, 1,8,9 /), [1,stencil_max,4])
+    stencil_map_ry(:,:,:) = reshape((/ 1,2,3, 1,4,5, 1,6,7, 1,8,9 /), [1,stencil_max,4])
+
+    panel_id(1) = 1.0_r_def
+
+    ! All four field arrays set to the same values. Setting field = remapped_field
+    ! = remapped_field_swapped means the result of any linear combination of the
+    ! three (weighted by remap/rotation switches) is identical to the plain field
+    ! value -- so the expected answers are independent of the panel-edge remap logic.
+    field_x(:) = (/ 1.0_r_tran, 5.0_r_tran, 0.0_r_tran, &
+                    2.0_r_tran, 0.0_r_tran, 11.0_r_tran, &
+                    0.0_r_tran, 2.0_r_tran, 3.0_r_tran /)
+    field_y(:)                 = field_x(:)
+    remapped_field_x_in_x(:)   = field_x(:)
+    remapped_field_y_in_y(:)   = field_x(:)
+
+    ! Departure distances for x (W=face 1, E=face 3):
+    !   displacement_x = 0.5 * 1.0 * (1.0 + 1.0) = 1.0
+    !   -> interpolates to stencil offset -1 -> field_x(stencil_map_x(1,2,W)=2) = 5.0
+    dep_dist_peregrin_x(:) = (/ 1.0_r_tran, 0.0_r_tran, 1.0_r_tran, 0.0_r_tran /)
+
+    ! Departure distances for y (S=face 2, N=face 4), direction=-1:
+    !   displacement_y = 0.5 * (-1.0) * (-1.0 + -1.0) = 1.0
+    !   -> interpolates to stencil offset -1 -> field_y(stencil_map_y(1,2,S)=4) = 2.0
+    dep_dist_peregrin_y(:) = (/ 0.0_r_tran, -1.0_r_tran, 0.0_r_tran, -1.0_r_tran /)
+
+    ! Get correct tolerance
+    if ( r_tran == real64 ) then
+      use_tol = tol
+    else
+      use_tol = 1.0e-6_r_tran
+    end if
+
+    ! TEST 1: Near panel edges in both x (W) and y (S) -> both transported ----
+    ! Expected x result: field_x at stencil offset -1 in x = field_x(2) = 5.0
+    ! Expected y result: field_y at stencil offset -1 in y = field_y(4) = 2.0
+    panel_edge_dist_W(:) = 1
+    panel_edge_dist_E(:) = 0
+    panel_edge_dist_S(:) = 1
+    panel_edge_dist_N(:) = 0
+
+    field_xp = 0.0_r_tran
+    field_yp = 0.0_r_tran
+
+    call peregrin_eave_sl_code( nlayers,                  &
+                                field_xp,                 &
+                                field_yp,                 &
+                                field_x,                  &
+                                stencil_sizes_x,          &
+                                stencil_max,              &
+                                stencil_map_x,            &
+                                field_y,                  &
+                                stencil_sizes_y,          &
+                                stencil_max,              &
+                                stencil_map_y,            &
+                                remapped_field_x_in_x,    &
+                                stencil_sizes_rx,         &
+                                stencil_max,              &
+                                stencil_map_rx,           &
+                                remapped_field_y_in_y,    &
+                                stencil_sizes_ry,         &
+                                stencil_max,              &
+                                stencil_map_ry,           &
+                                dep_dist_peregrin_x,      &
+                                dep_dist_peregrin_y,      &
+                                panel_id,                 &
+                                panel_edge_dist_W,        &
+                                panel_edge_dist_E,        &
+                                panel_edge_dist_S,        &
+                                panel_edge_dist_N,        &
+                                ndf_wf,                   &
+                                undf_wf,                  &
+                                map_wf,                   &
+                                ndf_w2h,                  &
+                                undf_w2h,                 &
+                                map_w2h,                  &
+                                ndf_2d,                   &
+                                undf_2d,                  &
+                                map_2d )
+
+    answer = 5.0_r_tran
+    @assertEqual(answer, field_xp(1), use_tol)
+    answer = 2.0_r_tran
+    @assertEqual(answer, field_yp(1), use_tol)
+
+    ! TEST 2: Not near any panel edge -> both directions just copied ----------
+    panel_edge_dist_W(:) = 0
+    panel_edge_dist_E(:) = 0
+    panel_edge_dist_S(:) = 0
+    panel_edge_dist_N(:) = 0
+
+    field_xp = 0.0_r_tran
+    field_yp = 0.0_r_tran
+
+    call peregrin_eave_sl_code( nlayers,                  &
+                                field_xp,                 &
+                                field_yp,                 &
+                                field_x,                  &
+                                stencil_sizes_x,          &
+                                stencil_max,              &
+                                stencil_map_x,            &
+                                field_y,                  &
+                                stencil_sizes_y,          &
+                                stencil_max,              &
+                                stencil_map_y,            &
+                                remapped_field_x_in_x,    &
+                                stencil_sizes_rx,         &
+                                stencil_max,              &
+                                stencil_map_rx,           &
+                                remapped_field_y_in_y,    &
+                                stencil_sizes_ry,         &
+                                stencil_max,              &
+                                stencil_map_ry,           &
+                                dep_dist_peregrin_x,      &
+                                dep_dist_peregrin_y,      &
+                                panel_id,                 &
+                                panel_edge_dist_W,        &
+                                panel_edge_dist_E,        &
+                                panel_edge_dist_S,        &
+                                panel_edge_dist_N,        &
+                                ndf_wf,                   &
+                                undf_wf,                  &
+                                map_wf,                   &
+                                ndf_w2h,                  &
+                                undf_w2h,                 &
+                                map_w2h,                  &
+                                ndf_2d,                   &
+                                undf_2d,                  &
+                                map_2d )
+
+    answer = field_x(1)
+    @assertEqual(answer, field_xp(1), use_tol)
+    answer = field_y(1)
+    @assertEqual(answer, field_yp(1), use_tol)
+
+  end subroutine peregrin_eave_sl_kernel_test
+
+end module peregrin_eave_sl_kernel_mod_test

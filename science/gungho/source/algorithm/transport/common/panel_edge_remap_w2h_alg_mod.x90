@@ -1,0 +1,275 @@
+!-----------------------------------------------------------------------------
+! (C) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+! Some of the content of this file has been produced with the assistance of
+! Met Office Github Copilot Enterprise
+!-----------------------------------------------------------------------------
+
+!> @brief Remap a W2H flux/wind field on the cubed-sphere at panel edges, so
+!!        that the field values neighbouring panel edges correspond to those
+!!        on extended mesh panels.
+!> @details Mirrors panel_edge_remap_alg_mod's scalar (W3/Wtheta) remap, but
+!!          additionally handles the rotation of face-normal components
+!!          across a panel edge. Since field_for_x and field_for_y are
+!!          always the SAME actual W2H field for this remap (unlike the
+!!          scalar template, which allows different fields for the x/y
+!!          directions), this algorithm only exposes a single `flux_field`
+!!          argument.
+!!
+!!          The remap is split into three kernel calls (see
+!!          W2H_REMAP_REWRITE_INSTRUCTIONS.md Sec. 5 for the full pipeline):
+!!            - divide_w2h_by_w2_kernel_mod: area-normalises flux_field,
+!!              unchanged from before this rewrite,
+!!            - panel_edge_interpolate_w2h_kernel_mod: interpolates the
+!!              panel-labelled "parl_w2" and "perp_w2" values and writes the
+!!              unchanged parl_p_at_w3_{x,y} W3 staging (Route B),
+!!            - panel_edge_w2h_average_kernel_mod: adds the panel-labelled W3
+!!              staging contribution to the "perp_p" W2H faces,
+!!            - panel_edge_remap_w2h_kernel_mod: combines labelled staged
+!!              values and rotation factors, then scales by eave face area.
+module panel_edge_remap_w2h_alg_mod
+
+  use constants_mod,                 only: i_def, r_tran, l_def
+  use field_mod,                     only: field_type
+  use r_tran_field_mod,              only: r_tran_field_type
+  use integer_field_mod,             only: integer_field_type
+  use mesh_mod,                      only: mesh_type
+  use timing_mod,                    only: start_timing, stop_timing, tik, LPROF
+  use function_space_mod,            only: function_space_type
+  use function_space_collection_mod, only: function_space_collection
+  use fs_continuity_mod,              only: W3
+  use transport_config_mod,          only: ffsl_inner_order, ffsl_outer_order, &
+                                           panel_edge_high_order
+  use transport_constants_mod,       only: get_interp_w2h_weights,                      &
+                                           get_interp_w2h_indices,                      &
+                                           get_interp_perp_weights,                     &
+                                           get_interp_perp_indices,                     &
+                                           get_interp_w3_weights_x,                     &
+                                           get_interp_w3_indices_x,                     &
+                                           get_interp_w3_weights_y,                     &
+                                           get_interp_w3_indices_y,                     &
+                                           get_parl_w2_rot,                             &
+                                           get_perp_w2_rot,                             &
+                                           get_panel_edge_remap_w2h_eave_lon,            &
+                                           get_panel_edge_remap_w2h_eave_lat,            &
+                                           get_panel_edge_remap_w2h_correct_flux,        &
+                                           get_panel_edge_dist
+  use sci_geometric_constants_mod,   only: get_face_selector_ew,                        &
+                                           get_face_selector_ns,                        &
+                                           get_panel_id,                                &
+                                           get_dA_at_w2
+  use panel_edge_interpolate_w2h_kernel_mod,                                            &
+                                     only: panel_edge_interpolate_w2h_kernel_type
+  use panel_edge_w2h_average_kernel_mod,                                                &
+                                     only: panel_edge_w2h_average_kernel_type
+  use panel_edge_remap_w2h_kernel_mod, only: panel_edge_remap_w2h_kernel_type
+  use divide_w2h_by_w2_kernel_mod,   only: divide_w2h_by_w2_kernel_type
+
+  implicit none
+
+  private
+
+  public :: panel_edge_remap_w2h_alg
+
+contains
+
+  !> @brief Remap a W2H flux/wind field near the panel edges of the cubed sphere
+  !> @param[in,out] remapped_flux     Remapped fields, one per axis label of the
+  !!                                  panels across the remapped eaves (1: panels
+  !!                                  1 and 3, 2: panels 2 and 4, 3: panels 5
+  !!                                  and 6)
+  !> @param[in]     flux_field        Original W2H field to be remapped
+  !> @param[in]     ffsl_depth        Depth to which FFSL flux calculations will
+  !!                                  be performed
+  !> @param[in]     include_perp_p    Whether to include the perp_p contribution
+  subroutine panel_edge_remap_w2h_alg(remapped_flux, flux_field, ffsl_depth,   &
+                                      include_perp_p)
+
+    implicit none
+
+    type(r_tran_field_type),  intent(inout) :: remapped_flux(3)
+    type(r_tran_field_type),  intent(inout) :: flux_field
+    integer(kind=i_def),      intent(in)    :: ffsl_depth
+    logical(kind=l_def),               intent(in) :: include_perp_p
+
+    type(mesh_type),           pointer :: mesh
+    type(function_space_type), pointer :: fs
+    type(function_space_type), pointer :: w3_fs
+    type(function_space_type), pointer :: index_fs
+    type(r_tran_field_type),   pointer :: interp_w2h_weights(:)
+    type(integer_field_type),  pointer :: interp_w2h_indices(:)
+    type(r_tran_field_type),   pointer :: interp_perp_weights(:)
+    type(integer_field_type),  pointer :: interp_perp_indices(:)
+    type(r_tran_field_type),   pointer :: interp_w3_weights_x
+    type(integer_field_type),  pointer :: interp_w3_indices_x
+    type(r_tran_field_type),   pointer :: interp_w3_weights_y
+    type(integer_field_type),  pointer :: interp_w3_indices_y
+    type(r_tran_field_type),   pointer :: parl_w2_rot(:)
+    type(r_tran_field_type),   pointer :: perp_w2_rot(:)
+    type(r_tran_field_type),   pointer :: eave_lon(:)
+    type(r_tran_field_type),   pointer :: eave_lat(:)
+    type(r_tran_field_type),   pointer :: correct_flux(:)
+    type(integer_field_type),  pointer :: panel_edge_dist(:)
+    type(integer_field_type),  pointer :: face_selector_ew
+    type(integer_field_type),  pointer :: face_selector_ns
+    type(field_type),          pointer :: dA_at_w2_native
+    type(field_type),          pointer :: panel_id
+    type(field_type),          pointer :: dA_at_w2_eave
+
+    type(r_tran_field_type),   target  :: temp_flux_field
+    type(r_tran_field_type),   pointer :: temp_flux_field_copy
+
+    ! Labelled working fields for the interpolate/average/remap kernels.
+    type(r_tran_field_type) :: parl_w2_at_w2(3)
+    type(r_tran_field_type) :: perp_w2_at_w2(3)
+    type(r_tran_field_type) :: parl_p_at_w3_x
+    type(r_tran_field_type) :: parl_p_at_w3_y
+
+    logical(kind=l_def)              :: high_order
+    integer(kind=i_def)              :: mesh_id, ndata
+    integer(kind=i_def)              :: cross_depth
+    integer(kind=i_def)              :: remap_depth
+    integer(kind=tik)                :: id
+
+    if ( LPROF ) call start_timing( id, 'transport.panel_edge_remap_w2h' )
+
+    mesh => flux_field%get_mesh()
+    mesh_id = mesh%get_id()
+    interp_w2h_weights => get_interp_w2h_weights(mesh_id)
+    interp_w2h_indices => get_interp_w2h_indices(mesh_id)
+    interp_perp_weights => get_interp_perp_weights(mesh_id)
+    interp_perp_indices => get_interp_perp_indices(mesh_id)
+    interp_w3_weights_x  => get_interp_w3_weights_x(mesh_id)
+    interp_w3_indices_x  => get_interp_w3_indices_x(mesh_id)
+    interp_w3_weights_y  => get_interp_w3_weights_y(mesh_id)
+    interp_w3_indices_y  => get_interp_w3_indices_y(mesh_id)
+    parl_w2_rot        => get_parl_w2_rot(mesh_id)
+    perp_w2_rot        => get_perp_w2_rot(mesh_id)
+    eave_lon           => get_panel_edge_remap_w2h_eave_lon(mesh_id)
+    eave_lat           => get_panel_edge_remap_w2h_eave_lat(mesh_id)
+    correct_flux       => get_panel_edge_remap_w2h_correct_flux(mesh_id)
+    panel_edge_dist    => get_panel_edge_dist(mesh_id)
+    face_selector_ew   => get_face_selector_ew(mesh)
+    face_selector_ns   => get_face_selector_ns(mesh)
+    dA_at_w2_native    => get_dA_at_w2(mesh)
+    panel_id           => get_panel_id(mesh)
+    ! For now, dA_at_w2_eave reuses the same field as dA_at_w2_native (no
+    ! separate eave-area computation yet)
+    dA_at_w2_eave      => get_dA_at_w2(mesh)
+
+    fs => flux_field%get_function_space()
+    w3_fs => function_space_collection%get_fs(mesh, 0, 0, W3)
+    index_fs => interp_w2h_indices(1)%get_function_space()
+    ndata = index_fs%get_ndata()  ! Number of data points used in remapping
+
+    ! TODO: for now hardcode high-order as false
+    high_order = .false.
+
+    ! See panel_edge_remap_alg_mod::panel_edge_remap_alg for a discussion of
+    ! the various depths used below - the same conventions apply here
+    remap_depth = ffsl_depth
+    if (high_order) then
+      cross_depth = MAX(ffsl_inner_order, ffsl_outer_order) + 2
+    else
+      ! The opposite panel's inward donor lies two cells from this cell at a corner.
+      cross_depth = MAX(2_i_def, MAX(ffsl_inner_order, ffsl_outer_order))
+    end if
+
+    call remapped_flux(1)%initialise(fs, halo_depth=flux_field%get_field_halo_depth())
+    call remapped_flux(2)%initialise(fs, halo_depth=flux_field%get_field_halo_depth())
+    call remapped_flux(3)%initialise(fs, halo_depth=flux_field%get_field_halo_depth())
+
+    ! flux_field may only have the default (depth 1) halo, whereas the remap
+    ! kernel below needs deeper halo access - so copy its values into a
+    ! temporary field initialised to the full mesh halo depth. This copy is
+    ! combined with dividing by dA_at_w2_native, so that the input field is
+    ! already area-normalised by the time the main remap kernel sees it,
+    ! without needing to pass dA_at_w2_native into that kernel
+    call temp_flux_field%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call invoke( divide_w2h_by_w2_kernel_type(temp_flux_field, flux_field,     &
+                                              dA_at_w2_native,                  &
+                                              face_selector_ew,                 &
+                                              face_selector_ns) )
+    temp_flux_field_copy => temp_flux_field
+
+    call parl_w2_at_w2(1)%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call parl_w2_at_w2(2)%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call parl_w2_at_w2(3)%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call perp_w2_at_w2(1)%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call perp_w2_at_w2(2)%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call perp_w2_at_w2(3)%initialise(fs, halo_depth=mesh%get_halo_depth())
+    call parl_p_at_w3_x%initialise(w3_fs, halo_depth=mesh%get_halo_depth())
+    call parl_p_at_w3_y%initialise(w3_fs, halo_depth=mesh%get_halo_depth())
+
+    ! TODO: do we need to do this?
+    ! Set all values to some initial value
+    call invoke( setval_c(parl_w2_at_w2(1), 0.0_r_tran),                       &
+           setval_c(parl_w2_at_w2(2), 0.0_r_tran),                       &
+           setval_c(parl_w2_at_w2(3), 0.0_r_tran),                       &
+           setval_c(perp_w2_at_w2(1), 0.0_r_tran),                       &
+           setval_c(perp_w2_at_w2(2), 0.0_r_tran),                       &
+           setval_c(perp_w2_at_w2(3), 0.0_r_tran),                       &
+                 setval_c(parl_p_at_w3_x, 0.0_r_tran),                          &
+                 setval_c(parl_p_at_w3_y, 0.0_r_tran),                         &
+                 setval_c(remapped_flux(1), 0.0_r_tran),                       &
+                 setval_c(remapped_flux(2), 0.0_r_tran),                       &
+                 setval_c(remapped_flux(3), 0.0_r_tran) )
+
+    ! The average kernel uses GH_INC, so zero each labelled field first.
+    call invoke( setval_c(perp_w2_at_w2(1), 0.0_r_tran),                       &
+           setval_c(perp_w2_at_w2(2), 0.0_r_tran),                       &
+           setval_c(perp_w2_at_w2(3), 0.0_r_tran) )
+
+    ! Pure Lagrange "parl_w2" interpolation, no rotation or area scaling.
+    ! Also writes labelled perp_w2 values and W3 staging.
+    call invoke( panel_edge_interpolate_w2h_kernel_type(                       &
+                    parl_w2_at_w2, perp_w2_at_w2,                             &
+                    parl_p_at_w3_x, parl_p_at_w3_y,                          &
+                    temp_flux_field, cross_depth,                            &
+                    temp_flux_field_copy, cross_depth,                      &
+                    interp_w2h_weights, interp_w2h_indices,                  &
+                    interp_perp_weights, interp_perp_indices,                &
+                    interp_w3_weights_x, interp_w3_indices_x,                &
+                    interp_w3_weights_y, interp_w3_indices_y,                &
+                    panel_edge_dist, panel_id,                               &
+                    face_selector_ew, face_selector_ns,                      &
+                    remap_depth, ndata, include_perp_p)                       &
+    )
+    ! Add the W3 centre staging onto the "perp_p" W2H faces (Route B),
+    ! completing the real labelled perp_w2 staged value (instructions doc
+    ! section 2.4)
+    call invoke( panel_edge_w2h_average_kernel_type(                          &
+                    perp_w2_at_w2,                                           &
+                    parl_p_at_w3_x, parl_p_at_w3_y,                          &
+                    panel_edge_dist, panel_id,                               &
+                    remap_depth, include_perp_p)                             &
+    )
+    ! Unlike the scalar remap, this kernel loops over CELL_COLUMN (owned cells
+    ! only) via a standard invoke(), letting PSyclone manage the stencil halo
+    ! exchanges automatically. This forgoes the redundant-computation
+    ! optimisation used elsewhere (which requires a hand-written psykal_lite
+    ! invoke to loop over halo cells), taking the simpler and safer approach
+    ! of accepting the extra halo-exchange cost for this correction
+    call invoke( panel_edge_remap_w2h_kernel_type(remapped_flux,               &
+                                                  parl_w2_at_w2,               &
+                                                  perp_w2_at_w2,               &
+                                                  parl_w2_rot,                 &
+                                                  perp_w2_rot,                 &
+                                                  eave_lon,                    &
+                                                  eave_lat,                    &
+                                                  correct_flux,                &
+                                                  interp_w2h_indices,          &
+                                                  dA_at_w2_eave,               &
+                                                  panel_edge_dist,             &
+                                                  face_selector_ew,            &
+                                                  face_selector_ns,            &
+                                                  remap_depth,                 &
+                                                  include_perp_p)             &
+    )
+
+    if ( LPROF ) call stop_timing( id, 'transport.panel_edge_remap_w2h' )
+
+  end subroutine panel_edge_remap_w2h_alg
+
+end module panel_edge_remap_w2h_alg_mod

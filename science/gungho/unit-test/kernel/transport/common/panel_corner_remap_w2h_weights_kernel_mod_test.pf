@@ -1,0 +1,148 @@
+!-------------------------------------------------------------------------------
+! (c) Crown copyright Met Office. All rights reserved.
+! The file LICENCE, distributed with this code, contains details of the terms
+! under which the code may be used.
+!-------------------------------------------------------------------------------
+!> Test the W2H corner weights kernel.
+module panel_corner_remap_w2h_weights_kernel_mod_test
+
+  use constants_mod, only: l_def, i_def, r_def, r_tran
+  use reference_element_mod, only: W, S, N, E
+  use funit
+
+  implicit none
+
+  private
+  public :: test_all
+
+  @TestCase
+  type, extends(TestCase), public :: panel_corner_remap_w2h_weights_test_type
+    private
+  contains
+    procedure test_all
+  end type panel_corner_remap_w2h_weights_test_type
+
+contains
+
+  @Test
+  subroutine test_all( this )
+
+    use panel_corner_remap_w2h_weights_kernel_mod, only: panel_corner_remap_w2h_weights_code
+
+    implicit none
+
+    class(panel_corner_remap_w2h_weights_test_type), intent(inout) :: this
+
+    real(kind=r_tran), parameter :: tol = 1.0e-10_r_tran
+
+    integer(kind=i_def), parameter :: nlayers = 1
+    integer(kind=i_def), parameter :: remap_depth = 1
+    integer(kind=i_def), parameter :: ndf_ww = 1
+    integer(kind=i_def), parameter :: undf_ww = 4
+    integer(kind=i_def), parameter :: ndf_wx = 1
+    integer(kind=i_def), parameter :: undf_wx = 4
+    integer(kind=i_def), parameter :: ndf_wx_2d = 1
+    integer(kind=i_def), parameter :: undf_wx_2d = 4
+    integer(kind=i_def), parameter :: ndf_pid = 1
+    integer(kind=i_def), parameter :: undf_pid = 1
+    logical(kind=l_def), parameter :: cubic_remap = .false.
+
+    integer(kind=i_def) :: map_ww(ndf_ww)
+    integer(kind=i_def) :: map_wx(ndf_wx)
+    integer(kind=i_def) :: map_wx_2d(ndf_wx_2d)
+    integer(kind=i_def) :: map_pid(ndf_pid)
+    integer(kind=i_def) :: wx_stencil_size(4)
+    integer(kind=i_def) :: pid_stencil_size(4)
+    integer(kind=i_def) :: wx_stencil_map(ndf_wx, 3, 4)
+    integer(kind=i_def) :: pid_stencil_map(ndf_pid, 3, 4)
+    real(kind=r_def)    :: basis_wx(1, ndf_wx, ndf_ww)
+    real(kind=r_def)    :: basis_wx_2d(1, ndf_wx_2d, ndf_ww)
+
+    real(kind=r_tran)   :: weights_x_parallel(undf_ww)
+    real(kind=r_tran)   :: weights_x_perp(undf_ww)
+    real(kind=r_tran)   :: weights_y_parallel(undf_ww)
+    real(kind=r_tran)   :: weights_y_perp(undf_ww)
+    integer(kind=i_def) :: indices_x(undf_ww)
+    integer(kind=i_def) :: indices_y(undf_ww)
+
+    real(kind=r_def)    :: chi_1(undf_wx)
+    real(kind=r_def)    :: chi_2(undf_wx)
+    real(kind=r_def)    :: chi_3(undf_wx)
+    real(kind=r_def)    :: alpha_x(undf_wx_2d)
+    real(kind=r_def)    :: beta_x(undf_wx_2d)
+    real(kind=r_def)    :: alpha_y(undf_wx_2d)
+    real(kind=r_def)    :: beta_y(undf_wx_2d)
+    real(kind=r_def)    :: panel_id(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_W(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_E(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_S(undf_pid)
+    integer(kind=i_def) :: panel_edge_dist_N(undf_pid)
+    integer(kind=i_def) :: face_selector_ew(undf_pid)
+    integer(kind=i_def) :: face_selector_ns(undf_pid)
+
+    map_ww(1) = 1
+    map_wx(1) = 1
+    map_wx_2d(1) = 1
+    map_pid(1) = 1
+
+    wx_stencil_size = 0_i_def
+    pid_stencil_size = 0_i_def
+    wx_stencil_map = 0_i_def
+    pid_stencil_map = 0_i_def
+
+    chi_1 = 0.0_r_def
+    chi_2 = 0.0_r_def
+    chi_3 = 0.0_r_def
+    alpha_x = 0.0_r_def
+    beta_x = 0.0_r_def
+    alpha_y = 0.0_r_def
+    beta_y = 0.0_r_def
+    panel_id = 2.0_r_def
+
+    panel_edge_dist_W(1) = 1_i_def
+    panel_edge_dist_E(1) = 5_i_def
+    panel_edge_dist_S(1) = 1_i_def
+    panel_edge_dist_N(1) = 5_i_def
+    face_selector_ew(1) = 1_i_def
+    face_selector_ns(1) = 1_i_def
+
+    basis_wx = 0.0_r_def
+    basis_wx_2d = 0.0_r_def
+
+    weights_x_parallel = 0.0_r_tran
+    weights_x_perp = 0.0_r_tran
+    weights_y_parallel = 0.0_r_tran
+    weights_y_perp = 0.0_r_tran
+    indices_x = 0_i_def
+    indices_y = 0_i_def
+
+    call panel_corner_remap_w2h_weights_code( nlayers,                         &
+                                              weights_x_parallel, weights_x_perp,   &
+                                              weights_y_parallel, weights_y_perp,   &
+                                              indices_x, indices_y,                 &
+                                              chi_1, chi_2, chi_3,                  &
+                                              wx_stencil_size, 3_i_def, wx_stencil_map, &
+                                              alpha_x, beta_x, alpha_y, beta_y,    &
+                                              panel_id,                             &
+                                              pid_stencil_size, 3_i_def, pid_stencil_map, &
+                                              panel_edge_dist_W, panel_edge_dist_E, &
+                                              panel_edge_dist_S, panel_edge_dist_N, &
+                                              face_selector_ew, face_selector_ns,   &
+                                              cubic_remap, remap_depth,             &
+                                              1_i_def, 1_i_def, 1_i_def, 1.0_r_def,  &
+                                              ndf_ww, undf_ww, map_ww,              &
+                                              ndf_wx, undf_wx, map_wx, basis_wx,    &
+                                              ndf_wx_2d, undf_wx_2d, map_wx_2d, basis_wx_2d, &
+                                              ndf_pid, undf_pid, map_pid            &
+    )
+
+    @assertEqual(0.75_r_tran, weights_x_parallel(1), tol)
+    @assertEqual(0.25_r_tran, weights_x_perp(1), tol)
+    @assertEqual(0.60_r_tran, weights_y_parallel(1), tol)
+    @assertEqual(0.40_r_tran, weights_y_perp(1), tol)
+    @assertEqual(1_i_def, indices_x(1))
+    @assertEqual(1_i_def, indices_y(1))
+
+  end subroutine test_all
+
+end module panel_corner_remap_w2h_weights_kernel_mod_test

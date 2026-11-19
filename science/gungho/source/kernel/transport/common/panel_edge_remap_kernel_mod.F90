@@ -18,7 +18,7 @@ use argument_mod,          only: arg_type,                                     &
                                  ANY_DISCONTINUOUS_SPACE_3,                    &
                                  ANY_DISCONTINUOUS_SPACE_5,                    &
                                  ANY_DISCONTINUOUS_SPACE_7,                    &
-                                 OWNED_AND_HALO_CELL_COLUMN,                   &
+                                 CELL_COLUMN,                                  &
                                  STENCIL, CROSS2D
 use constants_mod,         only: r_def, r_tran, i_def, l_def
 use reference_element_mod, only: W, S, N, E
@@ -54,7 +54,7 @@ type, public, extends(kernel_type) :: panel_edge_remap_kernel_type
        arg_type(GH_SCALAR,  GH_LOGICAL, GH_READ),                              &
        arg_type(GH_SCALAR,  GH_REAL,    GH_READ)                               &
   /)
-  integer :: operates_on = OWNED_AND_HALO_CELL_COLUMN
+  integer :: operates_on = CELL_COLUMN
 contains
   procedure, nopass :: panel_edge_remap_code
 end type
@@ -234,7 +234,6 @@ subroutine panel_edge_remap_code( nlayers,                                     &
     ! so it can be detected if it is used
     remapped_in_x(r_idx : r_idx+nvert) = -1900.0_r_tran
   end if
-
   ! Remap at y edge of panel ---------------------------------------------------
   if (compute_y) then
     call panel_edge_remap_1d(                                                  &
@@ -257,7 +256,6 @@ subroutine panel_edge_remap_code( nlayers,                                     &
     ! so it can be detected if it is used
     remapped_in_y(r_idx : r_idx+nvert) = -1900.0_r_tran
   end if
-
 end subroutine panel_edge_remap_code
 
 !> @brief Private routine for remapping a field over a cubed-sphere panel edge

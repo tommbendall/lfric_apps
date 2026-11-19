@@ -31,3 +31,24 @@ class vnXX_txxx(MacroUpgrade):
         # Add settings
         return config, self.reports
 """
+
+class vn32_t500(MacroUpgrade):
+    """Upgrade macro for ticket #500 by Thomas Bendall."""
+
+    BEFORE_TAG = "vn3.2"
+    AFTER_TAG = "vn3.2_t500"
+
+    def upgrade(self, config, meta_config=None):
+        # Add the per-field swift_peregrin transport option. Default it to
+        # .false. for every profile so that existing behaviour is preserved.
+        if config.get(["namelist:transport"]) is not None:
+            profile_size = self.get_setting_value(
+                config, ["namelist:transport", "profile_size"]
+            )
+            self.add_setting(
+                config,
+                ["namelist:transport", "swift_peregrin"],
+                profile_size + "*.false.",
+            )
+
+        return config, self.reports

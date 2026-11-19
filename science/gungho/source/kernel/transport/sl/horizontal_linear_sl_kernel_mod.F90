@@ -49,6 +49,7 @@ module horizontal_linear_sl_kernel_mod
   ! Contained functions/subroutines
   !-----------------------------------------------------------------------------
   public :: horizontal_linear_sl_code
+  public :: horizontal_linear_sl_1d
 
 contains
 
