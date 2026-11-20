@@ -68,7 +68,6 @@ module slow_physics_alg_mod
                                        cloud, cloud_um, cloud_evap_condense, &
                                        external_forcing
   use log_scalar_alg_mod, only: log_scalar_minmax
-  use print_nan_loc_alg_mod, only: print_nan_loc_alg
 
   ! Derived Types
   use field_mod,                 only: field_type
@@ -679,31 +678,33 @@ contains
       call invoke( X_plus_Y(total_area, radiative_cloud_fraction, radiative_conv_fraction) )
       call convection_fields%get_field('cca', cca)
 
-      call print_field_stats_alg(modeldb%config, radiative_cloud_fraction, LOG_LEVEL_INFO,  &
-                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                  name="slow rad_cld: rad_cld_frac")
-      call print_nan_loc_alg(modeldb%config, radiative_cloud_fraction, LOG_LEVEL_INFO, &
-                             "slow rad_cld: rad_cld_frac")
-      call print_field_stats_alg(modeldb%config, radiative_conv_fraction, LOG_LEVEL_INFO,  &
-                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                  name="slow rad_cld: rad_conv_frac")
-      call print_nan_loc_alg(modeldb%config, radiative_conv_fraction, LOG_LEVEL_INFO, &
-                             "slow rad_cld: rad_conv_frac")
-      call print_field_stats_alg(modeldb%config, area_fraction, LOG_LEVEL_INFO, &
-                                printmin=300.0_r_def, printmax=-300.0_r_def,   &
-                                name="slow rad_cld bef: area_fraction")
-      call print_nan_loc_alg(modeldb%config, area_fraction, LOG_LEVEL_INFO, &
-                             "slow rad_cld bef: area_fraction")
-      call print_field_stats_alg(modeldb%config, cca, LOG_LEVEL_INFO,  &
-                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                  name="slow rad_cld: cca")
-      call print_nan_loc_alg(modeldb%config, cca, LOG_LEVEL_INFO, &
-                             "slow rad_cld: cca")
-      call print_field_stats_alg(modeldb%config, total_area, LOG_LEVEL_INFO,  &
-                                  printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                  name="slow rad_cld: total_area")
-      call print_nan_loc_alg(modeldb%config, total_area, LOG_LEVEL_INFO, &
-                             "slow rad_cld: total_area")
+      if (clock%get_step() > 298959) then
+        call print_field_stats_alg(modeldb%config, radiative_cloud_fraction, LOG_LEVEL_INFO,  &
+                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                    name="slow rad_cld: rad_cld_frac")
+        call log_scalar_minmax(modeldb%config, radiative_cloud_fraction, &
+                              "slow rad_cld: rad_cld_frac")
+        call print_field_stats_alg(modeldb%config, radiative_conv_fraction, LOG_LEVEL_INFO,  &
+                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                    name="slow rad_cld: rad_conv_frac")
+        call log_scalar_minmax(modeldb%config, radiative_conv_fraction, &
+                              "slow rad_cld: rad_conv_frac")
+        call print_field_stats_alg(modeldb%config, area_fraction, LOG_LEVEL_INFO, &
+                                  printmin=300.0_r_def, printmax=-300.0_r_def,   &
+                                  name="slow rad_cld bef: area_fraction")
+        call log_scalar_minmax(modeldb%config, area_fraction, &
+                              "slow rad_cld bef: area_fraction")
+        call print_field_stats_alg(modeldb%config, cca, LOG_LEVEL_INFO,  &
+                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                    name="slow rad_cld: cca")
+        call log_scalar_minmax(modeldb%config, cca, &
+                              "slow rad_cld: cca")
+        call print_field_stats_alg(modeldb%config, total_area, LOG_LEVEL_INFO,  &
+                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                    name="slow rad_cld: total_area")
+        call log_scalar_minmax(modeldb%config, total_area, &
+                              "slow rad_cld: total_area")
+      end if
 
       !--------------------------------------------------------------------
       ! Socrates illumination scheme: solar position

@@ -43,7 +43,7 @@ contains
 
     call log_event(message, LOG_LEVEL_INFO)
 
-    do idx = 1, 32
+    do idx = 1, 256
       call log_scalar_column(message, field, idx)
     end do
 
