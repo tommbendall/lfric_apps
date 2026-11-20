@@ -27,6 +27,8 @@ use log_mod,                 only: log_event, LOG_LEVEL_DEBUG
 use cosp_config_mod, only: n_subcol_gen
 use cosp_diags_mod,  only: initialise_diags_for_cosp, output_diags_for_cosp
 use cosp_kernel_mod, only: cosp_kernel_type
+use model_clock_mod,         only: model_clock_type
+  use log_scalar_alg_mod, only: log_scalar_minmax
 
 ! Configuration modules
 use planet_config_mod, only: p_zero, kappa
@@ -64,7 +66,7 @@ subroutine cosp_alg(config, pressure_in_wth, temperature_in_wth, exner, mr, &
                     rand_seed, n_cloud_layer, &
                     radiative_cloud_fraction, radiative_conv_fraction, &
                     conv_liquid_fraction, conv_frozen_fraction, &
-                    conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number)
+                    conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number, clock)
 
   implicit none
 
@@ -90,6 +92,7 @@ subroutine cosp_alg(config, pressure_in_wth, temperature_in_wth, exner, mr, &
   type( field_type ), intent(in) :: conv_liquid_mmr
   type( field_type ), intent(in) :: conv_frozen_mmr
   type( field_type ), intent(in) :: conv_frozen_number
+  class( model_clock_type ), intent(in) :: clock
 
   ! Local variables
   type(mesh_type), pointer :: mesh => null()
@@ -197,6 +200,16 @@ subroutine cosp_alg(config, pressure_in_wth, temperature_in_wth, exner, mr, &
     calipso_cf_40_lvls_undet, &
     calipso_cf_40_lvls_mask, &
     cloud_thermal_absorptivity, cloud_solar_extinction)
+
+  if (clock%get_step() > 298959) then
+    call log_scalar_minmax(config, "cosp: rad_cld_frac", radiative_cloud_fraction)
+    call log_scalar_minmax(config, "cosp: rad_conv_frac", radiative_conv_fraction)
+    call log_scalar_minmax(config, "cosp: liquid_fraction", liquid_fraction)
+    call log_scalar_minmax(config, "cosp: frozen_fraction", frozen_fraction)
+    call log_scalar_minmax(config, "cosp: conv_liquid_fraction", conv_liquid_fraction)
+    call log_scalar_minmax(config, "cosp: conv_frozen_fraction", conv_frozen_fraction)
+  end if
+
 
   ! Run COSP
   call invoke( cosp_kernel_type( &

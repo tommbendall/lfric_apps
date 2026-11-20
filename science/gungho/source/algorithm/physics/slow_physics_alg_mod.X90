@@ -833,21 +833,29 @@ contains
         call invoke( X_plus_Y(total_area, radiative_cloud_fraction, radiative_conv_fraction) )
         call convection_fields%get_field('cca', cca)
 
-        call print_field_stats_alg(modeldb%config, radiative_cloud_fraction, LOG_LEVEL_INFO,  &
-                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                    name="slow cosp_bef: rad_cld_frac")
-        call print_field_stats_alg(modeldb%config, radiative_conv_fraction, LOG_LEVEL_INFO,  &
-                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                    name="slow cosp_bef: rad_conv_frac")
-        call print_field_stats_alg(modeldb%config, area_fraction, LOG_LEVEL_INFO, &
-                                  printmin=300.0_r_def, printmax=-300.0_r_def,   &
-                                  name="slow cosp_bef bef: area_fraction")
-        call print_field_stats_alg(modeldb%config, cca, LOG_LEVEL_INFO,  &
-                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                    name="slow cosp_bef: cca")
-        call print_field_stats_alg(modeldb%config, total_area, LOG_LEVEL_INFO,  &
-                                    printmin=300.0_r_def, printmax=-300.0_r_def, &
-                                    name="slow cosp_bef: total_area")
+        if (clock%get_step() > 298959) then
+          call print_field_stats_alg(modeldb%config, radiative_cloud_fraction, LOG_LEVEL_INFO,  &
+                                      printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                      name="slow cosp_bef: rad_cld_frac")
+          call log_scalar_minmax(modeldb%config, "slow cosp_bef: rad_cld_frac", radiative_cloud_fraction)
+          call print_field_stats_alg(modeldb%config, radiative_conv_fraction, LOG_LEVEL_INFO,  &
+                                      printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                      name="slow cosp_bef: rad_conv_frac")
+          call log_scalar_minmax(modeldb%config, "slow cosp_bef: rad_conv_frac", radiative_conv_fraction)
+          call print_field_stats_alg(modeldb%config, area_fraction, LOG_LEVEL_INFO, &
+                                    printmin=300.0_r_def, printmax=-300.0_r_def,   &
+                                    name="slow cosp_bef bef: area_fraction")
+          call log_scalar_minmax(modeldb%config, "slow cosp_bef bef: area_fraction", area_fraction)
+          call print_field_stats_alg(modeldb%config, cca, LOG_LEVEL_INFO,  &
+                                      printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                      name="slow cosp_bef: cca")
+          call log_scalar_minmax(modeldb%config, "slow cosp_bef: cca", cca)
+          call print_field_stats_alg(modeldb%config, total_area, LOG_LEVEL_INFO,  &
+                                      printmin=300.0_r_def, printmax=-300.0_r_def, &
+                                      name="slow cosp_bef: total_area")
+          call log_scalar_minmax(modeldb%config, "slow cosp_bef: total_area", total_area)
+        end if
+
         call cosp_alg(modeldb%config,                                      &
                       pressure_in_wth, temperature_in_wth,                 &
                       exner, mr_n, derived_fields, radiation_fields,       &
@@ -855,7 +863,8 @@ contains
                       microphysics_fields, rand_seed, n_cloud_layer,       &
                       radiative_cloud_fraction, radiative_conv_fraction,   &
                       conv_liquid_fraction, conv_frozen_fraction,          &
-                      conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number)
+                      conv_liquid_mmr, conv_frozen_mmr, conv_frozen_number, &
+                      clock)
         call log_event("COSP finished", LOG_LEVEL_INFO)
 
       end if
