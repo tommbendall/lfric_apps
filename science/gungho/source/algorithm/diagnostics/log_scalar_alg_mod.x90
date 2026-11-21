@@ -39,11 +39,16 @@ contains
     character(len=*),    intent(in) :: message
     type(field_type),    intent(in) :: field
 
+    type(mesh_type), pointer        :: mesh => null()
     integer(kind=i_def)             :: idx
+    integer(kind=i_def)             :: ncells
 
     call log_event(message, LOG_LEVEL_INFO)
 
-    do idx = 1, 256
+    mesh => field%get_mesh()
+    ncells = mesh%get_ncells_2d()
+
+    do idx = 1, ncells
       call log_scalar_column(message, field, idx)
     end do
 
