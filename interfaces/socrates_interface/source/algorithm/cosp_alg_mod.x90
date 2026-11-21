@@ -208,6 +208,20 @@ subroutine cosp_alg(config, pressure_in_wth, temperature_in_wth, exner, mr, &
     call log_scalar_minmax(config, "cosp: frozen_fraction", frozen_fraction)
     call log_scalar_minmax(config, "cosp: conv_liquid_fraction", conv_liquid_fraction)
     call log_scalar_minmax(config, "cosp: conv_frozen_fraction", conv_frozen_fraction)
+    call log_scalar_minmax(config, "cosp: pressure_in_wth", pressure_in_wth)
+    call log_scalar_minmax(config, "cosp: temperature_in_wth", temperature_in_wth)
+    call log_scalar_minmax(config, "cosp: rho_in_wth", rho_in_wth)
+    call log_scalar_minmax(config, "cosp: mr_v", mr(imr_v))
+    call log_scalar_minmax(config, "cosp: mr_cl", mr(imr_cl))
+    call log_scalar_minmax(config, "cosp: mr_ice", mr_ice)
+    call log_scalar_minmax(config, "cosp: n_ice", n_ice)
+    call log_scalar_minmax(config, "cosp: conv_liquid_mmr", conv_liquid_mmr)
+    call log_scalar_minmax(config, "cosp: conv_frozen_mmr", conv_frozen_mmr)
+    call log_scalar_minmax(config, "cosp: conv_frozen_number", conv_frozen_number)
+    call log_scalar_minmax(config, "cosp: sigma_ml", sigma_ml)
+    call log_scalar_minmax(config, "cosp: sigma_mi", sigma_mi)
+    call log_scalar_minmax(config, "cosp: cloud_drop_no_conc", cloud_drop_no_conc)
+
   end if
 
 
