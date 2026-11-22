@@ -76,8 +76,7 @@ module tr_bdf2_timestep_alg_mod
   use fast_physics_alg_mod,       only: fast_physics
   use gungho_transport_control_alg_mod,                                        &
                                   only: gungho_transport_control_alg_init,     &
-                                        gungho_transport_control_alg,          &
-                                        gungho_transport_control_theta_alg
+                                        gungho_transport_control_alg
   use intermesh_mappings_alg_mod, only: map_scalar_intermesh,                  &
                                         map_w2_intermesh
   use lam_rhs_alg_mod,            only: calc_rhs_lbc,                          &
@@ -130,7 +129,7 @@ module tr_bdf2_timestep_alg_mod
   ! Pointers
   use sci_fem_constants_mod,      only: get_mass_matrix_fe,                    &
                                         get_mass_matrix_fv
-  use dycore_constants_mod,       only: stepper_siqn, stepper_tr,              &
+  use dycore_constants_mod,       only: stepper_tr,                            &
                                         stepper_bdf2, gamma, gamma2, gamma3
 
   ! Configuration options
@@ -149,8 +148,7 @@ module tr_bdf2_timestep_alg_mod
   use stochastic_physics_config_mod,                                           &
                                   only: stochastic_physics_is_loaded
   use timestepping_config_mod,    only: tr_bdf2_first_guess_tr_solution,       &
-                                        tr_bdf2_transport_cheap,               &
-                                        tr_bdf2_transport_intermediate
+                                        tr_bdf2_transport_cheap
 
   implicit none
 
@@ -185,10 +183,10 @@ module tr_bdf2_timestep_alg_mod
     type(field_type), allocatable :: mr_dag(:)         ! Mixing ratios after slow physics
     type(field_type), allocatable :: mr_bdf(:)         ! Mixing ratios after BDF2 step
     type(field_type), allocatable :: rhs_adv_n(:) ! Transport RHS of X^n
-                                               ! (expensive transport)
+                                               ! (intermediate transport)
     type(field_type), allocatable :: rhs_adv_corr(:) ! Transport RHS correction
                                                ! for X^q-X^n
-                                               ! (expensive transport)
+                                               ! (intermediate transport)
     type(field_type), allocatable :: rhs_n(:)          ! Explicit RHS (TR)
     type(field_type), allocatable :: rhs_np1(:)        ! Implicit RHS (BDF2)
     type(field_type), allocatable :: rhs_adv(:)        ! Transport RHS (both)
@@ -518,9 +516,6 @@ contains
         /= tr_bdf2_transport_cheap) then
       allocate(self%rhs_adv_n(bundle_size))
       allocate(self%rhs_adv_corr(bundle_size))
-    end if
-    if (self%config%timestepping%tr_bdf2_transport()                           &
-        == tr_bdf2_transport_intermediate) then
       allocate(self%state_c(bundle_size))
     end if
 
@@ -757,8 +752,9 @@ contains
     type(field_type),       pointer :: state_bdf_to_adv(:)
     type(field_type)                :: dry_flux_solver
     type(r_tran_field_type)         :: dry_flux_solver_r_tran
-    ! Dry fluxes for expensive transport: TR-stage transport, BDF2 transport of
-    ! X^n, and the part of the combined BDF2 flux not from transporting X^m
+    ! Dry fluxes for intermediate transport: TR-stage transport, the first BDF2
+    ! transport of X^dag, and the part of the combined BDF2 flux not from the
+    ! second BDF2 transport
     type(r_tran_field_type)         :: dry_flux_tr, dry_flux_n, dry_flux_other
     real(kind=r_tran)               :: one_minus_gamma3_rtran
     type(field_type)                :: rho_star
@@ -833,8 +829,7 @@ contains
     logical(kind=l_def)               :: cheap_update
     logical(kind=l_def)               :: transport_ageofair
     logical(kind=l_def)              :: tr_bdf2_cheap_transport
-    logical(kind=l_def)              :: tr_bdf2_intermediate_transport
-    real(kind=r_def)                 :: bdf_adv_weight, one_minus_gamma3
+    real(kind=r_def)                 :: one_minus_gamma3
     integer(kind=i_def)              :: tr_bdf2_first_guess
     logical(kind=l_def)              :: tr_physics
     logical(kind=l_def)              :: tr_bdf2_bdf_evap_condense
@@ -888,14 +883,7 @@ contains
     tr_bdf2_cheap_transport = (                                                &
         self%config%timestepping%tr_bdf2_transport() == tr_bdf2_transport_cheap &
     )
-    tr_bdf2_intermediate_transport = (                                         &
-        self%config%timestepping%tr_bdf2_transport()                           &
-        == tr_bdf2_transport_intermediate                                      &
-    )
-    ! Weight of the transport of X^m (or the combined state) in the BDF2 stage
-    bdf_adv_weight = gamma3
     one_minus_gamma3 = 1.0_r_def - gamma3
-    if (tr_bdf2_intermediate_transport) bdf_adv_weight = 1.0_r_def
     tr_bdf2_first_guess = self%config%timestepping%tr_bdf2_first_guess()
     tr_bdf2_bdf_evap_condense =                                                &
         self%config%timestepping%tr_bdf2_bdf_evap_condense()
@@ -1486,7 +1474,7 @@ contains
         setval_c(self%rhs_bdf(igh_p), 0.0_r_def)                               &
     )
 
-    ! For expensive transport, X^q-X^n is the TR transport increment, which
+    ! For intermediate transport, X^q-X^n is the TR transport increment, which
     ! is needed in weak form for u, and is fixed throughout the BDF2 stage
     if (.not. tr_bdf2_cheap_transport) then
       call bundle_axpy(                                                        &
@@ -1504,12 +1492,10 @@ contains
           enforce_bc_kernel_type(self%rhs_adv_corr(igh_u))                     &
       )
       ! Theta is transported once, so has no combination terms
-      if (tr_bdf2_intermediate_transport) then
-        call invoke(                                                           &
-            setval_c(self%rhs_adv_n(igh_t), 0.0_r_def),                        &
-            setval_c(self%rhs_adv_corr(igh_t), 0.0_r_def)                      &
-        )
-      end if
+      call invoke(                                                             &
+          setval_c(self%rhs_adv_n(igh_t), 0.0_r_def),                          &
+          setval_c(self%rhs_adv_corr(igh_t), 0.0_r_def)                        &
+      )
     end if
 
     ! ======================================================================== !
@@ -1530,7 +1516,7 @@ contains
           ! Transporting wind is u^{n+1}
           state_bdf_to_adv => self%state_bdf
 
-        else if (tr_bdf2_intermediate_transport) then
+        else
           ! Transport density and wind of state_dag over the TR stage length,
           ! using u^{n+1}, putting increments in rhs_adv_n and the dry flux in
           ! dry_flux_n. Moisture and theta are not transported here
@@ -1568,35 +1554,12 @@ contains
               inc_X_plus_bY(self%state_c(igh_u), gamma3, self%state_m(igh_u))  &
           )
           state_bdf_to_adv => self%state_c
-        else
-          ! Transport state_dag over the whole timestep, using u^{n+1}
-          ! (SIQN stepper with wind_n = wind_np1 = u^{n+1} gives this):
-          ! put results in rhs_adv_n, and the dry flux in dry_flux_n.
-          ! Moisture is not transported here, only once in the next call, and
-          ! theta is transported after that so that the final moisture is used
-          call gungho_transport_control_alg(                                   &
-                  self%config, self%rhs_adv_n,                                 &
-                  self%state_dag, self%state(igh_u), self%state(igh_u),        &
-                  self%mr_dag, self%mr_dag, model_clock, outer,                &
-                  stepper_siqn, cheap_update=.false.,                          &
-                  dry_flux_out=dry_flux_n, skip_moisture=.true.,               &
-                  skip_theta=.true.                                            &
-          )
-          ! The dry flux that is consistent with the combined density update
-          ! is gamma3*F^m + (1-gamma3)*(F^n - F^TR), where F^TR is the dry flux
-          ! of the TR-stage transport. Here we find the latter two terms
-          call invoke(                                                         &
-              X_minus_Y(dry_flux_other, dry_flux_n, dry_flux_tr),              &
-              inc_a_times_X(one_minus_gamma3_rtran, dry_flux_other)            &
-          )
-          ! The remaining transport is of state_m & mr_bdf over (1-2*gamma)*dt
-          state_bdf_to_adv => self%state_m
         end if
 
         ! Here we also transport tracers over the whole timestep using
         ! a transporting wind of 0.5*(u^n + u^{n+1})
-        ! For expensive transport the combined dry flux is used for moisture,
-        ! so moisture is only transported once
+        ! For intermediate transport the combined dry flux is used for moisture
+        ! and theta, so they are only transported once
         if (tr_bdf2_cheap_transport) then
           call gungho_transport_control_alg(                                   &
                   self%config, self%rhs_adv,                                   &
@@ -1612,25 +1575,9 @@ contains
                   stage_tracers=stage_tracers,                                 &
                   stage_tracers_in=stage_tracers_bdf                           &
           )
-        else if (tr_bdf2_intermediate_transport) then
+        else
           ! Moisture and theta use the combined dry flux with the density of
           ! state_bdf as the reference, so are transported once
-          call gungho_transport_control_alg(                                   &
-                  self%config, self%rhs_adv,                                   &
-                  state_bdf_to_adv, self%state(igh_u), self%state_n(igh_u),    &
-                  mr, mr_to_adv, model_clock, outer, stepper_bdf2,             &
-                  cheap_update, self%adv_inc_prev, self%wind_prev,             &
-                  self%state_bdf(igh_d), self%state_dag(igh_d),                &
-                  self%total_dry_flux,                                         &
-                  adv_tracer_all_outer, adv_tracer_all_outer_dag,              &
-                  adv_tracer_last_outer, adv_tracer_last_outer_dag,            &
-                  con_tracer_all_outer, con_tracer_all_outer_dag,              &
-                  con_tracer_last_outer, con_tracer_last_outer_dag,            &
-                  bdf_flux_other=dry_flux_other,                               &
-                  bdf_flux_weight=bdf_adv_weight,                              &
-                  theta_with_bdf_flux=.true.                                   &
-          )
-        else
           call gungho_transport_control_alg(                                   &
                   self%config, self%rhs_adv,                                   &
                   state_bdf_to_adv, self%state(igh_u), self%state_n(igh_u),    &
@@ -1647,25 +1594,15 @@ contains
         end if
 
         if (.not. tr_bdf2_cheap_transport) then
-          if (.not. tr_bdf2_intermediate_transport) then
-            ! Transport theta over the whole timestep, now that the moisture
-            ! after transport is known: put the increment in rhs_adv_n(igh_t)
-            call gungho_transport_control_theta_alg(                           &
-                    self%config, self%rhs_adv_n(igh_t), self%state_dag(igh_t), &
-                    self%state_dag(igh_d), self%state(igh_u), mr, self%mr_dag, &
-                    model_clock, outer, dry_flux_n                             &
-            )
-          end if
-
           ! Combine to get the increment to state_bdf:
-          ! (1-gamma3)*T[X^n] + gamma3*T[X^m] - X_bdf
-          ! = (1-gamma3)*(T[X^n]-X^n) + gamma3*(T[X^m]-X^m)
+          ! (1-gamma3)*T[X^n] + T[X^c] - X_bdf
+          ! = (1-gamma3)*(T[X^n]-X^n) + (T[X^c]-X^c)
           !   - (1-gamma3)*(X^q-X^n)
-          ! For intermediate transport T[X^n] is over the TR stage only and
-          ! the second transport is of the combined state, so the weight of
-          ! rhs_adv is 1. Moisture is not combined, as it is transported once
+          ! T[X^n] is over the TR stage only and the second transport is of the
+          ! combined state, so the weight of rhs_adv is 1. Moisture and theta
+          ! are not combined, as they are transported once
           call bundle_inc_axpby(                                               &
-              bdf_adv_weight, self%rhs_adv, 1.0_r_def - gamma3,                &
+              1.0_r_def, self%rhs_adv, 1.0_r_def - gamma3,                     &
               self%rhs_adv_n, bundle_size                                      &
           )
           call bundle_inc_axpby(                                               &

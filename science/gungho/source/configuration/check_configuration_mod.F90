@@ -168,9 +168,7 @@ contains
                                            tr_bdf2_transport,                  &
                                            tr_bdf2_transport_cheap,            &
                                            tr_bdf2_bdf_physics,                &
-                                           tr_bdf2_bdf_cloud_balance,          &
-                                           si_mphys_transport_interleave,      &
-                                           si_mphys_transport_substeps
+                                           tr_bdf2_bdf_cloud_balance
     use base_mesh_config_mod,        only: geometry,                           &
                                            geometry_spherical,                 &
                                            geometry_planar,                    &
@@ -305,38 +303,6 @@ contains
             'Invalid Choice: inner_iterations_si must be at least 1:',         &
             minval(inner_iterations_si)
           call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-        end if
-
-        if ( si_mphys_transport_interleave ) then
-          if ( si_mphys_transport_substeps < 1 ) then
-            write( log_scratch_space, '(A,I4)' )                               &
-              'Invalid Choice: si_mphys_transport_substeps must be at ' //     &
-              'least 1:', si_mphys_transport_substeps
-            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-          end if
-          if ( .not. use_physics .or. .not. use_wavedynamics .or.              &
-               moisture_formulation == moisture_formulation_dry ) then
-            write( log_scratch_space, '(A)' )                                  &
-              'Invalid Options: si_mphys_transport_interleave requires ' //    &
-              'physics, wave dynamics and a moist formulation'
-            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-          else if ( microphysics /= microphysics_um ) then
-            write( log_scratch_space, '(A)' )                                  &
-              'Invalid Options: si_mphys_transport_interleave requires ' //    &
-              'the UM microphysics scheme'
-            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-          else if ( microphysics_casim ) then
-            write( log_scratch_space, '(A)' )                                  &
-              'Invalid Options: si_mphys_transport_interleave does not ' //    &
-              'support CASIM'
-            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-          end if
-          if ( cheap_update ) then
-            write( log_scratch_space, '(A)' )                                  &
-              'Invalid Options: si_mphys_transport_interleave cannot be ' //   &
-              'used with the cheap transport update'
-            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-          end if
         end if
 
       else if ( method == method_tr_bdf2 ) then

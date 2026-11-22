@@ -200,8 +200,6 @@ contains
   !> @param[in]     staged_dt              Optional, if present the microphysics,
   !!                                       radiation and their PC2 responses are
   !!                                       for this length of time, not dt
-  !> @param[in]     skip_microphysics      Optional, if true the microphysics is
-  !!                                       not called, as it is called later
   !> @param[in,out] diag_sum               Optional, sums of the diagnostics over
   !!                                       the calls of physics in a timestep.
   !!                                       Diagnostics that are summed are added
@@ -215,8 +213,7 @@ contains
                           convection_fields, cloud_fields, surface_fields,     &
                           soil_fields, snow_fields, chemistry_fields,          &
                           aerosol_fields, clock, dt, dtemp_encorr,             &
-                          mesh, twod_mesh, staged_dt, skip_microphysics,       &
-                          diag_sum )
+                          mesh, twod_mesh, staged_dt, diag_sum )
 
     implicit none
 
@@ -253,12 +250,10 @@ contains
     real( kind=r_def ),        intent(in) :: dt
     real( kind=r_def ),        intent(in) :: dtemp_encorr
     real( kind=r_def ), optional, intent(in) :: staged_dt
-    logical( kind=l_def ), optional, intent(in) :: skip_microphysics
     type( field_collection_type ), optional, intent(inout) :: diag_sum
 
     real( kind=r_def )                    :: time_now
     real( kind=r_def )                    :: dt_phys
-    logical( kind=l_def )                 :: skip_mphys
     logical( kind=l_def )                 :: sum_dtheta_rad
     real( kind=r_def )                    :: Rv, cpv, cl
 
@@ -396,8 +391,6 @@ contains
     ! Time covered by the microphysics, radiation and PC2 responses
     dt_phys = dt
     if ( present(staged_dt) ) dt_phys = staged_dt
-    skip_mphys = .false.
-    if ( present(skip_microphysics) ) skip_mphys = skip_microphysics
     ! The staged radiation increment replaces the one that radiation writes
     sum_dtheta_rad = ( present(diag_sum) .and. present(staged_dt)              &
                        .and. write_diag .and. use_xios_io )
@@ -593,8 +586,7 @@ contains
     call clone_bundle(mr_n, dmr_mphys, nummr)
     call set_bundle_scalar(0.0_r_def, dmr_mphys, nummr)
     if ( microphysics == microphysics_um .and. &
-         microphysics_placement == microphysics_placement_slow .and. &
-         .not. skip_mphys ) then
+         microphysics_placement == microphysics_placement_slow ) then
       if ( microphysics_casim ) then
         call casim_alg( modeldb%config, mr_n, theta, rho,                &
                         derived_fields, microphysics_fields,             &
@@ -619,10 +611,6 @@ contains
         call um_sizes_init(1_i_def)
       end if
       microphysics_done = .true. ! Collect this increment later on
-      call f_arr%field_final()
-    else if ( skip_mphys ) then
-      ! The microphysics increment is zero here, as it is added later
-      call invoke( setval_c(dtheta_mphys, 0.0_r_def) )
       call f_arr%field_final()
     end if
 
