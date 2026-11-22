@@ -133,7 +133,8 @@ contains
                                            use_wavedynamics,                   &
                                            dlayer_on,                          &
                                            moisture_formulation,               &
-                                           moisture_formulation_dry
+                                           moisture_formulation_dry,           &
+                                           solver_moisture_conservation
     use section_choice_config_mod,   only: aerosol,                            &
                                            aerosol_um,                         &
                                            cloud,                              &
@@ -165,10 +166,7 @@ contains
                                            inner_iterations_si,                &
                                            inner_iterations_tr,                &
                                            inner_iterations_bdf2,              &
-                                           tr_bdf2_transport,                  &
-                                           tr_bdf2_transport_cheap,            &
-                                           tr_bdf2_bdf_physics,                &
-                                           tr_bdf2_bdf_cloud_balance
+                                           tr_bdf2_bdf_physics
     use base_mesh_config_mod,        only: geometry,                           &
                                            geometry_spherical,                 &
                                            geometry_planar,                    &
@@ -340,10 +338,10 @@ contains
         end if
 
         if ( tr_bdf2_bdf_physics ) then
-          if ( tr_bdf2_transport /= tr_bdf2_transport_cheap ) then
+          if ( .not. solver_moisture_conservation ) then
             write( log_scratch_space, '(A)' )                                  &
-              'Invalid Options: tr_bdf2_bdf_physics requires cheap ' //        &
-              'tr_bdf2_transport'
+              'Invalid Options: tr_bdf2_bdf_physics requires ' //              &
+              'solver_moisture_conservation'
             call log_event( log_scratch_space, LOG_LEVEL_ERROR )
           end if
           if ( .not. use_physics .or. .not. use_wavedynamics .or.              &
@@ -376,11 +374,10 @@ contains
                 'prognostic murk'
               call log_event( log_scratch_space, LOG_LEVEL_ERROR )
             end if
-            if ( tr_bdf2_bdf_cloud_balance .and.                               &
-                 ( cloud /= cloud_um .or. cloud_scheme /= scheme_pc2 ) ) then
+            if ( cloud /= cloud_um .or. cloud_scheme /= scheme_pc2 ) then
               write( log_scratch_space, '(A)' )                                &
-                'Invalid Options: tr_bdf2_bdf_cloud_balance requires the ' //  &
-                'PC2 cloud scheme'
+                'Invalid Options: tr_bdf2_bdf_physics requires the PC2 ' //    &
+                'cloud scheme'
               call log_event( log_scratch_space, LOG_LEVEL_ERROR )
             end if
           end if

@@ -357,8 +357,6 @@
         "gungho_model_bryan_fritsch-moist-tr_bdf2-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
         "gungho_model_bryan_fritsch-moist-tr_bdf2_intermediate_transport-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
         "gungho_model_bryan_fritsch-moist-tr_bdf2_first_guess_tr-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
-        "gungho_model_bryan_fritsch-moist-tr_phys-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
-        "gungho_model_bryan_fritsch-moist-tr_bdf2_bdf_evap_condense-BiP200x10-100x100_azspice_gnu_fast-debug-64bit",
     ],
     "gungho_model_ex1a_tr_bdf2": [
         "gungho_model_baroclinic-tr_bdf2-C24_MG_ex1a_gnu_fast-debug-64bit",
@@ -383,8 +381,6 @@
         "gungho_model_bryan_fritsch-moist-tr_bdf2-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
         "gungho_model_bryan_fritsch-moist-tr_bdf2_intermediate_transport-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
         "gungho_model_bryan_fritsch-moist-tr_bdf2_first_guess_tr-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
-        "gungho_model_bryan_fritsch-moist-tr_phys-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
-        "gungho_model_bryan_fritsch-moist-tr_bdf2_bdf_evap_condense-BiP200x10-100x100_ex1a_gnu_fast-debug-64bit",
     ],
     "gungho_model_tr_bdf2": [
         "gungho_model_azspice_tr_bdf2",

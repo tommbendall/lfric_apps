@@ -285,8 +285,6 @@ contains
 
     call split_single_complex_field(prognostic_fields, W2,                      &
       'u', 'h_u', 'v_u')
-    call split_single_complex_field(prognostic_fields, W2,                      &
-      'u_fast_inc', 'h_u_fast_inc', 'v_u_fast_inc')
 
     if (prognostic_fields%field_exists('lbc_u')) then
       call split_single_complex_field(prognostic_fields, W2,                    &
@@ -310,8 +308,6 @@ contains
 
     call combine_single_complex_field(prognostic_fields, W2,                    &
       'u', 'h_u', 'v_u')
-    call combine_single_complex_field(prognostic_fields, W2,                    &
-      'u_fast_inc', 'h_u_fast_inc', 'v_u_fast_inc')
 
     if (prognostic_fields%field_exists('lbc_u')) then
       call combine_single_complex_field(prognostic_fields, W2,                  &

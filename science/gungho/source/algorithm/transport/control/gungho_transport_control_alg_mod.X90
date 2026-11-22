@@ -544,11 +544,11 @@ contains
               mr_out, mr_in, transport_controller, transport_metadata          &
       )
     end if
-    if (use_bdf_controller) call moisture_controller%finalise()
 
     ! ------------------------------------------------------------------------ !
     ! Transport tracers that are changed by physics between the stages of
-    ! TR-BDF2. This uses the controller of this stage, so is before it is reset
+    ! TR-BDF2. These use the same controller as moisture, and this stage's
+    ! controller is reset after them
     if ( present(stage_tracers) .and. present(stage_tracers_in)                &
          .and. moisture_formulation /= moisture_formulation_dry                &
          .and. check_transport_name('adv_tracer') ) then
@@ -558,11 +558,19 @@ contains
       transport_metadata =>                                                    &
           transport_metadata_collection%get_transport_metadata('adv_tracer')
 
-      call tracer_collection_transport_alg(                                    &
-              stage_tracers, stage_tracers_in,                                 &
-              transport_controller, transport_metadata                         &
-      )
+      if (use_bdf_controller) then
+        call tracer_collection_transport_alg(                                  &
+                stage_tracers, stage_tracers_in,                               &
+                moisture_controller, transport_metadata                        &
+        )
+      else
+        call tracer_collection_transport_alg(                                  &
+                stage_tracers, stage_tracers_in,                               &
+                transport_controller, transport_metadata                       &
+        )
+      end if
     end if
+    if (use_bdf_controller) call moisture_controller%finalise()
 
     ! ------------------------------------------------------------------------ !
     ! Transport tracers which are active in fast physics, and therefore need

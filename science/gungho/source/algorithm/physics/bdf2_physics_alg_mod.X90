@@ -81,7 +81,6 @@ contains
   !> @param[in]     aerosol_fields        Fields for aerosol scheme
   !> @param[in]     clock                 Model time
   !> @param[in]     dt                    The model timestep length
-  !> @param[in]     cloud_balance         Whether to call the cloud scheme first
   !> @param[in,out] diag_sum              Sums of the diagnostics over the TR and
   !!                                      BDF stages, which the BDF stage adds to
   !!                                      and the microphysics writes
@@ -89,7 +88,7 @@ contains
       config, dtheta, mr, theta, u, rho, exner, moist_dyn, mr_n, theta_n,      &
       derived_fields, radiation_fields, microphysics_fields,                   &
       orography_fields, turbulence_fields, convection_fields, cloud_fields,    &
-      surface_fields, aerosol_fields, clock, dt, cloud_balance, diag_sum       &
+      surface_fields, aerosol_fields, clock, dt, diag_sum                      &
   )
 
     implicit none
@@ -117,7 +116,6 @@ contains
 
     class(model_clock_type),     intent(in)    :: clock
     real(kind=r_def),            intent(in)    :: dt
-    logical(kind=l_def),         intent(in)    :: cloud_balance
     type(field_collection_type), intent(inout) :: diag_sum
 
 #ifdef UM_PHYSICS
@@ -162,6 +160,7 @@ contains
     type(field_type) :: dcfl_pc2_checks, dcff_pc2_checks, dbcf_pc2_checks
 
     integer(kind=i_def) :: ncells
+    integer(kind=i_def) :: i_mr
     logical(kind=l_def) :: use_pc2, use_radiation
     real(kind=r_def)    :: weight_tr, weight_bdf, dt_tr, dt_bdf
 
@@ -224,22 +223,20 @@ contains
     ! ------------------------------------------------------------------------
     ! Balance the cloud with the pressure change since the start of the step
     ! ------------------------------------------------------------------------
-    if (cloud_balance) then
-      call theta%copy_field_properties(dtheta_cld)
-      call invoke( setval_c(dtheta_cld, 0.0_r_def) )
-      call cld_alg(                                                            &
-          config, dtheta_cld, mr, theta_work, exner, rho, derived_fields,      &
-          turbulence_fields, cloud_fields, convection_fields,                  &
-          theta_n, mr_n, clock%get_step(), dt_tr, .true., .false.              &
-      )
-      call invoke(                                                             &
-          inc_X_plus_Y(theta_work, dtheta_cld),                                &
-          inc_X_plus_Y(dtheta, dtheta_cld)                                     &
-      )
-      ! The pressure change has now been applied
-      call cloud_fields%get_field('departure_exner_wth', departure_exner_wth)
-      call invoke( setval_X(departure_exner_wth, exner_in_wth) )
-    end if
+    call theta%copy_field_properties(dtheta_cld)
+    call invoke( setval_c(dtheta_cld, 0.0_r_def) )
+    call cld_alg(                                                              &
+        config, dtheta_cld, mr, theta_work, exner, rho, derived_fields,        &
+        turbulence_fields, cloud_fields, convection_fields,                    &
+        theta_n, mr_n, clock%get_step(), dt_tr, .true., .false.                &
+    )
+    call invoke(                                                               &
+        inc_X_plus_Y(theta_work, dtheta_cld),                                  &
+        inc_X_plus_Y(dtheta, dtheta_cld)                                       &
+    )
+    ! The pressure change has now been applied
+    call cloud_fields%get_field('departure_exner_wth', departure_exner_wth)
+    call invoke( setval_X(departure_exner_wth, exner_in_wth) )
 
     ! ------------------------------------------------------------------------
     ! Check the cloud and moisture, which have been transported separately
@@ -435,6 +432,12 @@ contains
           inc_X_plus_Y(bulk_fraction, dbcf_pc2_checks)                         &
       )
     end if
+
+    ! The microphysics increments can leave small negative values, because the
+    ! lowest level is given the increment of the level above
+    do i_mr = 1, nummr
+      call invoke( inc_max_aX(0.0_r_def, mr(i_mr)) )
+    end do
 
     ! ------------------------------------------------------------------------
     ! Restore the derived fields to the values for the start of the timestep
