@@ -261,8 +261,8 @@ In the coupling above, the slow physics is evaluated once at the start of the
 timestep and so lags the transport and the implicit solve of both stages. As an
 option, some of the slow physics can instead be split between the two stages.
 This is used for the physics for which the lag matters most: the cloud
-microphysics, the PC2 cloud scheme and the radiative heating. It needs the
-cheaper BDF2 transport described above.
+microphysics, the PC2 cloud scheme and the radiative heating. It requires the
+conservative moisture correction described in the Moisture section below.
 
 In the TR stage the slow physics operator :math:`\mathcal{P}_S` is evaluated
 on :math:`\boldsymbol{X}^n` over the length of the TR stage, rather than over
@@ -280,28 +280,39 @@ The state that is transported in the BDF2 stage,
 
 then already includes the TR-stage physics increment, as
 :math:`(1-\gamma_3)+\gamma_3=1`. The BDF2-stage operator :math:`\mathcal{P}_B`
-is evaluated on this state over the remaining :math:`(1-2\gamma)\Delta t`,
-before it is transported,
+is evaluated on the state at the end of the TR stage, :math:`\boldsymbol{X}^m`,
+over the remaining :math:`(1-2\gamma)\Delta t`, and its increment is added to
+the state that is transported,
 
 .. math:: :label: trbdf2_bdf_physics_bdf
 
    \boldsymbol{X}^{BDF\dagger} = \boldsymbol{X}^{BDF}
-   - (1-2\gamma)\Delta t\,\mathcal{P}_B(\boldsymbol{X}^{BDF}),
+   - (1-2\gamma)\Delta t\,\mathcal{P}_B(\boldsymbol{X}^m),
    \qquad
    \boldsymbol{X}^{q+\dagger} = \mathcal{T}^{(1-2\gamma)\Delta t}_{\overline{\boldsymbol{u}}_m^{n+1}}
    \left[\boldsymbol{X}^{BDF\dagger}\right].
 
+The state :math:`\boldsymbol{X}^m` is used, rather than :math:`\boldsymbol{X}^{BDF}`,
+because :math:`\gamma_3>1` makes :math:`\boldsymbol{X}^{BDF}` an extrapolation
+beyond :math:`\boldsymbol{X}^m` for the potential temperature, wind and density,
+whereas the moisture is not extrapolated. The state :math:`\boldsymbol{X}^m` is a
+state at one time level, so the physics acts on a consistent set of variables.
+The increment is added with a weight of one, as it is the change over the
+BDF2 stage and not a state that is combined by the extrapolation. This also
+keeps the increments to the potential temperature and the moisture, which the
+physics calculates together, consistent with each other.
+
 The physics is therefore split sequentially, with the physics of the BDF2
-stage acting on the state that includes the TR-stage physics and the dynamics
-of the TR stage. The two increments together cover the whole timestep, as
-:math:`2\gamma+(1-2\gamma)=1`.
+stage acting on the state at the end of the TR stage, which includes the
+TR-stage physics and the dynamics of the TR stage. The two increments together
+cover the whole timestep, as :math:`2\gamma+(1-2\gamma)=1`.
 
 The operator :math:`\mathcal{P}_B` is made up of:
 
 * an optional adjustment of the cloud to the change of pressure since the start
   of the timestep, which is applied before the microphysics;
 * the microphysics, which is applied over :math:`(1-2\gamma)\Delta t` to the
-  state :math:`\boldsymbol{X}^{BDF}`, using the density, pressure and winds of
+  state :math:`\boldsymbol{X}^m`, using the density, pressure and winds of
   this state;
 * the radiative heating, which is recalculated over the BDF2 stage by
   correcting the fluxes of the radiation scheme for the mean solar angle and
@@ -315,8 +326,9 @@ mean solar angle and illuminated fraction of the TR stage.
 
 The cloud fractions and the precipitation fraction are changed by this physics
 between the two stages, so are transported in both stages in the same way as
-moisture. The other tracers are transported once over the whole timestep, as
-before.
+moisture. Unlike moisture, they do not receive the conservative correction
+described below. The other tracers are transported once over the whole
+timestep, as before.
 
 The precipitation rates that are passed to other schemes are the mean of the
 rates of the two stages, weighted by their lengths. Diagnostics of the
@@ -347,6 +359,9 @@ the moisture mixing ratio is updated to be consistent with the dry density:
 
 where :math:`\boldsymbol{F}^m_{TR}` is the moisture flux calculated from
 :math:`\boldsymbol{F}^d_{TR}` and the upwind values of :math:`m^p`.
+
+When the physics of the BDF2 stage is used, it acts on the moisture after this
+correction, and its moisture increment is added to the corrected moisture.
 
 .. _science_guide_timestepping_tr_bdf2_algorithm:
 
