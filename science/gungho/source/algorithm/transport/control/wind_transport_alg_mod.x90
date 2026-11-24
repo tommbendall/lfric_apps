@@ -43,7 +43,8 @@ module wind_transport_alg_mod
                                             tik, LPROF
   use transport_config_mod,           only: broken_w2_projection, &
                                             native_w2_wind_transport
-  use transport_constants_mod,        only: get_element_order_h_transport, &
+  use transport_constants_mod,        only: get_chi_transport,             &
+                                            get_element_order_h_transport, &
                                             get_element_order_v_transport
   use transport_controller_mod,       only: transport_controller_type
   use transport_enumerated_types_mod, only: equation_form_advective
@@ -108,6 +109,7 @@ contains
     type(field_type)                    :: w_wt_n, w_wt_inc, w_wt_np1
     type(field_type)                    :: u_w2_inc, u_w2b_inc, rhs_u_broken
     type(field_type),           pointer :: chi(:)
+    type(field_type),           pointer :: chi_transport(:)
     type(field_type),           pointer :: panel_id
     type(field_type),           pointer :: rmultiplicity_w2
     type(operator_type),        pointer :: mm_w2
@@ -150,6 +152,7 @@ contains
 
       mesh => wind_n%get_mesh()
       chi => get_coordinates(mesh)
+      chi_transport => get_chi_transport(mesh)
       panel_id => get_panel_id(mesh)
 
       ! Transport the wind. First choose form of transport equation
@@ -208,8 +211,10 @@ contains
             call invoke( setval_c( ones, 1.0_r_def ),                      &
                          setval_c( chi1_n, 0.0_r_def ) ,                   &
                          setval_c( chi2_n, 0.0_r_def ),                    &
-                         sample_field_kernel_type( chi1_n, ones, chi(1) ), &
-                         sample_field_kernel_type( chi2_n, ones, chi(2) ) )
+                         sample_field_kernel_type( chi1_n, ones,       &
+                                                   chi_transport(1) ), &
+                         sample_field_kernel_type( chi2_n, ones,       &
+                                                   chi_transport(2) ) )
             call transport_field( chi1_d, chi1_n, transport_controller,    &
                                   transport_metadata )
             call transport_field( chi2_d, chi2_n, transport_controller,    &
@@ -242,7 +247,8 @@ contains
                                                     face_selector_ns),          &
                        apply_wind_metrics_kernel_type(                          &
                                        u_w2_inc_with_metrics,                   &
-                                       u_w2_inc, stencil_depth, da, chi,        &
+                                       u_w2_inc, stencil_depth, da,             &
+                                       chi_transport,                           &
                                        chi1_d_w2, chi2_d_w2,                    &
                                        geometry_is_spherical,                   &
                                        topology_is_fully_periodic ),            &

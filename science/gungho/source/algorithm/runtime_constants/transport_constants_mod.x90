@@ -16,7 +16,7 @@ module transport_constants_mod
   ! Infrastructure
   use config_mod,                         only: config_type
   use constants_mod,                      only: i_def, r_def, l_def, str_def,  &
-                                                r_tran, radians_to_degrees
+                                                r_tran, radians_to_degrees, PI
   use domain_mod,                         only: domain_type
   use extrusion_mod,                      only: TWOD
   use sci_geometric_constants_mod,        only: get_coordinates,               &
@@ -85,6 +85,9 @@ module transport_constants_mod
   type(inventory_by_mesh_type) :: detj_at_w2_above_inventory
   type(inventory_by_mesh_type) :: detj_at_w2_below_inventory
 
+  ! Coordinates adjusted to be continuous across the dateline
+  type(inventory_by_mesh_type) :: chi_transport_inventory
+
   ! The vertical FFSL constants
   type(inventory_by_mesh_type) :: third_dla_dz_inventory
   type(inventory_by_mesh_type) :: third_dlb_dz_inventory
@@ -132,6 +135,7 @@ module transport_constants_mod
   public :: get_mass_matrix_r_tran
   public :: get_inverse_mass_matrix_r_tran
   public :: get_detj_at_w3_r_tran
+  public :: get_chi_transport
   public :: get_detj_at_w2_above
   public :: get_detj_at_w2_below
   public :: get_third_dla_dz
@@ -164,6 +168,7 @@ module transport_constants_mod
   private :: compute_panel_edge_weights
   private :: compute_halo_masks
   private :: compute_third_dl_dz
+  private :: compute_chi_transport
 
 contains
 
@@ -604,6 +609,57 @@ contains
 
   end subroutine compute_third_dl_dz
 
+  !> @brief Computes a copy of the coordinate field in which the longitude is
+  !!        continuous across the dateline
+  !> @details If the longitude spans the dateline (which can be detected by
+  !!          the range of longitudes being greater than pi), then 2*pi is
+  !!          added to all longitudes to the east of the dateline. These are
+  !!          the values below the midpoint of the longitude range, which makes
+  !!          this independent of whether longitudes lie in (0, 2*pi) or
+  !!          (-pi, pi).
+  !> @param[in] mesh  Mesh object to compute the coordinates for
+  subroutine compute_chi_transport(mesh)
+
+    use shift_longitude_kernel_mod, only: shift_longitude_kernel_type
+
+    implicit none
+
+    type(mesh_type), pointer, intent(in) :: mesh
+
+    type(field_type),          pointer :: chi(:)
+    type(field_type),          pointer :: chi_transport(:)
+    type(function_space_type), pointer :: chi_fs
+    real(kind=r_def)                   :: chi1_min, chi1_max, threshold
+    integer(tik)                       :: id
+
+    if ( LPROF ) call start_timing( id, 'runtime_constants.transport' )
+
+    if (.not. chi_transport_inventory%is_initialised()) then
+      call chi_transport_inventory%initialise(name='chi_transport')
+    end if
+
+    chi => get_coordinates(mesh)
+    chi_fs => chi(1)%get_function_space()
+
+    call chi_transport_inventory%add_field_array(chi_transport, chi_fs, 3, mesh)
+
+    call invoke( setval_X(chi_transport(1), chi(1)),                           &
+                 setval_X(chi_transport(2), chi(2)),                           &
+                 setval_X(chi_transport(3), chi(3)) )
+
+    if ( geometry == geometry_spherical ) then
+      call get_field_minmax(chi(1), chi1_min, chi1_max)
+      if ( chi1_max - chi1_min > PI ) then
+        threshold = 0.5_r_def * (chi1_min + chi1_max)
+        call invoke( shift_longitude_kernel_type(chi_transport(1), chi(1),     &
+                                                 threshold) )
+      end if
+    end if
+
+    if ( LPROF ) call stop_timing( id, 'runtime_constants.transport' )
+
+  end subroutine compute_chi_transport
+
   ! ========================================================================== !
   ! GETTERS FOR R_TRAN FORMS OF GEOMETRIC OBJECTS
   ! ========================================================================== !
@@ -827,6 +883,38 @@ contains
     call detj_at_w2_below_inventory%get_field(mesh, detj_below)
 
   end function get_detj_at_w2_below
+
+  ! ========================================================================== !
+  ! GETTERS FOR COORDINATES USED IN TRANSPORT
+  ! ========================================================================== !
+
+  !> @brief Returns a copy of the coordinate field, with the longitude adjusted
+  !!        to be continuous across the dateline
+  !> @param[in] mesh  Mesh object to get the coordinates for
+  !> @return The coordinate fields to be used in transport
+  function get_chi_transport(mesh) result(chi_transport)
+
+    implicit none
+
+    type(mesh_type), intent(in), pointer :: mesh
+
+    logical(kind=l_def)                  :: constant_exists
+    type(field_type),            pointer :: chi_transport(:)
+
+    if (.not. chi_transport_inventory%is_initialised()) then
+      call chi_transport_inventory%initialise(name='chi_transport')
+    end if
+
+    constant_exists = chi_transport_inventory%paired_object_exists(mesh%get_id())
+
+    if (.not. constant_exists) then
+      call compute_chi_transport(mesh)
+    end if
+
+    ! Get existing constant
+    call chi_transport_inventory%get_field_array(mesh, chi_transport)
+
+  end function get_chi_transport
 
   ! ========================================================================== !
   ! GETTERS FOR VERTICAL FFSL CONSTANTS
@@ -2376,6 +2464,7 @@ contains
     call hori_w3_mol_coeffs_inventory%clear()
     call vert_w3_mol_coeffs_inventory%clear()
     call rev_vert_w3_mol_coeffs_inventory%clear()
+    call chi_transport_inventory%clear()
     call third_dla_dz_inventory%clear()
     call third_dlb_dz_inventory%clear()
     call fourth_dl_dz_inventory%clear()
