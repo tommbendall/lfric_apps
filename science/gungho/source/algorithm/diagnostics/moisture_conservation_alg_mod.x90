@@ -16,7 +16,6 @@ module moisture_conservation_alg_mod
   use field_mod,                       only: field_type
   use fs_continuity_mod,               only: W3
   use function_space_mod,              only: function_space_type
-  use intermesh_mappings_alg_mod,      only: obtain_shifted_rho
   use log_mod,                         only: log_event,         &
                                              log_scratch_space, &
                                              LOG_LEVEL_INFO
@@ -26,7 +25,9 @@ module moisture_conservation_alg_mod
   use quadrature_xyoz_mod,             only: quadrature_xyoz_type
   use quadrature_rule_gaussian_mod,    only: quadrature_rule_gaussian_type
   use sci_geometric_constants_mod,     only: get_coordinates, &
+                                             get_detj_at_w3_fv, &
                                              get_panel_id
+  use sci_shift_mass_w3_kernel_mod,    only: shift_mass_w3_kernel_type
   use timing_mod,                      only: start_timing, stop_timing, &
                                              tik, LPROF
 
@@ -68,8 +69,10 @@ contains
     type(function_space_type),  pointer :: w3_sh_fs => null()
 
     ! Fields and values
-    type(field_type)                    :: rho_X_shifted
-    type(field_type)                    :: rho_d_shifted
+    type(field_type)                    :: mass_d
+    type(field_type)                    :: mass_d_shifted
+    type(field_type)                    :: mass_X_shifted
+    type(field_type),           pointer :: detj_w3 => null()
     type(field_type)                    :: total_water
     real(kind=r_def)                    :: total_dry
     real(kind=r_def)                    :: total_water_all(nummr)
@@ -109,20 +112,24 @@ contains
     shifted_mesh_id = shifted_mesh%get_id()
     chi_shifted => get_coordinates(shifted_mesh)
     w3_sh_fs => function_space_collection%get_fs( shifted_mesh, 0, 0, W3 )
-    call rho_X_shifted%initialise( vector_space = w3_sh_fs )
+    call mass_d%initialise( vector_space = w3_fs )
+    call mass_d_shifted%initialise( vector_space = w3_sh_fs )
+    call mass_X_shifted%initialise( vector_space = w3_sh_fs )
     call mr(1)%copy_field_properties(total_water)
     call invoke(setval_c(total_water, 0.0_r_def))
 
-    call obtain_shifted_rho(config, rho_d_shifted, rho_d)
+    ! Follow the same operations as the transport scheme: dry mass on the prime
+    ! mesh, shift the mass, then multiply by mixing ratio on the shifted mesh
+    detj_w3 => get_detj_at_w3_fv(mesh)
+    call invoke( X_times_Y(mass_d, rho_d, detj_w3), &
+                 shift_mass_w3_kernel_type(mass_d_shifted, mass_d) )
     do i_mr = 1, nummr
-      call invoke( inc_X_plus_Y(total_water, mr(i_mr)), &
-                      X_times_Y(rho_X_shifted, mr(i_mr), rho_d_shifted) )
-      call compute_total_mass_alg(config, total_water_all(i_mr), rho_X_shifted, &
-                                  shifted_mesh, method=integral_method_fe)
+      call invoke( inc_X_plus_Y(total_water, mr(i_mr)),                  &
+                   X_times_Y(mass_X_shifted, mr(i_mr), mass_d_shifted),  &
+                   sum_X(total_water_all(i_mr), mass_X_shifted) )
     end do
-    call invoke( X_times_Y(rho_X_shifted, total_water, rho_d_shifted) )
-    call compute_total_mass_alg(config, total_water_sum, rho_X_shifted, &
-                                shifted_mesh, method=integral_method_fe)
+    call invoke( X_times_Y(mass_X_shifted, total_water, mass_d_shifted), &
+                 sum_X(total_water_sum, mass_X_shifted) )
 
     ! Output diagnostic values to log
     write( log_scratch_space, '(2A,E32.12)' ) &
@@ -138,7 +145,7 @@ contains
       'Conservation: total water, ', stage, total_water_sum
     call log_event( log_scratch_space, LOG_LEVEL_INFO )
 
-    nullify( chi, panel_id, w3_fs, w3_fs, mesh, shifted_mesh, chi_shifted )
+    nullify( chi, panel_id, w3_fs, w3_sh_fs, mesh, shifted_mesh, chi_shifted, detj_w3 )
     if ( LPROF ) call stop_timing( id, 'diags.moisture_conservation' )
 
   end subroutine moisture_conservation_alg
