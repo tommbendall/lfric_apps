@@ -429,6 +429,7 @@ contains
                                       only: inject_sh_w3_to_wt_kernel_type
     use sci_inject_wt_to_sh_w3_kernel_mod, &
                                       only: inject_wt_to_sh_w3_kernel_type
+    use sci_shift_mass_w3_kernel_mod, only: shift_mass_w3_kernel_type
     use theta_dispersion_factor_kernel_mod, &
                                       only: theta_dispersion_factor_kernel_type
     use sci_w3_to_w2_average_kernel_mod, &
@@ -488,6 +489,15 @@ contains
     real(kind=r_tran)                     :: field_min, field_max
     logical(kind=l_def)                   :: to_compute_field_np1
     integer(tik)                          :: id_iter
+
+    ! Temporary check variables
+    type(r_tran_field_type)               :: chk_mass_shifted, chk_diff
+    type(r_tran_field_type),      pointer :: chk_mass_sh => null()
+    type(r_tran_field_type),      pointer :: chk_mass_pr => null()
+    real(kind=r_tran)                     :: chk_sum_diff, chk_sum_transport
+    real(kind=r_tran)                     :: chk_sum_shifted, chk_min, chk_max
+    type(r_tran_field_type)               :: chk_mr_sh, chk_prod
+    real(kind=r_tran)                     :: chk_sum_start, chk_sum_end
 
     type(config_type), pointer :: config
 
@@ -719,6 +729,67 @@ contains
         call log_event('Function space for consistent transport not implemented', LOG_LEVEL_ERROR)
       end select
 
+    end if
+
+    ! TEMPORARY CHECK: compare transport's shifted mass with shifted prime mass
+    if (final_split_step .and. trim(transport_metadata%get_name()) == 'moisture' &
+        .and. mr_function_space == Wtheta) then
+        shifted_mesh => mesh_collection%get_mesh(prime_extrusion_mesh, SHIFTED)
+        sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
+        np1_index = transport_counter%get_split_step_of_whole_step_counter() + 1
+        chk_mass_sh => flux_precomputations%get_ref_mass(shifted_mesh%get_id(), &
+                                                         np1_index)
+        chk_mass_pr => flux_precomputations%get_ref_mass(prime_extrusion_mesh_id, &
+                                                         np1_index)
+        call chk_mass_shifted%initialise( sh_w3_fs )
+        call chk_diff%initialise( sh_w3_fs )
+        call invoke( shift_mass_w3_kernel_type(chk_mass_shifted, chk_mass_pr) )
+        call invoke( X_minus_Y(chk_diff, chk_mass_sh, chk_mass_shifted),       &
+                     sum_X(chk_sum_diff, chk_diff),                            &
+                     sum_X(chk_sum_transport, chk_mass_sh),                    &
+                     sum_X(chk_sum_shifted, chk_mass_shifted) )
+        call get_field_minmax( chk_diff, chk_min, chk_max )
+        write(log_scratch_space, '(A,I0,3(A,E32.16))')                         &
+          'CHECK shifted mass, np1_index ', np1_index,                         &
+          ': sum(transport)=', chk_sum_transport,                              &
+          ', sum(shift of prime)=', chk_sum_shifted,                           &
+          ', sum(diff)=', chk_sum_diff
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        write(log_scratch_space, '(2(A,E32.16))')                              &
+          'CHECK shifted mass diff: min=', chk_min, ', max=', chk_max
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        nullify( chk_mass_sh, chk_mass_pr )
+
+        ! Moisture mass using the transport's own shifted masses
+        start_index = (                                                        &
+            1 + (transport_counter%get_substep_counter() - 1)                  &
+            *get_num_split_steps(transport_metadata%get_splitting())           &
+        )
+        chk_mass_sh => flux_precomputations%get_ref_mass(shifted_mesh%get_id(), &
+                                                         start_index)
+        chk_mass_pr => flux_precomputations%get_ref_mass(shifted_mesh%get_id(), &
+                                                         np1_index)
+        call chk_mr_sh%initialise( sh_w3_fs )
+        call chk_prod%initialise( sh_w3_fs )
+        if (enforce_min_value) then
+          call invoke( setval_X(chk_mr_sh, mr_start) )
+        else
+          call invoke( inject_wt_to_sh_w3_kernel_type(chk_mr_sh, mr_start) )
+        end if
+        call invoke( X_times_Y(chk_prod, chk_mr_sh, chk_mass_sh),              &
+                     sum_X(chk_sum_start, chk_prod) )
+        if (enforce_min_value) then
+          call invoke( setval_X(chk_mr_sh, field_np1) )
+        else
+          call invoke( inject_wt_to_sh_w3_kernel_type(chk_mr_sh, field_np1) )
+        end if
+        call invoke( X_times_Y(chk_prod, chk_mr_sh, chk_mass_pr),              &
+                     sum_X(chk_sum_end, chk_prod) )
+        write(log_scratch_space, '(3(A,E32.16))')                              &
+          'CHECK moisture mass (transport masses): start=', chk_sum_start,     &
+          ', end=', chk_sum_end, ', end-start=', chk_sum_end - chk_sum_start
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        nullify( chk_mass_sh, chk_mass_pr )
     end if
 
     ! Clip at end, which will also catch negative values from extrapolation at
