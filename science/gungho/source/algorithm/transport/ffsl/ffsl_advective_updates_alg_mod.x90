@@ -28,6 +28,7 @@ module ffsl_advective_updates_alg_mod
   public :: ffsl_advective_increment
   public :: chk_begin
   public :: chk_end
+  public :: chk_conversion
 
   ! TEMPORARY CHECK state: set by chk_begin/chk_end from ffsl_control
   logical(kind=l_def)  :: chk_active = .false.
@@ -85,6 +86,42 @@ contains
     chk_active = .false.
   end subroutine chk_end
 
+  !> @brief TEMPORARY CHECK: signed and positive-part sums of a field
+  subroutine chk_signed(e, s_total, s_pos)
+    implicit none
+    type(field_type), intent(in)  :: e
+    real(kind=r_def), intent(out) :: s_total, s_pos
+    type(field_type) :: pos
+    real(kind=r_def) :: zero
+    zero = 0.0_r_def
+    call pos%initialise( vector_space = e%get_function_space() )
+    call invoke( sum_X(s_total, e),                                            &
+                 setval_X(pos, e),                                             &
+                 inc_max_aX(zero, pos),                                        &
+                 sum_X(s_pos, pos) )
+  end subroutine chk_signed
+
+  !> @brief TEMPORARY CHECK: rounding of a conversion between r_def and r_tran
+  subroutine chk_conversion(tag, field_rdef, field_tran)
+    implicit none
+    character(len=*),        intent(in) :: tag
+    type(field_type),        intent(in) :: field_rdef
+    type(r_tran_field_type), intent(in) :: field_tran
+
+    type(field_type) :: f64, diff
+    real(kind=r_def) :: s_ref, s_diff, s_pos
+    call f64%initialise( vector_space = field_rdef%get_function_space() )
+    call diff%initialise( vector_space = field_rdef%get_function_space() )
+    call invoke( real_to_real_x(f64, field_tran) )
+    call invoke( X_minus_Y(diff, field_rdef, f64),                             &
+                 sum_X(s_ref, f64) )
+    call chk_signed(diff, s_diff, s_pos)
+    write(log_scratch_space, '(A,A,4(A,E24.16))')                              &
+      'CHECK conversion ', trim(tag), ': sum(field)=', s_ref,                  &
+      ' sum(rdef-tran)=', s_diff, ' pos=', s_pos, ' neg=', s_diff - s_pos
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+  end subroutine chk_conversion
+
   !> @brief TEMPORARY CHECK: budget of an inner update, evaluated in r_def
   subroutine chk_inner(field_np1, field_n, dry_mass_np1, dry_mass_n, increment, dt)
     implicit none
@@ -96,6 +133,10 @@ contains
     type(field_type) :: res_b, inc_b
     real(kind=r_def) :: dt64, s_before, s_after, s_incr, s_num, s_res, s_pos
     real(kind=r_def) :: s_res_b, s_inc_b
+    type(r_tran_field_type) :: p_t, n_t, q_t
+    type(field_type) :: p64, n64, q64, t1, t2, d1, e_prod, e_sub, e_div, e_kern
+    real(kind=r_def) :: a_prod, a_prod_p, a_sub, a_sub_p, a_div, a_div_p
+    real(kind=r_def) :: a_kern, a_kern_p
     real(kind=r_def) :: zero
 
     dt64 = real(dt, r_def)
@@ -144,6 +185,46 @@ contains
       ' res_boundary=', s_res_b, ' dt*sum(incr)_boundary=', dt64*s_inc_b
     call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
+    ! Repeat the update in r_tran with separate steps, to find which operation
+    ! rounds down, and compare with the kernel result
+    call p_t%initialise( field_n%get_function_space() )
+    call n_t%initialise( field_n%get_function_space() )
+    call q_t%initialise( field_n%get_function_space() )
+    call p64%initialise( vector_space = field_n%get_function_space() )
+    call n64%initialise( vector_space = field_n%get_function_space() )
+    call q64%initialise( vector_space = field_n%get_function_space() )
+    call t1%initialise( vector_space = field_n%get_function_space() )
+    call t2%initialise( vector_space = field_n%get_function_space() )
+    call d1%initialise( vector_space = field_n%get_function_space() )
+    call e_prod%initialise( vector_space = field_n%get_function_space() )
+    call e_sub%initialise( vector_space = field_n%get_function_space() )
+    call e_div%initialise( vector_space = field_n%get_function_space() )
+    call e_kern%initialise( vector_space = field_n%get_function_space() )
+    call invoke( X_times_Y(p_t, field_n, dry_mass_n),                          &
+                 X_minus_bY(n_t, p_t, dt, increment),                          &
+                 X_divideby_Y(q_t, n_t, dry_mass_np1) )
+    call invoke( real_to_real_x(p64, p_t),                                     &
+                 real_to_real_x(n64, n_t),                                     &
+                 real_to_real_x(q64, q_t) )
+    call invoke( X_minus_Y(e_prod, p64, prod_n),                               &
+                 X_minus_bY(t1, p64, dt64, inc),                               &
+                 X_minus_Y(e_sub, n64, t1),                                    &
+                 X_times_Y(t2, q64, mnp1),                                     &
+                 X_minus_Y(e_div, t2, n64),                                    &
+                 X_minus_Y(d1, fnp1, q64),                                     &
+                 X_times_Y(e_kern, d1, mnp1) )
+    call chk_signed(e_prod, a_prod, a_prod_p)
+    call chk_signed(e_sub, a_sub, a_sub_p)
+    call chk_signed(e_div, a_div, a_div_p)
+    call chk_signed(e_kern, a_kern, a_kern_p)
+    write(log_scratch_space, '(A,A,A,I0,A,4(A,E24.16,A,E24.16,A))')                       &
+      'CHECK stages inner ', trim(chk_tag), ' call=', chk_call, ':',           &
+      ' product=', a_prod, ' (pos=', a_prod_p, ')',                            &
+      ' subtract=', a_sub, ' (pos=', a_sub_p, ')',                             &
+      ' divide=', a_div, ' (pos=', a_div_p, ')',                               &
+      ' kernel-builtin=', a_kern, ' (pos=', a_kern_p, ')'
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
   end subroutine chk_inner
 
   !> @brief TEMPORARY CHECK: budget of an outer update, evaluated in r_def
@@ -159,6 +240,10 @@ contains
     type(field_type) :: px, py, tx, ty, num, prod_np1, res, pos
     type(field_type) :: res_b, incx_b, incy_b
     real(kind=r_def) :: s_res_b, s_incx_b, s_incy_b
+    type(r_tran_field_type) :: px_t, py_t, tx_t, ty_t, n_t, q_t
+    type(field_type) :: n64, q64, t2, d1, e_num, e_div, e_kern
+    real(kind=r_tran) :: half_t
+    real(kind=r_def) :: a_num, a_num_p, a_div, a_div_p, a_kern, a_kern_p
     real(kind=r_def) :: dt64, half, zero
     real(kind=r_def) :: s_px, s_py, s_incx, s_incy, s_num, s_after, s_res, s_pos
 
@@ -227,6 +312,45 @@ contains
       ' res_pos=', s_pos, ' res_neg=', s_res - s_pos,                          &
       ' res_boundary=', s_res_b, ' dt*sum(incx)_boundary=', dt64*s_incx_b,     &
       ' dt*sum(incy)_boundary=', dt64*s_incy_b
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
+    ! Repeat the update in r_tran with separate steps and compare with the kernel
+    half_t = 0.5_r_tran
+    call px_t%initialise( field_x%get_function_space() )
+    call py_t%initialise( field_x%get_function_space() )
+    call tx_t%initialise( field_x%get_function_space() )
+    call ty_t%initialise( field_x%get_function_space() )
+    call n_t%initialise( field_x%get_function_space() )
+    call q_t%initialise( field_x%get_function_space() )
+    call n64%initialise( vector_space = field_x%get_function_space() )
+    call q64%initialise( vector_space = field_x%get_function_space() )
+    call t2%initialise( vector_space = field_x%get_function_space() )
+    call d1%initialise( vector_space = field_x%get_function_space() )
+    call e_num%initialise( vector_space = field_x%get_function_space() )
+    call e_div%initialise( vector_space = field_x%get_function_space() )
+    call e_kern%initialise( vector_space = field_x%get_function_space() )
+    call invoke( X_times_Y(px_t, field_x, dry_mass_x),                         &
+                 X_times_Y(py_t, field_y, dry_mass_y),                         &
+                 X_minus_bY(tx_t, px_t, dt, increment_x),                      &
+                 X_minus_bY(ty_t, py_t, dt, increment_y),                      &
+                 X_plus_Y(n_t, tx_t, ty_t),                                    &
+                 inc_a_times_X(half_t, n_t),                                   &
+                 X_divideby_Y(q_t, n_t, dry_mass_np1) )
+    call invoke( real_to_real_x(n64, n_t),                                     &
+                 real_to_real_x(q64, q_t) )
+    call invoke( X_minus_Y(e_num, n64, num),                                   &
+                 X_times_Y(t2, q64, mnp1),                                     &
+                 X_minus_Y(e_div, t2, n64),                                    &
+                 X_minus_Y(d1, fnp1, q64),                                     &
+                 X_times_Y(e_kern, d1, mnp1) )
+    call chk_signed(e_num, a_num, a_num_p)
+    call chk_signed(e_div, a_div, a_div_p)
+    call chk_signed(e_kern, a_kern, a_kern_p)
+    write(log_scratch_space, '(A,A,A,I0,A,3(A,E24.16,A,E24.16,A))')                       &
+      'CHECK stages outer ', trim(chk_tag), ' call=', chk_call, ':',           &
+      ' numerator=', a_num, ' (pos=', a_num_p, ')',                            &
+      ' divide=', a_div, ' (pos=', a_div_p, ')',                               &
+      ' kernel-builtin=', a_kern, ' (pos=', a_kern_p, ')'
     call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
   end subroutine chk_outer
