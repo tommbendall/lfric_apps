@@ -497,6 +497,10 @@ contains
     real(kind=r_tran)                     :: chk_sum_diff, chk_sum_transport
     real(kind=r_tran)                     :: chk_sum_shifted, chk_min, chk_max
     type(r_tran_field_type)               :: chk_mr_sh, chk_prod
+    type(r_tran_field_type)               :: chk_before, chk_clip
+    type(field_type)                      :: chk_d64, chk_m64, chk_prod64
+    real(kind=r_def)                      :: chk_sum_clip_mass, chk_sum_clip
+    logical(kind=l_def)                   :: chk_moist
     real(kind=r_tran)                     :: chk_sum_start, chk_sum_end
 
     type(config_type), pointer :: config
@@ -796,7 +800,40 @@ contains
     ! model top/bottom when converting back to Wtheta
     if (enforce_min_value .and. final_split_step) then
       min_value = transport_metadata%get_min_value()
+      ! TEMPORARY CHECK: mass added by the clip
+      chk_moist = (trim(transport_metadata%get_name()) == 'moisture' .and.     &
+                   mr_function_space == Wtheta)
+      if (chk_moist) then
+        shifted_mesh => mesh_collection%get_mesh(prime_extrusion_mesh, SHIFTED)
+        sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
+        np1_index = transport_counter%get_split_step_of_whole_step_counter() + 1
+        chk_mass_sh => flux_precomputations%get_ref_mass(shifted_mesh%get_id(), &
+                                                         np1_index)
+        call chk_before%initialise( field_np1%get_function_space() )
+        call invoke( setval_X(chk_before, field_np1) )
+      end if
+
       call invoke( inc_max_aX(min_value, field_np1) )
+
+      if (chk_moist) then
+        call chk_clip%initialise( field_np1%get_function_space() )
+        call chk_d64%initialise( vector_space = sh_w3_fs )
+        call chk_m64%initialise( vector_space = sh_w3_fs )
+        call chk_prod64%initialise( vector_space = sh_w3_fs )
+        call invoke( X_minus_Y(chk_clip, field_np1, chk_before),               &
+                     setval_X(chk_mr_sh, chk_clip),                            &
+                     real_to_real_x(chk_d64, chk_mr_sh),                       &
+                     real_to_real_x(chk_m64, chk_mass_sh) )
+        call invoke( X_times_Y(chk_prod64, chk_d64, chk_m64),                  &
+                     sum_X(chk_sum_clip_mass, chk_prod64),                     &
+                     sum_X(chk_sum_clip, chk_d64) )
+        call get_field_minmax( chk_clip, chk_min, chk_max )
+        write(log_scratch_space, '(3(A,E24.16))')                              &
+          'CHECK clip: mass added=', chk_sum_clip_mass,                        &
+          ', sum(change)=', chk_sum_clip, ', max change=', real(chk_max, r_def)
+        call log_event(log_scratch_space, LOG_LEVEL_INFO)
+        nullify( chk_mass_sh )
+      end if
     end if
 
     ! ------------------------------------------------------------------------ !

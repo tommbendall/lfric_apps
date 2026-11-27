@@ -8,7 +8,16 @@
 
 module ffsl_advective_updates_alg_mod
 
-  use constants_mod,    only: r_tran
+  use constants_mod,    only: r_tran, r_def, l_def, i_def
+  use field_mod,        only: field_type
+  use extrusion_mod,    only: SHIFTED
+  use fs_continuity_mod, only: W3
+  use function_space_collection_mod, only: function_space_collection
+  use function_space_mod, only: function_space_type
+  use log_mod,          only: log_event, log_scratch_space, LOG_LEVEL_INFO
+  use mesh_collection_mod, only: mesh_collection
+  use mesh_mod,         only: mesh_type
+  use sci_shift_mass_w3_kernel_mod, only: shift_mass_w3_kernel_type
   use r_tran_field_mod, only: r_tran_field_type
 
   implicit none
@@ -17,8 +26,210 @@ module ffsl_advective_updates_alg_mod
   public :: swift_outer_update_tracer
   public :: swift_inner_update_tracer
   public :: ffsl_advective_increment
+  public :: chk_begin
+  public :: chk_end
+
+  ! TEMPORARY CHECK state: set by chk_begin/chk_end from ffsl_control
+  logical(kind=l_def)  :: chk_active = .false.
+  logical(kind=l_def)  :: chk_precision_logged = .false.
+  integer(kind=i_def)  :: chk_call = 0
+  character(len=64)    :: chk_tag = ''
+  ! 1 in the bottom and top shifted layers, 0 elsewhere
+  type(field_type)     :: chk_bmask
+  logical(kind=l_def)  :: chk_mask_built = .false.
 
 contains
+
+  !> @brief TEMPORARY CHECK: switch on rounding diagnostics for this transport call
+  subroutine chk_begin(tag, prime_mesh)
+    implicit none
+    character(len=*),         intent(in) :: tag
+    type(mesh_type), pointer, intent(in) :: prime_mesh
+
+    type(mesh_type),           pointer :: shifted_mesh
+    type(function_space_type), pointer :: prime_fs, shifted_fs
+    type(field_type)                   :: ones_prime, ones_shifted, shifted_ones
+    real(kind=r_def)                   :: one, two
+
+    if (.not. chk_mask_built) then
+      ! Shifting a field of ones gives 0.5 in the bottom/top layers, 1 elsewhere
+      one = 1.0_r_def
+      two = 2.0_r_def
+      shifted_mesh => mesh_collection%get_mesh(prime_mesh, SHIFTED)
+      prime_fs => function_space_collection%get_fs(prime_mesh, 0, 0, W3)
+      shifted_fs => function_space_collection%get_fs(shifted_mesh, 0, 0, W3)
+      call ones_prime%initialise( vector_space = prime_fs )
+      call ones_shifted%initialise( vector_space = shifted_fs )
+      call shifted_ones%initialise( vector_space = shifted_fs )
+      call chk_bmask%initialise( vector_space = shifted_fs )
+      call invoke( setval_c(ones_prime, one),                                  &
+                   setval_c(ones_shifted, one),                                &
+                   shift_mass_w3_kernel_type(shifted_ones, ones_prime) )
+      call invoke( X_minus_Y(chk_bmask, ones_shifted, shifted_ones),           &
+                   inc_a_times_X(two, chk_bmask) )
+      chk_mask_built = .true.
+    end if
+    chk_active = .true.
+    chk_call = 0
+    chk_tag = tag
+    if (.not. chk_precision_logged) then
+      write(log_scratch_space, '(A,I0,A,I0)') 'CHECK precision: r_tran=', &
+        precision(1.0_r_tran), ', r_def=', precision(1.0_r_def)
+      call log_event(log_scratch_space, LOG_LEVEL_INFO)
+      chk_precision_logged = .true.
+    end if
+  end subroutine chk_begin
+
+  subroutine chk_end()
+    implicit none
+    chk_active = .false.
+  end subroutine chk_end
+
+  !> @brief TEMPORARY CHECK: budget of an inner update, evaluated in r_def
+  subroutine chk_inner(field_np1, field_n, dry_mass_np1, dry_mass_n, increment, dt)
+    implicit none
+    type(r_tran_field_type), intent(in) :: field_np1, field_n
+    type(r_tran_field_type), intent(in) :: dry_mass_np1, dry_mass_n, increment
+    real(kind=r_tran),       intent(in) :: dt
+
+    type(field_type) :: fn, fnp1, mn, mnp1, inc, prod_n, prod_np1, num, res, pos
+    type(field_type) :: res_b, inc_b
+    real(kind=r_def) :: dt64, s_before, s_after, s_incr, s_num, s_res, s_pos
+    real(kind=r_def) :: s_res_b, s_inc_b
+    real(kind=r_def) :: zero
+
+    dt64 = real(dt, r_def)
+    zero = 0.0_r_def
+    call fn%initialise( vector_space = field_n%get_function_space() )
+    call fnp1%initialise( vector_space = field_n%get_function_space() )
+    call mn%initialise( vector_space = field_n%get_function_space() )
+    call mnp1%initialise( vector_space = field_n%get_function_space() )
+    call inc%initialise( vector_space = field_n%get_function_space() )
+    call prod_n%initialise( vector_space = field_n%get_function_space() )
+    call prod_np1%initialise( vector_space = field_n%get_function_space() )
+    call num%initialise( vector_space = field_n%get_function_space() )
+    call res%initialise( vector_space = field_n%get_function_space() )
+    call pos%initialise( vector_space = field_n%get_function_space() )
+    call res_b%initialise( vector_space = field_n%get_function_space() )
+    call inc_b%initialise( vector_space = field_n%get_function_space() )
+
+    call invoke( real_to_real_x(fn, field_n),                                  &
+                 real_to_real_x(fnp1, field_np1),                              &
+                 real_to_real_x(mn, dry_mass_n),                               &
+                 real_to_real_x(mnp1, dry_mass_np1),                           &
+                 real_to_real_x(inc, increment) )
+    call invoke( X_times_Y(prod_n, fn, mn),                                    &
+                 sum_X(s_before, prod_n),                                      &
+                 sum_X(s_incr, inc),                                           &
+                 X_minus_bY(num, prod_n, dt64, inc),                           &
+                 sum_X(s_num, num),                                            &
+                 X_times_Y(prod_np1, fnp1, mnp1),                              &
+                 sum_X(s_after, prod_np1),                                     &
+                 X_minus_Y(res, prod_np1, num),                                &
+                 sum_X(s_res, res),                                            &
+                 setval_X(pos, res),                                           &
+                 inc_max_aX(zero, pos),                                        &
+                 sum_X(s_pos, pos),                                            &
+                 X_times_Y(res_b, res, chk_bmask),                             &
+                 sum_X(s_res_b, res_b),                                        &
+                 X_times_Y(inc_b, inc, chk_bmask),                             &
+                 sum_X(s_inc_b, inc_b) )
+
+    chk_call = chk_call + 1
+    write(log_scratch_space, '(A,A,A,I0,A,9(A,E24.16))')                       &
+      'CHECK inner ', trim(chk_tag), ' call=', chk_call, ':',                  &
+      ' before=', s_before, ' after=', s_after, ' dt*sum(incr)=', dt64*s_incr, &
+      ' res=', s_res, ' res_pos=', s_pos, ' res_neg=', s_res - s_pos,          &
+      ' after-num=', s_after - s_num,                                          &
+      ' res_boundary=', s_res_b, ' dt*sum(incr)_boundary=', dt64*s_inc_b
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
+  end subroutine chk_inner
+
+  !> @brief TEMPORARY CHECK: budget of an outer update, evaluated in r_def
+  subroutine chk_outer(field_np1, field_x, field_y, dry_mass_x, dry_mass_y,    &
+                       increment_x, increment_y, dry_mass_np1, dt)
+    implicit none
+    type(r_tran_field_type), intent(in) :: field_np1, field_x, field_y
+    type(r_tran_field_type), intent(in) :: dry_mass_x, dry_mass_y, dry_mass_np1
+    type(r_tran_field_type), intent(in) :: increment_x, increment_y
+    real(kind=r_tran),       intent(in) :: dt
+
+    type(field_type) :: fx, fy, fnp1, mx, my, mnp1, incx, incy
+    type(field_type) :: px, py, tx, ty, num, prod_np1, res, pos
+    type(field_type) :: res_b, incx_b, incy_b
+    real(kind=r_def) :: s_res_b, s_incx_b, s_incy_b
+    real(kind=r_def) :: dt64, half, zero
+    real(kind=r_def) :: s_px, s_py, s_incx, s_incy, s_num, s_after, s_res, s_pos
+
+    dt64 = real(dt, r_def)
+    half = 0.5_r_def
+    zero = 0.0_r_def
+    call fx%initialise( vector_space = field_x%get_function_space() )
+    call fy%initialise( vector_space = field_x%get_function_space() )
+    call fnp1%initialise( vector_space = field_x%get_function_space() )
+    call mx%initialise( vector_space = field_x%get_function_space() )
+    call my%initialise( vector_space = field_x%get_function_space() )
+    call mnp1%initialise( vector_space = field_x%get_function_space() )
+    call incx%initialise( vector_space = field_x%get_function_space() )
+    call incy%initialise( vector_space = field_x%get_function_space() )
+    call px%initialise( vector_space = field_x%get_function_space() )
+    call py%initialise( vector_space = field_x%get_function_space() )
+    call tx%initialise( vector_space = field_x%get_function_space() )
+    call ty%initialise( vector_space = field_x%get_function_space() )
+    call num%initialise( vector_space = field_x%get_function_space() )
+    call prod_np1%initialise( vector_space = field_x%get_function_space() )
+    call res%initialise( vector_space = field_x%get_function_space() )
+    call pos%initialise( vector_space = field_x%get_function_space() )
+    call res_b%initialise( vector_space = field_x%get_function_space() )
+    call incx_b%initialise( vector_space = field_x%get_function_space() )
+    call incy_b%initialise( vector_space = field_x%get_function_space() )
+
+    call invoke( real_to_real_x(fx, field_x),                                  &
+                 real_to_real_x(fy, field_y),                                  &
+                 real_to_real_x(fnp1, field_np1),                              &
+                 real_to_real_x(mx, dry_mass_x),                               &
+                 real_to_real_x(my, dry_mass_y),                               &
+                 real_to_real_x(mnp1, dry_mass_np1),                           &
+                 real_to_real_x(incx, increment_x),                            &
+                 real_to_real_x(incy, increment_y) )
+    call invoke( X_times_Y(px, fx, mx),                                        &
+                 sum_X(s_px, px),                                              &
+                 X_times_Y(py, fy, my),                                        &
+                 sum_X(s_py, py),                                              &
+                 sum_X(s_incx, incx),                                          &
+                 sum_X(s_incy, incy),                                          &
+                 X_minus_bY(tx, px, dt64, incx),                               &
+                 X_minus_bY(ty, py, dt64, incy),                               &
+                 X_plus_Y(num, tx, ty),                                        &
+                 inc_a_times_X(half, num),                                     &
+                 sum_X(s_num, num),                                            &
+                 X_times_Y(prod_np1, fnp1, mnp1),                              &
+                 sum_X(s_after, prod_np1),                                     &
+                 X_minus_Y(res, prod_np1, num),                                &
+                 sum_X(s_res, res),                                            &
+                 setval_X(pos, res),                                           &
+                 inc_max_aX(zero, pos),                                        &
+                 sum_X(s_pos, pos),                                            &
+                 X_times_Y(res_b, res, chk_bmask),                             &
+                 sum_X(s_res_b, res_b),                                        &
+                 X_times_Y(incx_b, incx, chk_bmask),                           &
+                 sum_X(s_incx_b, incx_b),                                      &
+                 X_times_Y(incy_b, incy, chk_bmask),                           &
+                 sum_X(s_incy_b, incy_b) )
+
+    chk_call = chk_call + 1
+    write(log_scratch_space, '(A,A,A,I0,A,12(A,E24.16))')                      &
+      'CHECK outer ', trim(chk_tag), ' call=', chk_call, ':',                  &
+      ' sum(fx*Mx)=', s_px, ' sum(fy*My)=', s_py,                              &
+      ' dt*sum(incx)=', dt64*s_incx, ' dt*sum(incy)=', dt64*s_incy,            &
+      ' num=', s_num, ' after=', s_after, ' res=', s_res,                      &
+      ' res_pos=', s_pos, ' res_neg=', s_res - s_pos,                          &
+      ' res_boundary=', s_res_b, ' dt*sum(incx)_boundary=', dt64*s_incx_b,     &
+      ' dt*sum(incy)_boundary=', dt64*s_incy_b
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+
+  end subroutine chk_outer
 
   !----------------------------------------------------------------------------
   !> @brief Compute the outer advective update of a tracer from the SWIFT
@@ -58,6 +269,10 @@ contains
                                                 increment_y,  &
                                                 dry_mass_np1) )
 
+    if (chk_active) call chk_outer(field_np1, field_x, field_y, dry_mass_x,    &
+                                   dry_mass_y, increment_x, increment_y,       &
+                                   dry_mass_np1, dt)
+
   end subroutine swift_outer_update_tracer
 
   !----------------------------------------------------------------------------
@@ -90,6 +305,9 @@ contains
                                                 dry_mass_n,   &
                                                 increment,    &
                                                 dt ) )
+
+    if (chk_active) call chk_inner(field_np1, field_n, dry_mass_np1,           &
+                                   dry_mass_n, increment, dt)
 
   end subroutine swift_inner_update_tracer
 

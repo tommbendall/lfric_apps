@@ -42,6 +42,7 @@ module ffsl_control_alg_mod
   use ffsl_hori_alg_mod,                only: ffsl_hori_splitting_alg
   use ffsl_vert_alg_mod,                only: ffsl_vert_transport_alg
   use ffsl_3d_alg_mod,                  only: ffsl_3d_splitting_alg
+  use ffsl_advective_updates_alg_mod,   only: chk_begin, chk_end
 
   ! Kernels
   use sci_inject_sh_w3_to_wt_kernel_mod, only: inject_sh_w3_to_wt_kernel_type
@@ -96,6 +97,7 @@ contains
     type(r_tran_field_type),   target  :: field_np1_w3_shifted
     type(r_tran_field_type)            :: mass_flux
     type(r_tran_field_type)            :: increment
+    character(len=64)                  :: chk_label
 
     mesh => field_n%get_mesh()
     transport_counter => transport_controller%get_transport_counter()
@@ -153,6 +155,14 @@ contains
     ! Call routine based on direction: vertical; horizontal; or 3D.
     ! ======================================================================== !
 
+    ! TEMPORARY CHECK: rounding diagnostics for consistent moisture transport
+    if (trim(transport_metadata%get_name()) == 'moisture' .and.                &
+        transport_metadata%get_equation_form() == equation_form_consistent) then
+      write(chk_label, '(A,I0,A,I0)') 'dir=', direction, ' step=',             &
+        transport_counter%get_split_step_of_whole_step_counter()
+      call chk_begin(chk_label, mesh)
+    end if
+
     select case (direction)
     case (direction_v)
       vertical_order = transport_metadata%get_ffsl_vertical_order()
@@ -179,6 +189,8 @@ contains
       call log_event( "FFSL control: Unrecognized direction", LOG_LEVEL_ERROR )
 
     end select
+
+    call chk_end()
 
     ! ======================================================================== !
     ! Convert field_np1 back to Wtheta, if required
