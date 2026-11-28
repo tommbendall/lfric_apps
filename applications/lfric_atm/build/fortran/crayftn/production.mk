@@ -39,4 +39,6 @@ gravity_wave_drag/%.o: private FFLAGS_RISKY_OPTIMISATION = -O2 -hflex_mp=strict
 # loss of moisture mass. -hfp2 uses correctly rounded division.
 %swift_inner_update_kernel_mod.o: private FFLAGS_RISKY_OPTIMISATION = -O3 -hipa2 -hfp2
 %swift_outer_update_kernel_mod.o: private FFLAGS_RISKY_OPTIMISATION = -O3 -hipa2 -hfp2
+# The kernels may be inlined into the PSy layer, so apply the same flags there
+%ffsl_advective_updates_alg_mod_psy.o: private FFLAGS_RISKY_OPTIMISATION = -O3 -hipa2 -hfp2
 large_scale_precipitation/%.o: private FFLAGS_SAFE_OPTIMISATION = -O3 -hipa3 -hflex_mp=conservative
